@@ -1,0 +1,35 @@
+name: erp_inventory
+description: ERP Inventory & Production Management
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.2.6 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  image_picker: ^1.0.7
+  # UI
+  cupertino_icons: ^1.0.2
+
+  # DATE / FORMAT
+  intl: ^0.18.1
+
+  # LOCAL DATABASE (OFFLINE FIRST)
+  sqflite: ^2.3.0
+  path: ^1.8.3
+
+  # REAL-TIME (OWNER / SUPERVISOR VIEW)
+  cloud_firestore: ^4.15.8
+  firebase_core: ^2.27.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
