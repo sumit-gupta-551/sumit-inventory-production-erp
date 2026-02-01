@@ -58,3 +58,31 @@ Make sure you have the following installed:
 ```bash
 flutter pub get
 flutter run
+### Run on Web
+
+```bash
+flutter pub get
+flutter run -d chrome
+flutter build web
+📌 Project Status
+
+✅ Core functionality implemented
+
+🔄 UI and dashboard improvements in progress
+
+🔄 Additional reports planned
+👤 Author
+
+Sumit Gupta
+Flutter Developer
+Focused on building mobile and web applications using Flutter and Firebase.
+📄 License
+
+This project is created for learning, demonstration, and academic purposes.
+## ✅ Final Confirmation (Important)
+## 🔑 What to do next
+## ⭐ Notes
+
+- This project uses a single Flutter codebase for mobile and web.
+- Features and UI may evolve over time.
+- Suggestions and improvements are welcome.
