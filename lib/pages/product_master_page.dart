@@ -16,6 +16,9 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
   final unitCtrl = TextEditingController();
   final minCtrl = TextEditingController();
 
+  final List<String> units = ['Kg', 'Pcs', 'Liter', 'Meter'];
+  String? selectedUnit;
+
   List<Product> products = [];
   int? editId;
 
@@ -40,22 +43,32 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
       return;
     }
 
-    final product = Product(
-      id: editId,
-      name: nameCtrl.text.trim(),
-      category: categoryCtrl.text.trim(),
-      unit: unitCtrl.text.trim(),
-      minStock: double.tryParse(minCtrl.text) ?? 0,
-    );
+    try {
+      final product = Product(
+        id: editId,
+        name: nameCtrl.text.trim(),
+        category: categoryCtrl.text.trim(),
+        unit: unitCtrl.text.trim(),
+        minStock: double.tryParse(minCtrl.text) ?? 0,
+      );
 
-    if (editId == null) {
-      await ErpDatabase.instance.insertProduct(product);
-    } else {
-      await ErpDatabase.instance.updateProduct(product);
+      if (editId == null) {
+        await ErpDatabase.instance.insertProduct(product);
+      } else {
+        await ErpDatabase.instance.updateProduct(product);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Product saved successfully')),
+      );
+
+      _clearForm();
+      await _loadProducts();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Save failed: $e')),
+      );
     }
-
-    _clearForm();
-    _loadProducts();
   }
 
   void _editProduct(Product p) {
@@ -64,6 +77,7 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
       nameCtrl.text = p.name;
       categoryCtrl.text = p.category;
       unitCtrl.text = p.unit;
+      selectedUnit = p.unit;
       minCtrl.text = p.minStock.toString();
     });
   }
@@ -79,6 +93,7 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
     categoryCtrl.clear();
     unitCtrl.clear();
     minCtrl.clear();
+    selectedUnit = null;
   }
 
   @override
@@ -101,9 +116,23 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
               decoration: const InputDecoration(labelText: 'Category'),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: unitCtrl,
-              decoration: const InputDecoration(labelText: 'Unit (kg, pcs)'),
+            DropdownButtonFormField<String>(
+              value: selectedUnit,
+              decoration: const InputDecoration(labelText: 'Unit'),
+              items: units
+                  .map(
+                    (u) => DropdownMenuItem(
+                      value: u,
+                      child: Text(u),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (val) {
+                setState(() {
+                  selectedUnit = val;
+                  unitCtrl.text = val ?? '';
+                });
+              },
             ),
             const SizedBox(height: 8),
             TextField(
@@ -118,7 +147,8 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
                   child: ElevatedButton(
                     onPressed: _saveProduct,
                     child: Text(
-                        editId == null ? 'SAVE PRODUCT' : 'UPDATE PRODUCT'),
+                      editId == null ? 'SAVE PRODUCT' : 'UPDATE PRODUCT',
+                    ),
                   ),
                 ),
                 if (editId != null) ...[

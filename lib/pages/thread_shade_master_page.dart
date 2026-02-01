@@ -14,61 +14,105 @@ class ThreadShadeMasterPage extends StatefulWidget {
 }
 
 class _ThreadShadeMasterPageState extends State<ThreadShadeMasterPage> {
-  final shadeCtrl = TextEditingController();
+  final shadeNoCtrl = TextEditingController();
   final qualityCtrl = TextEditingController();
 
   File? imageFile;
-  List<Map<String, dynamic>> shades = [];
+  List<Map<String, dynamic>> threadShades = [];
+
+  int? editingId; // 👈 important
 
   @override
   void initState() {
     super.initState();
-    _loadShades();
+    _loadThreadShades();
   }
 
-  Future<void> _loadShades() async {
-    shades = await ErpDatabase.instance.getThreadShadesFull();
-    setState(() {});
+  Future<void> _loadThreadShades() async {
+    final data = await ErpDatabase.instance.getThreadShadesFull();
+    setState(() {
+      threadShades = data;
+    });
   }
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
-    final img = await picker.pickImage(source: ImageSource.gallery);
-    if (img != null) {
+    final picked = await picker.pickImage(source: ImageSource.gallery);
+    if (picked != null) {
       setState(() {
-        imageFile = File(img.path);
+        imageFile = File(picked.path);
       });
     }
   }
 
-  Future<void> _saveShade() async {
-    if (shadeCtrl.text.trim().isEmpty || qualityCtrl.text.trim().isEmpty) {
+  // ================= EDIT =================
+  void _editThreadShade(Map<String, dynamic> s) {
+    setState(() {
+      editingId = s['id'];
+      shadeNoCtrl.text = s['shade_no'];
+      qualityCtrl.text = s['quality'];
+      imageFile = s['image_path'] != null ? File(s['image_path']) : null;
+    });
+  }
+
+  // ================= SAVE / UPDATE =================
+  Future<void> _saveThreadShade() async {
+    if (shadeNoCtrl.text.trim().isEmpty || qualityCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Fill all fields')),
       );
       return;
     }
 
-    await ErpDatabase.instance.insertThreadShade(
-      shadeNo: shadeCtrl.text.trim(),
-      quality: qualityCtrl.text.trim(),
-      imagePath: imageFile?.path,
-    );
+    final data = {
+      'shade_no': shadeNoCtrl.text.trim(),
+      'quality': qualityCtrl.text.trim(),
+      'image_path': imageFile?.path,
+    };
 
-    shadeCtrl.clear();
-    qualityCtrl.clear();
-    imageFile = null;
+    if (editingId == null) {
+      // ➕ ADD
+      await ErpDatabase.instance.insertThreadShade(
+        shadeNo: data['shade_no']!,
+        quality: data['quality']!,
+        imagePath: data['image_path'],
+      );
+    } else {
+      // ✏️ UPDATE
+      final db = await ErpDatabase.instance.database;
+      await db.update(
+        'thread_shades',
+        data,
+        where: 'id = ?',
+        whereArgs: [editingId],
+      );
+    }
 
-    await _loadShades();
+    _clearForm();
+    await _loadThreadShades();
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Thread shade added successfully')),
+      SnackBar(
+        content: Text(
+            editingId == null ? 'Thread shade added' : 'Thread shade updated'),
+      ),
     );
   }
 
-  Future<void> _deleteShade(int id) async {
+  // ================= DELETE =================
+  Future<void> _deleteThreadShade(int id) async {
     await ErpDatabase.instance.deleteThreadShade(id);
-    await _loadShades();
+    await _loadThreadShades();
+  }
+
+  // ================= CLEAR =================
+  void _clearForm() {
+    setState(() {
+      editingId = null;
+      shadeNoCtrl.clear();
+      qualityCtrl.clear();
+      imageFile = null;
+    });
   }
 
   @override
@@ -80,7 +124,7 @@ class _ThreadShadeMasterPageState extends State<ThreadShadeMasterPage> {
         child: Column(
           children: [
             TextField(
-              controller: shadeCtrl,
+              controller: shadeNoCtrl,
               decoration: const InputDecoration(
                 labelText: 'Thread Shade No',
                 border: OutlineInputBorder(),
@@ -102,42 +146,81 @@ class _ThreadShadeMasterPageState extends State<ThreadShadeMasterPage> {
                   icon: const Icon(Icons.image),
                   label: const Text('Pick Image'),
                 ),
-                const SizedBox(width: 10),
-                if (imageFile != null) const Text('Image selected'),
+                const SizedBox(width: 12),
+                if (imageFile != null)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.file(
+                      imageFile!,
+                      width: 50,
+                      height: 50,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
               ],
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              height: 45,
-              child: ElevatedButton(
-                onPressed: _saveShade,
-                child: const Text('ADD THREAD SHADE'),
-              ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _saveThreadShade,
+                    child: Text(
+                      editingId == null
+                          ? 'ADD THREAD SHADE'
+                          : 'UPDATE THREAD SHADE',
+                    ),
+                  ),
+                ),
+                if (editingId != null) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _clearForm,
+                      child: const Text('CANCEL'),
+                    ),
+                  ),
+                ],
+              ],
             ),
             const Divider(height: 30),
             Expanded(
-              child: shades.isEmpty
+              child: threadShades.isEmpty
                   ? const Center(child: Text('No thread shades'))
                   : ListView.builder(
-                      itemCount: shades.length,
+                      itemCount: threadShades.length,
                       itemBuilder: (_, i) {
-                        final s = shades[i];
+                        final s = threadShades[i];
+                        final imgPath = s['image_path'];
+
                         return Card(
                           child: ListTile(
-                            leading: s['image_path'] != null
-                                ? Image.file(
-                                    File(s['image_path']),
-                                    width: 50,
-                                    height: 50,
-                                    fit: BoxFit.cover,
-                                  )
-                                : const Icon(Icons.image),
+                            leading:
+                                imgPath != null && File(imgPath).existsSync()
+                                    ? Image.file(
+                                        File(imgPath),
+                                        width: 50,
+                                        height: 50,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : const Icon(Icons.image_not_supported),
                             title: Text(s['shade_no']),
                             subtitle: Text('Quality: ${s['quality']}'),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteShade(s['id']),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit,
+                                      color: Colors.blue),
+                                  onPressed: () => _editThreadShade(s),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete,
+                                      color: Colors.red),
+                                  onPressed: () =>
+                                      _deleteThreadShade(s['id'] as int),
+                                ),
+                              ],
                             ),
                           ),
                         );

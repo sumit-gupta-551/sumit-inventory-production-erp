@@ -24,11 +24,9 @@ class ErpDatabase {
 
     return openDatabase(
       path,
-      version: 4,
+      version: 6, // 🔥 IMPORTANT: increase version
       onCreate: _createDB,
-      onUpgrade: (db, oldVersion, newVersion) async {
-        await _createDB(db, newVersion);
-      },
+      onUpgrade: _upgradeDB, // ✅ FIXED
     );
   }
 
@@ -83,10 +81,13 @@ class ErpDatabase {
     )
     ''');
 
+    // ✅ FIXED THREAD SHADES TABLE
     await db.execute('''
     CREATE TABLE IF NOT EXISTS thread_shades (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      shade_name TEXT NOT NULL
+      shade_no TEXT NOT NULL,
+      quality TEXT NOT NULL,
+      image_path TEXT
     )
     ''');
 
@@ -141,6 +142,24 @@ class ErpDatabase {
       reason TEXT NOT NULL
     )
     ''');
+  }
+
+  // ================= DB UPGRADE (CRITICAL FIX) =================
+  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 6) {
+      // 🔥 FORCE DROP OLD STRUCTURE
+      await db.execute('DROP TABLE IF EXISTS thread_shades');
+
+      // 🔥 RECREATE WITH CORRECT COLUMNS
+      await db.execute('''
+        CREATE TABLE thread_shades (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          shade_no TEXT NOT NULL,
+          quality TEXT NOT NULL,
+          image_path TEXT
+        )
+      ''');
+    }
   }
 
   // ================= PRODUCT =================
