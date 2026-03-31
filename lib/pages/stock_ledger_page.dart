@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -97,6 +98,8 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
     }
 
     final doc = pw.Document(theme: await _pdfTheme());
+    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoImage = pw.MemoryImage(logoBytes);
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
     final dateRange = '${_fmtDateChip(fromDate)} to ${_fmtDateChip(toDate)}';
 
@@ -123,6 +126,10 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         margin: const pw.EdgeInsets.all(24),
         build: (context) {
           final widgets = <pw.Widget>[
+            pw.Center(
+              child: pw.Image(logoImage, width: 80, height: 80),
+            ),
+            pw.SizedBox(height: 8),
             pw.Text(
               'Stock Ledger Report',
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
@@ -378,6 +385,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
       LEFT JOIN fabric_shades f ON f.id = l.fabric_shade_id
       WHERE (? IS NULL OR l.date >= ?)
         AND (? IS NULL OR l.date <= ?)
+        AND (l.fabric_shade_id IS NULL OR l.fabric_shade_id = 0 OR f.id IS NOT NULL)
       ORDER BY l.date DESC, l.id DESC
     ''', [
       fromMs,

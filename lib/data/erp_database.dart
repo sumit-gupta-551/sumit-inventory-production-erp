@@ -577,6 +577,7 @@ class ErpDatabase {
         FROM stock_ledger l
         JOIN products p ON p.id = l.product_id
         LEFT JOIN fabric_shades f ON f.id = l.fabric_shade_id
+        WHERE (l.fabric_shade_id IS NULL OR l.fabric_shade_id = 0 OR f.id IS NOT NULL)
         GROUP BY l.product_id, COALESCE(l.fabric_shade_id, 0)
       ) x
       WHERE x.balance < 0
