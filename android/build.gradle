@@ -1,12 +1,15 @@
 buildscript {
-    ext.kotlin_version = '1.7.10'
+    ext.kotlin_version = '2.1.0'
+
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "com.android.tools.build:gradle:8.9.3"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0"
+        classpath "com.google.gms:google-services:4.4.0"
     }
 }
 
@@ -17,14 +20,33 @@ allprojects {
     }
 }
 
+// ✅ REMOVE ALL FORCE + RESOLUTION STRATEGY (VERY IMPORTANT)
+
 rootProject.buildDir = '../build'
+
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
     project.evaluationDependsOn(':app')
+
+    project.plugins.whenPluginAdded { plugin ->
+        if (plugin.class.name == 'com.android.build.gradle.LibraryPlugin') {
+            project.android {
+                if (namespace == null || namespace.isEmpty()) {
+                    def manifest = file("${project.projectDir}/src/main/AndroidManifest.xml")
+                    if (manifest.exists()) {
+                        def xml = new XmlSlurper().parse(manifest)
+                        def pkg = xml.@package.toString()
+                        if (pkg) {
+                            namespace = pkg
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
+// ...existing code...

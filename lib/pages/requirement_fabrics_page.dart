@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -258,6 +259,8 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
     }
 
     final pdf = pw.Document();
+    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoImage = pw.MemoryImage(logoBytes);
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
     final filterLabel =
         _selectedParty == 'All' ? 'All Parties' : _selectedParty;
@@ -288,6 +291,10 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
         header: (ctx) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
+            pw.Center(
+              child: pw.Image(logoImage, width: 80, height: 80),
+            ),
+            pw.SizedBox(height: 8),
             pw.Text(
               'Requirement Report',
               style: pw.TextStyle(

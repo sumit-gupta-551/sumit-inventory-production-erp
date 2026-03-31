@@ -568,12 +568,12 @@ class _DashboardPageState extends State<DashboardPage> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text(
-                                '≋ＳＳＳＪ ＥＲＰ ≋',
+                                'SSSJ ⟡ ERP',
                                 style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 30,
+                                  fontSize: 28,
                                   fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.5,
+                                  letterSpacing: 2,
                                 ),
                               ),
                               Row(

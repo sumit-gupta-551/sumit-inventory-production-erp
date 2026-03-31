@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -370,6 +371,8 @@ class _IssueReportPageState extends State<IssueReportPage> {
     }
 
     final doc = pw.Document(theme: await _pdfTheme());
+    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoImage = pw.MemoryImage(logoBytes);
     final grouped = _groupByDate();
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
     final fromText =
@@ -387,6 +390,10 @@ class _IssueReportPageState extends State<IssueReportPage> {
         margin: const pw.EdgeInsets.all(24),
         build: (ctx) {
           final widgets = <pw.Widget>[
+            pw.Center(
+              child: pw.Image(logoImage, width: 80, height: 80),
+            ),
+            pw.SizedBox(height: 8),
             pw.Text(
               'Issue Report',
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
