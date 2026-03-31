@@ -1,0 +1,246 @@
+﻿import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import '../data/erp_database.dart';
+import '../models/product.dart';
+import '../models/party.dart';
+import '../widgets/inventory_form_card.dart';
+
+class AddInventoryPage extends StatefulWidget {
+  final int firmId;
+
+  const AddInventoryPage({
+    super.key,
+    required this.firmId,
+  });
+
+  @override
+  State<AddInventoryPage> createState() => _AddInventoryPageState();
+}
+
+class _AddInventoryPageState extends State<AddInventoryPage> {
+  // ---------------- CONTROLLERS ----------------
+  final dateCtrl = TextEditingController();
+  final invoiceCtrl = TextEditingController();
+
+  final qtyCtrl = TextEditingController();
+  final rateCtrl = TextEditingController();
+
+  final discPerCtrl = TextEditingController();
+  final cgstCtrl = TextEditingController();
+  final sgstCtrl = TextEditingController();
+  final igstCtrl = TextEditingController();
+
+  // ---------------- MASTER DATA ----------------
+  List<Product> products = [];
+  Product? selectedProduct;
+
+  List<Party> parties = [];
+  Party? selectedParty;
+
+  List<Map<String, dynamic>> fabricShades = [];
+  int? selectedFabricShadeId;
+
+  final List<Map<String, dynamic>> items = [];
+
+  double gross = 0;
+  double net = 0;
+
+  bool loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    dateCtrl.text = DateFormat('dd-MM-yyyy').format(DateTime.now());
+    _loadMasters();
+  }
+
+  Future<void> _loadMasters() async {
+    try {
+      final p = await ErpDatabase.instance.getProducts();
+      final pa = await ErpDatabase.instance.getParties();
+      final fs = await ErpDatabase.instance.getFabricShades();
+
+      if (!mounted) return;
+
+      setState(() {
+        products = p;
+        parties = pa;
+        fabricShades = fs;
+        loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      loading = false;
+      _msg('Error loading masters: $e');
+    }
+  }
+
+  int _dateMillis() {
+    try {
+      return DateFormat('dd-MM-yyyy')
+          .parse(dateCtrl.text)
+          .millisecondsSinceEpoch;
+    } catch (_) {
+      return DateTime.now().millisecondsSinceEpoch;
+    }
+  }
+
+  // ---------------- ADD ITEM ----------------
+
+  // ---------------- TOTAL CALC ----------------
+
+  // ---------------- SAVE PURCHASE ----------------
+  Future<void> _save() a      final db = ErpDatabase.instance;
+sync {
+    if (selectedParty == null || selectedProduct == null || items.isEmpty) {
+      _msg('Fill all required fields');
+      return;
+    }
+
+    try {
+      final purchaseNo = DateTime.now().millisecondsSinceEpoch;
+
+      await db.insertPurchaseMaster({
+        'purchase_no': purchaseNo,
+        'firm_id': widget.firmId,
+        'party_id': selectedParty!.id,
+        'purchase_date': _dateMillis(),
+        'invoice_no': invoiceCtrl.text.trim(),
+        'gross_amount': gross,
+        'discount_amount':
+            gross * (double.tryParse(discPerCtrl.text) ?? 0) / 100,
+        'cgst': double.tryParse(cgstCtrl.text) ?? 0,
+        'sgst': double.tryParse(sgstCtrl.text) ?? 0,
+        'igst': double.tryParse(igstCtrl.text) ?? 0,
+        'total_amount': net,
+      });
+
+      for (final i in items) {
+        await db.insertPurchaseItem({
+          'purchase_no': purchaseNo,
+          'product_id': selectedProduct!.id,
+          'shade_id': i['shade_id'],
+          'qty': i['qty'],
+          'rate': i['rate'],
+          'amount': i['amount'],
+        });
+
+        await db.insertLedger({
+          'product_id': selectedProduct!.id,
+          'fabric_shade_id': i['shade_id'],
+          'qty': i['qty'],
+          'type': 'IN',
+          'date': _dateMillis(),
+          'reference': invoiceCtrl.text,
+          'remarks': 'Purchase',
+        });
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context);
+    } catch (e) {
+      _msg('Error saving purchase: $e');
+    }
+  }
+
+  void _msg(String t) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
+  }
+
+  // ---------------- UI ----------------
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Purchase Entry')),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  // ---------- HEADER ----------
+                  InventoryFormCard(
+                    title: 'Purchase Header',
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: dateCtrl,
+                              readOnly: true,
+                              decoration:
+                                  const InputDecoration(labelText: 'Date'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: invoiceCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Invoice No',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<Party>(
+                        value: selectedParty,
+                        decoration: const InputDecoration(labelText: 'Party'),
+                        items: parties
+                            .map(
+                              (p) => DropdownMenuItem<Party>(
+                                value: p,
+                                child: Text(p.name),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) => setState(() => selectedParty = v),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<Product>(
+                        value: selectedProduct,
+                        decoration: const InputDecoration(labelText: 'Product'),
+                        items: products
+                            .map(
+                              (p) => DropdownMenuItem<Product>(
+                                value: p,
+                                child: Text(p.name),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) => setState(() => selectedProduct = v),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _save,
+                      child: const Text('SAVE PURCHASE'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+
+  @override
+  void dispose() {
+    dateCtrl.dispose();
+    invoiceCtrl.dispose();
+    qtyCtrl.dispose();
+    rateCtrl.dispose();
+    discPerCtrl.dispose();
+    cgstCtrl.dispose();
+    sgstCtrl.dispose();
+    igstCtrl.dispose();
+    super.dispose();
+  }
+}

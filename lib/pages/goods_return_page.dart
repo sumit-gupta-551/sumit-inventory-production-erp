@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../data/erp_database.dart';
 import '../models/product.dart';
 import '../models/party.dart';
+import '../widgets/inventory_form_card.dart';
 
 class GoodsReturnPage extends StatefulWidget {
   const GoodsReturnPage({super.key});
@@ -13,18 +14,17 @@ class GoodsReturnPage extends StatefulWidget {
 }
 
 class _GoodsReturnPageState extends State<GoodsReturnPage> {
-  // ---------------- CONTROLLERS ----------------
   final dateCtrl = TextEditingController();
   final invoiceCtrl = TextEditingController();
-  final shadeCtrl = TextEditingController();
   final qtyCtrl = TextEditingController();
 
-  // ---------------- DATA ----------------
   List<Product> products = [];
   List<Party> parties = [];
+  List<Map<String, dynamic>> fabricShades = [];
 
   Product? selectedProduct;
   Party? selectedParty;
+  Map<String, dynamic>? selectedShade;
 
   final List<Map<String, dynamic>> addedShades = [];
 
@@ -38,69 +38,83 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
   Future<void> _loadMasters() async {
     products = await ErpDatabase.instance.getProducts();
     parties = await ErpDatabase.instance.getParties();
+    fabricShades = await ErpDatabase.instance.getFabricShades();
     setState(() {});
   }
 
   int _dateMillis() =>
       DateFormat('dd-MM-yyyy').parse(dateCtrl.text).millisecondsSinceEpoch;
 
-  // ---------------- ADD SHADE ----------------
   void _addShade() {
-    if (shadeCtrl.text.isEmpty || qtyCtrl.text.isEmpty) return;
+    if (selectedShade == null || qtyCtrl.text.isEmpty) {
+      _msg('Select fabric shade and quantity');
+      return;
+    }
 
     final qty = double.tryParse(qtyCtrl.text);
-    if (qty == null || qty <= 0) return;
+    if (qty == null || qty <= 0) {
+      _msg('Invalid quantity');
+      return;
+    }
 
     setState(() {
       addedShades.add({
-        'shade': shadeCtrl.text.trim(),
+        'fabric_shade_id': selectedShade!['id'],
+        'shade_no': selectedShade!['shade_no'],
         'qty': qty,
       });
-      shadeCtrl.clear();
+      selectedShade = null;
       qtyCtrl.clear();
     });
   }
 
-  // ---------------- SAVE GOODS RETURN ----------------
   Future<void> _saveReturn() async {
     if (selectedProduct == null ||
         selectedParty == null ||
         invoiceCtrl.text.isEmpty ||
         addedShades.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all required fields')),
-      );
+      _msg('Please fill all required fields');
       return;
     }
 
-    for (final s in addedShades) {
-      await ErpDatabase.instance.insertLedger({
-        'product_id': selectedProduct!.id,
-        'type': 'IN', // ✅ RETURN = STOCK IN
-        'qty': s['qty'],
-        'date': _dateMillis(),
-        'reference': invoiceCtrl.text.trim(),
-        'remarks':
-            'Return | Party: ${selectedParty!.name} | Shade: ${s['shade']}',
+    try {
+      for (final s in addedShades) {
+        await ErpDatabase.instance.insertLedger({
+          'product_id': selectedProduct!.id,
+          'fabric_shade_id': s['fabric_shade_id'],
+          'qty': s['qty'],
+          'type': 'IN',
+          'date': _dateMillis(),
+          'reference': invoiceCtrl.text.trim(),
+          'remarks':
+              'Return | Party: ${selectedParty!.name} | Shade: ${s['shade_no']}',
+        });
+      }
+
+      setState(() {
+        selectedProduct = null;
+        selectedParty = null;
+        selectedShade = null;
+        invoiceCtrl.clear();
+        qtyCtrl.clear();
+        addedShades.clear();
       });
+
+      _msg('Goods Return Saved Successfully', success: true);
+    } catch (e) {
+      _msg('Error saving return');
     }
+  }
 
-    setState(() {
-      selectedProduct = null;
-      selectedParty = null;
-      invoiceCtrl.clear();
-      addedShades.clear();
-    });
-
+  void _msg(String text, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Goods Return Saved Successfully'),
-        backgroundColor: Colors.green,
+      SnackBar(
+        content: Text(text),
+        backgroundColor: success ? Colors.green : null,
       ),
     );
   }
 
-  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -109,69 +123,103 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _dateField(),
-            const SizedBox(height: 12),
-            _field(invoiceCtrl, 'Return / Bill No'),
-            const SizedBox(height: 12),
-
-            // PARTY
-            DropdownButtonFormField<Party>(
-              value: selectedParty,
-              decoration: _decor('Party'),
-              items: parties
-                  .map(
-                    (p) => DropdownMenuItem(
-                      value: p,
-                      child: Text(p.name),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() => selectedParty = v),
-            ),
-            const SizedBox(height: 12),
-
-            // PRODUCT
-            DropdownButtonFormField<Product>(
-              value: selectedProduct,
-              decoration: _decor('Product'),
-              items: products
-                  .map(
-                    (p) => DropdownMenuItem(
-                      value: p,
-                      child: Text(p.name),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() => selectedProduct = v),
-            ),
-            const SizedBox(height: 20),
-
-            // SHADE + QTY
-            Row(
+            InventoryFormCard(
+              title: 'Return Details',
               children: [
-                Expanded(child: _field(shadeCtrl, 'Shade No')),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _field(
-                    qtyCtrl,
-                    'Quantity',
-                    keyboardType: TextInputType.number,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: dateCtrl,
+                        readOnly: true,
+                        onTap: () async {
+                          final d = await showDatePicker(
+                            context: context,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2100),
+                            initialDate: DateTime.now(),
+                          );
+                          if (d != null) {
+                            dateCtrl.text = DateFormat('dd-MM-yyyy').format(d);
+                          }
+                        },
+                        decoration: const InputDecoration(labelText: 'Date'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: invoiceCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Return / Bill No'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<Party>(
+                  value: selectedParty,
+                  decoration: const InputDecoration(labelText: 'Party'),
+                  items: parties
+                      .map((p) =>
+                          DropdownMenuItem(value: p, child: Text(p.name)))
+                      .toList(),
+                  onChanged: (v) => setState(() => selectedParty = v),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<Product>(
+                  value: selectedProduct,
+                  decoration: const InputDecoration(labelText: 'Product'),
+                  items: products
+                      .map((p) =>
+                          DropdownMenuItem(value: p, child: Text(p.name)))
+                      .toList(),
+                  onChanged: (v) => setState(() => selectedProduct = v),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _addShade,
-                child: const Text('ADD SHADE'),
+            InventoryFormCard(
+              title: 'Add Fabric Shade',
+              // ignore: sort_child_properties_last
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<Map<String, dynamic>>(
+                        value: selectedShade,
+                        decoration:
+                            const InputDecoration(labelText: 'Fabric Shade'),
+                        items: fabricShades
+                            .map((s) => DropdownMenuItem(
+                                  value: s,
+                                  child: Text(s['shade_no']),
+                                ))
+                            .toList(),
+                        onChanged: (v) => setState(() => selectedShade = v),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: qtyCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration:
+                            const InputDecoration(labelText: 'Quantity'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              footer: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _addShade,
+                  child: const Text('ADD SHADE'),
+                ),
               ),
             ),
-
             _addedShadesList(),
             const SizedBox(height: 20),
-
             SizedBox(
               width: double.infinity,
               height: 48,
@@ -189,39 +237,6 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
     );
   }
 
-  // ---------------- HELPERS ----------------
-
-  Widget _field(
-    TextEditingController c,
-    String label, {
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return TextField(
-      controller: c,
-      keyboardType: keyboardType,
-      decoration: _decor(label),
-    );
-  }
-
-  Widget _dateField() {
-    return TextField(
-      controller: dateCtrl,
-      readOnly: true,
-      onTap: () async {
-        final d = await showDatePicker(
-          context: context,
-          firstDate: DateTime(2020),
-          lastDate: DateTime(2100),
-          initialDate: DateTime.now(),
-        );
-        if (d != null) {
-          dateCtrl.text = DateFormat('dd-MM-yyyy').format(d);
-        }
-      },
-      decoration: _decor('Date'),
-    );
-  }
-
   Widget _addedShadesList() {
     if (addedShades.isEmpty) return const SizedBox();
 
@@ -230,23 +245,22 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
         final i = e.key;
         final s = e.value;
         return ListTile(
-          title: Text(s['shade']),
+          title: Text(s['shade_no']),
           subtitle: Text('Qty: ${s['qty']}'),
           trailing: IconButton(
             icon: const Icon(Icons.delete, color: Colors.red),
-            onPressed: () {
-              setState(() => addedShades.removeAt(i));
-            },
+            onPressed: () => setState(() => addedShades.removeAt(i)),
           ),
         );
       }).toList(),
     );
   }
 
-  InputDecoration _decor(String label) {
-    return InputDecoration(
-      labelText: label,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-    );
+  @override
+  void dispose() {
+    dateCtrl.dispose();
+    invoiceCtrl.dispose();
+    qtyCtrl.dispose();
+    super.dispose();
   }
 }

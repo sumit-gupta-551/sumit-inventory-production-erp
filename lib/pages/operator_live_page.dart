@@ -18,12 +18,25 @@ class _OperatorLivePageState extends State<OperatorLivePage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _listenToAllotments();
   }
 
-  Future<void> _load() async {
-    allotments = await ErpDatabase.instance.getActiveAllotments();
-    setState(() {});
+  void _listenToAllotments() {
+    FirebaseFirestore.instance
+        .collection('program_allotment')
+        .where('status', isNotEqualTo: 'COMPLETED')
+        .snapshots()
+        .listen((snapshot) async {
+      final programNos = snapshot.docs.map((d) => d['programNo']).toList();
+
+      final local = await ErpDatabase.instance.getActiveAllotments();
+      final filtered =
+          local.where((a) => programNos.contains(a['program_no'])).toList();
+
+      if (mounted) {
+        setState(() => allotments = filtered);
+      }
+    });
   }
 
   Future<void> _updateStatus(
@@ -60,8 +73,6 @@ class _OperatorLivePageState extends State<OperatorLivePage> {
         d.reference.update({'status': status});
       }
     });
-
-    _load();
   }
 
   Future<void> _pauseDialog(Map<String, dynamic> a) async {

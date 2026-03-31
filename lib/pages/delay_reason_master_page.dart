@@ -9,7 +9,10 @@ class DelayReasonMasterPage extends StatefulWidget {
 }
 
 class _DelayReasonMasterPageState extends State<DelayReasonMasterPage> {
+  final _formKey = GlobalKey<FormState>();
   final ctrl = TextEditingController();
+  final focusNode = FocusNode();
+
   List<Map<String, dynamic>> reasons = [];
 
   @override
@@ -24,15 +27,29 @@ class _DelayReasonMasterPageState extends State<DelayReasonMasterPage> {
   }
 
   Future<void> _save() async {
-    if (ctrl.text.trim().isEmpty) return;
-    await ErpDatabase.instance.insertDelayReason(ctrl.text.trim());
-    ctrl.clear();
-    _load();
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      await ErpDatabase.instance.insertDelayReason(ctrl.text.trim());
+      ctrl.clear();
+      focusNode.requestFocus();
+      await _load();
+    } catch (e) {
+      _msg('Error saving reason');
+    }
   }
 
   Future<void> _delete(int id) async {
-    await ErpDatabase.instance.deleteDelayReason(id);
-    _load();
+    try {
+      await ErpDatabase.instance.deleteDelayReason(id);
+      await _load();
+    } catch (e) {
+      _msg('Error deleting reason');
+    }
+  }
+
+  void _msg(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
@@ -43,11 +60,17 @@ class _DelayReasonMasterPageState extends State<DelayReasonMasterPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            TextField(
-              controller: ctrl,
-              decoration: const InputDecoration(
-                labelText: 'Delay Reason',
-                border: OutlineInputBorder(),
+            Form(
+              key: _formKey,
+              child: TextFormField(
+                controller: ctrl,
+                focusNode: focusNode,
+                decoration: const InputDecoration(
+                  labelText: 'Delay Reason',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? 'Required' : null,
               ),
             ),
             const SizedBox(height: 12),
@@ -61,25 +84,34 @@ class _DelayReasonMasterPageState extends State<DelayReasonMasterPage> {
             ),
             const Divider(height: 30),
             Expanded(
-              child: ListView.builder(
-                itemCount: reasons.length,
-                itemBuilder: (_, i) {
-                  final r = reasons[i];
-                  return Card(
-                    child: ListTile(
-                      title: Text(r['reason']),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () => _delete(r['id']),
-                      ),
+              child: reasons.isEmpty
+                  ? const Center(child: Text('No delay reasons added yet.'))
+                  : ListView.builder(
+                      itemCount: reasons.length,
+                      itemBuilder: (_, i) {
+                        final r = reasons[i];
+                        return Card(
+                          child: ListTile(
+                            title: Text(r['reason']),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _delete(r['id']),
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    ctrl.dispose();
+    focusNode.dispose();
+    super.dispose();
   }
 }

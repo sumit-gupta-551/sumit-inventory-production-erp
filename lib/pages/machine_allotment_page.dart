@@ -1,7 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
-
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
 
@@ -44,9 +41,10 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
       machineId: selectedMachineId!,
     );
 
+    // ignore: use_build_context_synchronously
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Program Allotted Successfully'),
+        content: Text('Machine Allotted Successfully'),
         backgroundColor: Colors.green,
       ),
     );
@@ -56,9 +54,6 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
     await _load();
   }
 
-  String _date(int ms) =>
-      DateFormat('dd-MM-yyyy').format(DateTime.fromMillisecondsSinceEpoch(ms));
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -67,19 +62,17 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // ---------------- PROGRAM LIST ----------------
+            // -------- PROGRAM ----------
             DropdownButtonFormField<int>(
               value: selectedProgramNo,
               decoration: const InputDecoration(
                 labelText: 'Select Program',
                 border: OutlineInputBorder(),
               ),
-              items: programs.map<DropdownMenuItem<int>>((p) {
+              items: programs.map((p) {
                 return DropdownMenuItem<int>(
-                  value: p['program_no'] as int,
-                  child: Text(
-                    'P${p['program_no']} | ${p['party_name']} | ${p['fabric_shade']}',
-                  ),
+                  value: p['program_no'],
+                  child: Text('Program ${p['program_no']}'),
                 );
               }).toList(),
               onChanged: (v) => setState(() => selectedProgramNo = v),
@@ -87,21 +80,17 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
 
             const SizedBox(height: 12),
 
-            // ---------------- MACHINE LIST ----------------
+            // -------- MACHINE ----------
             DropdownButtonFormField<int>(
               value: selectedMachineId,
               decoration: const InputDecoration(
                 labelText: 'Select Machine',
                 border: OutlineInputBorder(),
               ),
-              items: machines
-                  .where((m) => m['status'] == 'IDLE')
-                  .map<DropdownMenuItem<int>>((m) {
+              items: machines.map((m) {
                 return DropdownMenuItem<int>(
-                  value: m['id'] as int,
-                  child: Text(
-                    '${m['machine_code']} (${m['machine_type']})',
-                  ),
+                  value: m['id'],
+                  child: Text('${m['code']} - ${m['name']}'),
                 );
               }).toList(),
               onChanged: (v) => setState(() => selectedMachineId = v),
@@ -124,7 +113,7 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
 
             const Divider(height: 30),
 
-            // ---------------- PREVIEW ----------------
+            // -------- ALLOTMENTS ----------
             Expanded(
               child: programs.isEmpty
                   ? const Center(child: Text('No planned programs'))
@@ -134,20 +123,9 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
                         final p = programs[i];
                         return Card(
                           child: ListTile(
-                            title: Text(
-                              'Program ${p['program_no']}',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text(
-                              'Party: ${p['party_name']}\n'
-                              'Fabric: ${p['fabric_shade']}\n'
-                              'Qty: ${p['planned_qty']} | Date: ${_date(p['program_date'])}',
-                            ),
-                            trailing: Chip(
-                              label: Text(p['status']),
-                              backgroundColor: Colors.orange.shade100,
-                            ),
+                            title: Text('Program ${p['program_no']}'),
+                            subtitle:
+                                Text('Status: ${p['status'] ?? 'PLANNED'}'),
                           ),
                         );
                       },

@@ -9,10 +9,8 @@ class MachineMasterPage extends StatefulWidget {
 }
 
 class _MachineMasterPageState extends State<MachineMasterPage> {
-  final machineCodeCtrl = TextEditingController();
-  final machineTypeCtrl = TextEditingController();
-
   List<Map<String, dynamic>> machines = [];
+  bool loading = true;
 
   @override
   void initState() {
@@ -21,96 +19,74 @@ class _MachineMasterPageState extends State<MachineMasterPage> {
   }
 
   Future<void> _loadMachines() async {
-    machines = await ErpDatabase.instance.getMachines();
-    setState(() {});
+    final data = await ErpDatabase.instance.getMachines();
+
+    if (!mounted) return;
+
+    setState(() {
+      machines = data;
+      loading = false;
+    });
   }
 
-  Future<void> _saveMachine() async {
-    if (machineCodeCtrl.text.trim().isEmpty ||
-        machineTypeCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Machine code & type required')),
-      );
-      return;
-    }
-
-    await ErpDatabase.instance.insertMachine(
-      machineCodeCtrl.text.trim(),
-      machineTypeCtrl.text.trim(),
-    );
-
-    machineCodeCtrl.clear();
-    machineTypeCtrl.clear();
-    await _loadMachines();
-
+  void _info() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Machine added successfully')),
+      const SnackBar(
+        content: Text(
+          'Machines can be added or edited only from Master Control',
+        ),
+      ),
     );
-  }
-
-  Future<void> _deleteMachine(int id) async {
-    await ErpDatabase.instance.deleteMachine(id);
-    await _loadMachines();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Machine Master')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: machineCodeCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Machine Code',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: machineTypeCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Machine Type (Embroidery / Cutting)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 45,
-              child: ElevatedButton(
-                onPressed: _saveMachine,
-                child: const Text('ADD MACHINE'),
-              ),
-            ),
-            const Divider(height: 30),
-            Expanded(
-              child: machines.isEmpty
-                  ? const Center(child: Text('No machines added'))
-                  : ListView.builder(
-                      itemCount: machines.length,
-                      itemBuilder: (_, i) {
-                        final m = machines[i];
-                        return Card(
-                          child: ListTile(
-                            title: Text(m['machine_code']),
-                            subtitle: Text(
-                              'Type: ${m['machine_type']} | Status: ${m['status']}',
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteMachine(m['id']),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
+      appBar: AppBar(
+        title: const Text('Machine Master (Read Only)'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.lock),
+            tooltip: 'Read only',
+            onPressed: _info,
+          ),
+        ],
       ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : machines.isEmpty
+              ? const Center(child: Text('No machines added'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: machines.length,
+                  itemBuilder: (_, i) {
+                    final m = machines[i];
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: ListTile(
+                        leading: const Icon(Icons.precision_manufacturing),
+                        title: Text(
+                          m['code'] ?? '',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Name: ${m['name'] ?? ''}',
+                        ),
+                        trailing: const Icon(
+                          Icons.lock,
+                          color: Colors.grey,
+                          size: 18,
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }

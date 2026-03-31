@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-
 import '../data/erp_database.dart';
 import '../models/party.dart';
+import 'party_form_page.dart';
 
 class PartyMasterPage extends StatefulWidget {
   const PartyMasterPage({super.key});
@@ -11,13 +11,11 @@ class PartyMasterPage extends StatefulWidget {
 }
 
 class _PartyMasterPageState extends State<PartyMasterPage> {
-  final nameCtrl = TextEditingController();
-  final addressCtrl = TextEditingController();
-  final contactCtrl = TextEditingController();
-
   List<Party> parties = [];
-  int? editId;
-  bool saving = false;
+  List<Party> filtered = [];
+  bool loading = true;
+  String _selectedType = 'All'; // 'All', 'Sales', 'Purchase'
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -26,149 +24,186 @@ class _PartyMasterPageState extends State<PartyMasterPage> {
   }
 
   Future<void> _loadParties() async {
-    final res = await ErpDatabase.instance.getParties();
-    if (!mounted) return;
-    setState(() => parties = res);
-  }
-
-  Future<void> _saveParty() async {
-    if (saving) return;
-
-    if (nameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Party name is required')),
-      );
-      return;
-    }
-
-    setState(() => saving = true);
-
-    final party = Party(
-      id: editId,
-      name: nameCtrl.text.trim(),
-      address: addressCtrl.text.trim().isEmpty ? null : addressCtrl.text.trim(),
-      contact: contactCtrl.text.trim().isEmpty ? null : contactCtrl.text.trim(),
-    );
-
-    if (editId == null) {
-      await ErpDatabase.instance.insertParty(party);
-    } else {
-      await ErpDatabase.instance.updateParty(party);
-    }
-
-    _clearForm();
-    await _loadParties();
+    final data = await ErpDatabase.instance.getParties();
 
     if (!mounted) return;
-    setState(() => saving = false);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content:
-            Text(editId == null ? 'Party saved successfully' : 'Party updated'),
-      ),
-    );
-  }
-
-  void _editParty(Party p) {
     setState(() {
-      editId = p.id;
-      nameCtrl.text = p.name;
-      addressCtrl.text = p.address ?? '';
-      contactCtrl.text = p.contact ?? '';
+      parties = data;
+      _applyFilters();
+      loading = false;
     });
   }
 
-  Future<void> _deleteParty(int id) async {
-    await ErpDatabase.instance.deleteParty(id);
-    await _loadParties();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Party deleted successfully')),
-    );
+  void _applyFilters() {
+    final q = _searchQuery.toLowerCase();
+    filtered = parties.where((p) {
+      final matchesType =
+          _selectedType == 'All' || p.partyType == _selectedType;
+      final matchesSearch = q.isEmpty ||
+          p.name.toLowerCase().contains(q) ||
+          p.mobile.contains(_searchQuery);
+      return matchesType && matchesSearch;
+    }).toList();
   }
 
-  void _clearForm() {
-    editId = null;
-    nameCtrl.clear();
-    addressCtrl.clear();
-    contactCtrl.clear();
+  void _search(String text) {
+    setState(() {
+      _searchQuery = text;
+      _applyFilters();
+    });
+  }
+
+  void _filterByType(String type) {
+    setState(() {
+      _selectedType = type;
+      _applyFilters();
+    });
+  }
+
+  Future<void> _deleteParty(Party p) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Party'),
+        content: Text('Delete "${p.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    await ErpDatabase.instance.deleteParty(p.id!);
+    _loadParties();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Party Master')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Party Name'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: addressCtrl,
-              decoration: const InputDecoration(labelText: 'Address'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: contactCtrl,
-              decoration: const InputDecoration(labelText: 'Contact'),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: saving ? null : _saveParty,
-                child: Text(editId == null ? 'SAVE PARTY' : 'UPDATE PARTY'),
+      appBar: AppBar(
+        title: const Text('Party Master'),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PartyFormPage()),
+          );
+          _loadParties();
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Add Party'),
+      ),
+      body: Column(
+        children: [
+          /// SEARCH
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              onChanged: _search,
+              decoration: const InputDecoration(
+                hintText: 'Search party...',
+                prefixIcon: Icon(Icons.search),
               ),
             ),
-            const Divider(height: 32),
-            Expanded(
-              child: parties.isEmpty
-                  ? const Center(child: Text('No parties added yet'))
-                  : ListView.builder(
-                      itemCount: parties.length,
-                      itemBuilder: (_, i) {
-                        final p = parties[i];
-                        return Card(
-                          child: ListTile(
-                            title: Text(p.name),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (p.address != null)
-                                  Text('Address: ${p.address}'),
-                                if (p.contact != null)
-                                  Text('Contact: ${p.contact}'),
-                              ],
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  onPressed: () => _editParty(p),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete,
-                                      color: Colors.red),
-                                  onPressed: () => _deleteParty(p.id!),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+          ),
+
+          /// FILTER TABS
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _filterChip('All'),
+                const SizedBox(width: 8),
+                _filterChip('Sales'),
+                const SizedBox(width: 8),
+                _filterChip('Purchase'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          /// LIST
+          Expanded(
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : filtered.isEmpty
+                    ? const Center(child: Text('No parties found'))
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (_, i) => _partyTile(filtered[i]),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _partyTile(Party p) {
+    return Card(
+      elevation: 1,
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor:
+              p.partyType == 'Sales' ? Colors.blue.shade50 : Colors.orange.shade50,
+          child: Icon(
+            p.partyType == 'Sales' ? Icons.sell : Icons.shopping_cart,
+            color: p.partyType == 'Sales' ? Colors.blue : Colors.orange,
+          ),
+        ),
+        title: Text(
+          p.name,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text('${p.partyType} • ${p.mobile}'),
+        trailing: PopupMenuButton<String>(
+          onSelected: (v) async {
+            if (v == 'edit') {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PartyFormPage(party: p),
+                ),
+              );
+              _loadParties();
+            } else if (v == 'delete') {
+              _deleteParty(p);
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: 'edit',
+              child: Text('Edit'),
+            ),
+            PopupMenuItem(
+              value: 'delete',
+              child: Text('Delete'),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _filterChip(String label) {
+    final isSelected = _selectedType == label;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (_) => _filterByType(label),
+      selectedColor: Colors.blue.shade100,
     );
   }
 }

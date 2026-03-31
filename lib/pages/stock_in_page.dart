@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../data/erp_database.dart';
 import '../models/product.dart';
-import '../models/stock_ledger.dart';
 
 class StockInPage extends StatefulWidget {
   const StockInPage({super.key});
@@ -28,8 +27,8 @@ class _StockInPageState extends State<StockInPage> {
   }
 
   Future<void> _loadProducts() async {
-    final list = await ErpDatabase.instance.getProducts();
-    setState(() => products = list);
+    products = await ErpDatabase.instance.getProducts();
+    setState(() {});
   }
 
   // ---------------- SAVE STOCK IN ----------------
@@ -49,16 +48,15 @@ class _StockInPageState extends State<StockInPage> {
 
     setState(() => saving = true);
 
-    final ledger = StockLedger(
-      productId: selectedProduct!.id!,
-      type: 'IN',
-      qty: qty,
-      date: DateTime.now().millisecondsSinceEpoch,
-      reference: refCtrl.text.trim().isEmpty ? 'GRN' : refCtrl.text.trim(),
-      remarks: remarksCtrl.text.trim(),
-    );
-
-    await ErpDatabase.instance.insertLedger(ledger);
+    await ErpDatabase.instance.insertLedger({
+      'product_id': selectedProduct!.id,
+      'fabric_shade_id': null, // NO SHADE IN DIRECT STOCK IN
+      'qty': qty,
+      'type': 'IN',
+      'date': DateTime.now().millisecondsSinceEpoch,
+      'reference': refCtrl.text.trim(),
+      'remarks': remarksCtrl.text.trim(),
+    });
 
     qtyCtrl.clear();
     remarksCtrl.clear();
@@ -68,15 +66,19 @@ class _StockInPageState extends State<StockInPage> {
       saving = false;
     });
 
-    _msg('Stock IN saved successfully');
+    _msg('Stock IN saved successfully', success: true);
   }
 
-  void _msg(String text) {
+  void _msg(String text, {bool success = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text)),
+      SnackBar(
+        content: Text(text),
+        backgroundColor: success ? Colors.green : null,
+      ),
     );
   }
 
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -123,30 +125,17 @@ class _StockInPageState extends State<StockInPage> {
                 child: Text(saving ? 'SAVING...' : 'SAVE STOCK IN'),
               ),
             ),
-            const SizedBox(height: 20),
-            if (selectedProduct != null)
-              FutureBuilder<double>(
-                future: ErpDatabase.instance
-                    .getProductBalance(selectedProduct!.id!),
-                builder: (_, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const SizedBox();
-                  }
-                  if (!snap.hasData) {
-                    return const Text('Current Stock: 0');
-                  }
-                  return Text(
-                    'Current Stock: ${snap.data}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  );
-                },
-              ),
           ],
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    qtyCtrl.dispose();
+    refCtrl.dispose();
+    remarksCtrl.dispose();
+    super.dispose();
   }
 }

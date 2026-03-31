@@ -1,0 +1,308 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\flutter_projects\\stock_new\\erp_inventory\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\add_shade_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\add_shade_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\data\\erp_database.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\data\\erp_database.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\operator_live_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\operator_live_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\widgets\\inventory_form_card.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\widgets\\inventory_form_card.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\thread_shade_master_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\thread_shade_master_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\issue_inventory_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\issue_inventory_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\goods_return_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\goods_return_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\add_inventory_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\add_inventory_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\erp_home_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\erp_home_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\delay_reason_master_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\delay_reason_master_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\dashboard_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\dashboard_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\stock_ledger.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\models\\stock_ledger.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\product.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\models\\product.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\party.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\models\\party.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\main.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\main.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\program_master_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:lib\\pages\\program_master_page.dart||{8B382828-6202-11D1-8870-0000F87579D2}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 17,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{34e76e81-ee4a-11d0-ae2e-00a0c90fffc3}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:1:0:{d212f56b-c48a-434c-a121-1c5d80b59b9f}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:3:0:{d212f56b-c48a-434c-a121-1c5d80b59b9f}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:2:0:{d212f56b-c48a-434c-a121-1c5d80b59b9f}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "erp_database.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\data\\erp_database.dart",
+              "RelativeDocumentMoniker": "lib\\data\\erp_database.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\data\\erp_database.dart",
+              "RelativeToolTip": "lib\\data\\erp_database.dart",
+              "ViewState": "AgIAAB0BAAAAAAAAAAAAwCYBAAAeAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:53:17.518Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "operator_live_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\operator_live_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\operator_live_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\operator_live_page.dart",
+              "RelativeToolTip": "lib\\pages\\operator_live_page.dart",
+              "ViewState": "AgIAAKIAAAAAAAAAAAAYwLEAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:46:19.22Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "inventory_form_card.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\widgets\\inventory_form_card.dart",
+              "RelativeDocumentMoniker": "lib\\widgets\\inventory_form_card.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\widgets\\inventory_form_card.dart",
+              "RelativeToolTip": "lib\\widgets\\inventory_form_card.dart",
+              "ViewState": "AgIAABgAAAAAAAAAAAAYwDMAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:42:10.83Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "thread_shade_master_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\thread_shade_master_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\thread_shade_master_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\thread_shade_master_page.dart",
+              "RelativeToolTip": "lib\\pages\\thread_shade_master_page.dart",
+              "ViewState": "AgIAADwAAAAAAAAAAAAYwFcAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:39:25.599Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "issue_inventory_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\issue_inventory_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\issue_inventory_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\issue_inventory_page.dart",
+              "RelativeToolTip": "lib\\pages\\issue_inventory_page.dart",
+              "ViewState": "AgIAAAoBAAAAAAAAAAAYwBkBAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:29:38.893Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "goods_return_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\goods_return_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\goods_return_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\goods_return_page.dart",
+              "RelativeToolTip": "lib\\pages\\goods_return_page.dart",
+              "ViewState": "AgIAAOwAAAAAAAAAAAAYwAcBAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:28:50.849Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "erp_home_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\erp_home_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\erp_home_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\erp_home_page.dart",
+              "RelativeToolTip": "lib\\pages\\erp_home_page.dart",
+              "ViewState": "AgIAADcAAAAAAAAAAAAYwFIAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:28:17.088Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "delay_reason_master_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\delay_reason_master_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\delay_reason_master_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\delay_reason_master_page.dart",
+              "RelativeToolTip": "lib\\pages\\delay_reason_master_page.dart",
+              "ViewState": "AgIAAFkAAAAAAAAAAAAYwHQAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:27:46.08Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "stock_ledger.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\stock_ledger.dart",
+              "RelativeDocumentMoniker": "lib\\models\\stock_ledger.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\stock_ledger.dart",
+              "RelativeToolTip": "lib\\models\\stock_ledger.dart",
+              "ViewState": "AgIAAEUAAAAAAAAAAAAYwGAAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:25:44.432Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "product.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\product.dart",
+              "RelativeDocumentMoniker": "lib\\models\\product.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\product.dart",
+              "RelativeToolTip": "lib\\models\\product.dart",
+              "ViewState": "AgIAADUAAAAAAAAAAAAYwFAAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:25:28.208Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "party.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\party.dart",
+              "RelativeDocumentMoniker": "lib\\models\\party.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\models\\party.dart",
+              "RelativeToolTip": "lib\\models\\party.dart",
+              "ViewState": "AgIAABYAAAAAAAAAAAAYwDEAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-04T17:25:04.709Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "dashboard_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\dashboard_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\dashboard_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\dashboard_page.dart",
+              "RelativeToolTip": "lib\\pages\\dashboard_page.dart",
+              "ViewState": "AgIAAGgAAAAAAAAAAAAYwIMAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-02T16:23:24.724Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "main.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\main.dart",
+              "RelativeDocumentMoniker": "lib\\main.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\main.dart",
+              "RelativeToolTip": "lib\\main.dart",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-02T16:23:18.601Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "add_shade_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\add_shade_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\add_shade_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\add_shade_page.dart",
+              "RelativeToolTip": "lib\\pages\\add_shade_page.dart",
+              "ViewState": "AgIAAKwAAAAAAAAAAAAYwMcAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-02T16:21:47.736Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "program_master_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\program_master_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\program_master_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\program_master_page.dart",
+              "RelativeToolTip": "lib\\pages\\program_master_page.dart",
+              "ViewState": "AgIAAK8AAAAAAAAAAAAYwMoAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-02T16:09:41.646Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "add_inventory_page.dart",
+              "DocumentMoniker": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\add_inventory_page.dart",
+              "RelativeDocumentMoniker": "lib\\pages\\add_inventory_page.dart",
+              "ToolTip": "C:\\flutter_projects\\stock_new\\erp_inventory\\lib\\pages\\add_inventory_page.dart",
+              "RelativeToolTip": "lib\\pages\\add_inventory_page.dart",
+              "ViewState": "AgIAANoAAAAAAAAAAAAYwPUAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2026-02-02T16:08:01.182Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
