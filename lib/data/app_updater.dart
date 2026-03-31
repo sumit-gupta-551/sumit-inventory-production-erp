@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Checks GitHub Releases for a newer APK and installs it.
@@ -130,32 +131,20 @@ class AppUpdater {
 
       navigator.pop(); // close progress dialog
 
-      // Trigger APK install via Android intent
-      final result = await Process.run('am', [
-        'start',
-        '-a',
-        'android.intent.action.VIEW',
-        '-t',
-        'application/vnd.android.package-archive',
-        '-d',
-        'file://$filePath',
-        '--grant-read-uri-permission',
-      ]);
+      // Open APK for installation
+      final result = await OpenFilex.open(filePath,
+          type: 'application/vnd.android.package-archive');
 
-      // Fallback: use content:// URI with FileProvider
-      if (result.exitCode != 0) {
-        await Process.run('am', [
-          'start',
-          '-a',
-          'android.intent.action.INSTALL_PACKAGE',
-          '-d',
-          Uri.file(filePath).toString(),
-        ]);
+      if (result.type != ResultType.done) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Could not open installer: ${result.message}')),
+        );
+        return;
       }
 
       messenger.showSnackBar(
         SnackBar(
-          content: Text('APK downloaded. Check notifications to install v$version.'),
+          content: Text('Installing v$version...'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 5),
         ),
