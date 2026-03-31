@@ -183,7 +183,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
   Future<void> _loadMasters() async {
     try {
       final p = await ErpDatabase.instance.getProducts();
-      final pa = await ErpDatabase.instance.getParties();
+      final pa = await ErpDatabase.instance.getPartiesByType('Purchase');
       final fs = await ErpDatabase.instance.getFabricShades();
       final db = await ErpDatabase.instance.database;
       final links = await db.rawQuery('''

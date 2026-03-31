@@ -166,8 +166,8 @@ class _DashboardPageState extends State<DashboardPage> {
 
     if (update == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('App is up to date!'),
+        SnackBar(
+          content: Text('App is up to date! (v${AppUpdater.currentVersion})'),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
@@ -191,7 +191,8 @@ class _DashboardPageState extends State<DashboardPage> {
             Text('Latest:  v$version'),
             if (notes.isNotEmpty) ...[
               const SizedBox(height: 12),
-              const Text('What\'s new:', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Text('What\'s new:',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
               const SizedBox(height: 4),
               Text(notes, maxLines: 10, overflow: TextOverflow.ellipsis),
             ],
@@ -567,14 +568,27 @@ class _DashboardPageState extends State<DashboardPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'SSSJ ⟡ ERP',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 2,
-                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'SSSJ ⟡ ERP',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 2,
+                                    ),
+                                  ),
+                                  Text(
+                                    'v${AppUpdater.currentVersion}',
+                                    style: TextStyle(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.7),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
                               ),
                               Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -607,8 +621,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                         case 'machines':
                                           _openPage(const MachineMasterPage());
                                         case 'programs':
-                                          _openPage(
-                                              const ProgramMasterPage());
+                                          _openPage(const ProgramMasterPage());
                                         case 'thread':
                                           _openPage(
                                               const ThreadShadeMasterPage());
@@ -722,16 +735,14 @@ class _DashboardPageState extends State<DashboardPage> {
                           spacing: 10,
                           runSpacing: 10,
                           children: [
-                            _actionChip('Purchase',
-                                Icons.shopping_cart_rounded,
+                            _actionChip('Purchase', Icons.shopping_cart_rounded,
                                 () => _openQuickPurchase(context)),
                             _actionChip('Issue', Icons.outbox_rounded,
                                 () => _openPage(const IssueInventoryPage())),
                             _actionChip(
                               'Requirement',
                               Icons.warning_amber_rounded,
-                              () =>
-                                  _openPage(const RequirementFabricsPage()),
+                              () => _openPage(const RequirementFabricsPage()),
                               badge: requirementCount,
                             ),
                             _actionChip('History', Icons.history_rounded,
@@ -772,8 +783,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                 'Adjust',
                                 Icons.tune_rounded,
                                 const Color(0xFFEC4899),
-                                () =>
-                                    _openPage(const StockAdjustmentPage())),
+                                () => _openPage(const StockAdjustmentPage())),
                             _moduleCard(
                                 'Issue\nReport',
                                 Icons.assessment_rounded,
@@ -788,8 +798,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                 'Machine',
                                 Icons.precision_manufacturing_rounded,
                                 const Color(0xFFEF4444),
-                                () =>
-                                    _openPage(const MachineAllotmentPage())),
+                                () => _openPage(const MachineAllotmentPage())),
                             _moduleCard(
                                 'Operator',
                                 Icons.play_circle_fill_rounded,
@@ -894,8 +903,7 @@ class _DashboardPageState extends State<DashboardPage> {
             if (badge > 0) ...[
               const SizedBox(width: 6),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.redAccent,
                   borderRadius: BorderRadius.circular(10),
@@ -926,8 +934,7 @@ class _DashboardPageState extends State<DashboardPage> {
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.75),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                  color: color.withValues(alpha: 0.12)),
+              border: Border.all(color: color.withValues(alpha: 0.12)),
               boxShadow: [
                 BoxShadow(
                   color: color.withValues(alpha: 0.10),

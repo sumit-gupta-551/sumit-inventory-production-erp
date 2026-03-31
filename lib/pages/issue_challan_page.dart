@@ -85,6 +85,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
     final nextParties = await db.query(
       'parties',
       columns: ['id', 'name'],
+      where: "party_type = 'Sales'",
       orderBy: 'name',
     );
 

@@ -5,53 +5,54 @@ import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Checks GitHub repo for a newer APK and installs it.
+/// Checks GitHub Releases for a newer APK and installs it.
 ///
-/// How it works:
-///   1. Reads version.json from the repo (raw.githubusercontent.com).
-///   2. Compares remote version with [currentVersion].
-///   3. Downloads the APK directly from the repo.
-///   4. Update version.json, build APK, push to git for each new version.
+/// How to publish an update:
+///   1. Bump [currentVersion] here and version in pubspec.yaml.
+///   2. Build: flutter build apk
+///   3. Go to GitHub → Releases → Create new release.
+///   4. Tag = version (e.g. "1.0.3"), attach the APK file.
+///   5. Publish — all 10 devices will see the update.
 class AppUpdater {
   AppUpdater._();
 
   // ──────── CONFIGURE THESE ────────
   static const owner = 'sumit-gupta-551';
   static const repo = 'sumit-inventory-production-erp';
-  static const branch = 'main';
-  static const currentVersion = '1.0.2';
+  static const currentVersion = '1.0.3';
   // ──────────────────────────────────
 
-  static String _rawUrl(String path) =>
-      'https://raw.githubusercontent.com/$owner/$repo/$branch/$path';
-
-  static String _repoFileUrl(String path) =>
-      'https://github.com/$owner/$repo/raw/$branch/$path';
-
-  /// Check GitHub repo version.json for a newer version. Returns info or null.
+  /// Check GitHub Releases for a newer version. Returns info or null.
   static Future<Map<String, dynamic>?> checkForUpdate() async {
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 10);
       final request = await client.getUrl(
-        Uri.parse(_rawUrl('version.json')),
+        Uri.parse('https://api.github.com/repos/$owner/$repo/releases/latest'),
       );
+      request.headers.set('Accept', 'application/vnd.github.v3+json');
       final response = await request.close();
       if (response.statusCode != 200) return null;
 
       final body = await response.transform(utf8.decoder).join();
       final data = jsonDecode(body) as Map<String, dynamic>;
-      final remoteVersion = (data['version'] ?? '').toString();
-      final apkName = (data['apk'] ?? '').toString();
-      final notes = (data['notes'] ?? '').toString();
+      final tagName = (data['tag_name'] ?? '').toString().replaceAll('v', '');
 
-      if (apkName.isEmpty) return null;
+      if (_isNewer(tagName, currentVersion)) {
+        // Find the .apk asset
+        final assets = data['assets'] as List<dynamic>? ?? [];
+        final apkAsset = assets.cast<Map<String, dynamic>>().firstWhere(
+              (a) =>
+                  (a['name'] ?? '').toString().toLowerCase().endsWith('.apk'),
+              orElse: () => <String, dynamic>{},
+            );
+        final downloadUrl = (apkAsset['browser_download_url'] ?? '').toString();
+        if (downloadUrl.isEmpty) return null;
 
-      if (_isNewer(remoteVersion, currentVersion)) {
         return {
-          'version': remoteVersion,
-          'downloadUrl': _repoFileUrl(apkName),
-          'releaseNotes': notes,
+          'version': tagName,
+          'downloadUrl': downloadUrl,
+          'releaseNotes': (data['body'] ?? '').toString(),
         };
       }
       return null;

@@ -113,8 +113,10 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
 
     final db = await ErpDatabase.instance.database;
 
-    parties =
-        await db.query('parties', columns: ['id', 'name'], orderBy: 'name');
+    parties = await db.query('parties',
+        columns: ['id', 'name'],
+        where: "party_type = 'Purchase'",
+        orderBy: 'name');
     products =
         await db.query('products', columns: ['id', 'name'], orderBy: 'name');
     shades = await db.query(

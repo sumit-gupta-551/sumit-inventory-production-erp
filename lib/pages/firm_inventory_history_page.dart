@@ -48,7 +48,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
         1: FlexColumnWidth(1.9),
         2: FlexColumnWidth(1),
         3: FlexColumnWidth(1),
-        4: FlexColumnWidth(0.8),
+        4: FlexColumnWidth(1.2),
       },
       children: [
         const TableRow(
@@ -89,7 +89,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
             Padding(
               padding: EdgeInsets.all(8),
               child: Text(
-                'Edit',
+                'Actions',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
               ),
@@ -132,12 +132,25 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                 ),
               ),
               Center(
-                child: IconButton(
-                  tooltip: 'Edit',
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  onPressed: () async {
-                    await _editRow(r);
-                  },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Edit',
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      onPressed: () async {
+                        await _editRow(r);
+                      },
+                    ),
+                    IconButton(
+                      tooltip: 'Delete',
+                      icon: const Icon(Icons.delete_outline,
+                          size: 18, color: Colors.red),
+                      onPressed: () async {
+                        await _deleteRow(r);
+                      },
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -264,6 +277,129 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
       const SnackBar(content: Text('Editing unlocked')),
     );
     return true;
+  }
+
+  Future<void> _deleteRow(Map<String, dynamic> row) async {
+    if (!await _ensureUnlocked()) return;
+    if (!mounted) return;
+
+    final shadeName = (row['shade_no'] ?? '-').toString();
+    final productName = (row['product_name'] ?? '-').toString();
+    final qty = ((row['qty'] as num?)?.toDouble() ?? 0).toStringAsFixed(2);
+
+    final firstOk = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Confirmation 1/2'),
+        content: Text(
+          'Delete this purchase row?\n\nShade: $shadeName\nProduct: $productName\nQty: $qty\n\nThis will also remove the stock ledger entry.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (firstOk != true || !mounted) return;
+
+    final secondOk = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Confirmation 2/2'),
+        content: const Text('Final step: delete this entry permanently?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, Delete'),
+          ),
+        ],
+      ),
+    );
+    if (secondOk != true) return;
+
+    await ErpDatabase.instance.deletePurchaseRow(
+      purchaseItemId: row['purchase_item_id'] as int,
+      purchaseNo: row['purchase_no'] as int,
+      productId: row['product_id'] as int?,
+      shadeId: row['shade_id'] as int?,
+      purchaseDate: row['purchase_date'] as int?,
+      invoiceNo: (row['invoice_no'] ?? '').toString(),
+      qty: (row['qty'] as num?)?.toDouble() ?? 0,
+    );
+
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Purchase row deleted')),
+    );
+  }
+
+  Future<void> _deleteFullInvoice(int purchaseNo) async {
+    if (!await _ensureUnlocked()) return;
+    if (!mounted) return;
+
+    final firstOk = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Full Invoice 1/2'),
+        content: const Text(
+          'This will delete the ENTIRE purchase invoice and all its items and stock entries. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete All'),
+          ),
+        ],
+      ),
+    );
+    if (firstOk != true || !mounted) return;
+
+    final secondOk = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Full Invoice 2/2'),
+        content:
+            const Text('Final step: permanently delete this entire invoice?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, Delete'),
+          ),
+        ],
+      ),
+    );
+    if (secondOk != true) return;
+
+    await ErpDatabase.instance.deletePurchase(purchaseNo);
+
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Full invoice deleted')),
+    );
   }
 
   Future<void> _editRow(Map<String, dynamic> row) async {
@@ -694,6 +830,27 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                                   const EdgeInsets.fromLTRB(10, 0, 10, 12),
                               children: [
                                 _shadeGrid(groupRows),
+                                if (editUnlocked)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton.icon(
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.red,
+                                        ),
+                                        icon: const Icon(Icons.delete_forever,
+                                            size: 20),
+                                        label:
+                                            const Text('Delete Full Invoice'),
+                                        onPressed: () async {
+                                          final pNo = groupRows
+                                              .first['purchase_no'] as int;
+                                          await _deleteFullInvoice(pNo);
+                                        },
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           );

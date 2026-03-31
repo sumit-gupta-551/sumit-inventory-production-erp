@@ -74,7 +74,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
   Future<void> _loadMasters() async {
     try {
       final p = await ErpDatabase.instance.getProducts();
-      final pa = await ErpDatabase.instance.getParties();
+      final pa = await ErpDatabase.instance.getPartiesByType('Sales');
       final s = await ErpDatabase.instance.getFabricShades();
       final db = await ErpDatabase.instance.database;
       final links = await db.rawQuery('''

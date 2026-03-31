@@ -44,3 +44,7 @@ app.*.map.json
 
 # Visual Studio
 .vs/
+
+# APK files (use GitHub Releases instead)
+*.apk
+version.json

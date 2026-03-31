@@ -446,6 +446,11 @@ class ErpDatabase {
             (r) => r.map((e) => Party.fromMap(e)).toList(),
           );
 
+  Future<List<Party>> getPartiesByType(String type) async => (await database)
+          .query('parties', where: 'party_type = ?', whereArgs: [type]).then(
+        (r) => r.map((e) => Party.fromMap(e)).toList(),
+      );
+
   // ================= FIRMS =================
   Future<List<Map<String, dynamic>>> getFirms() async =>
       (await database).query('firms');
@@ -607,6 +612,99 @@ class ErpDatabase {
     await _syncDelete('stock_ledger', id);
   }
 
+  /// Delete a full purchase: purchase_master + purchase_items + stock_ledger IN rows.
+  Future<void> deletePurchase(int purchaseNo) async {
+    final db = await database;
+
+    // Find and delete matching stock_ledger IN entries
+    final items = await db.query('purchase_items',
+        where: 'purchase_no=?', whereArgs: [purchaseNo]);
+    final master = await db.query('purchase_master',
+        where: 'purchase_no=?', whereArgs: [purchaseNo]);
+
+    final invoiceNo =
+        master.isNotEmpty ? (master.first['invoice_no'] ?? '') : '';
+    final purchaseDate =
+        master.isNotEmpty ? master.first['purchase_date'] : null;
+
+    for (final item in items) {
+      final productId = item['product_id'];
+      final shadeId = item['shade_id'];
+      final qty = (item['qty'] as num?)?.toDouble() ?? 0;
+
+      // Find matching stock_ledger entry
+      final ledgerRows = await db.rawQuery('''
+        SELECT id FROM stock_ledger
+        WHERE product_id=?
+          AND fabric_shade_id=?
+          AND type='IN'
+          AND date=?
+          AND reference=?
+          AND remarks='Purchase'
+          AND ABS(COALESCE(qty, 0) - ?) < 0.000001
+        ORDER BY id DESC
+        LIMIT 1
+      ''', [productId, shadeId, purchaseDate, invoiceNo, qty]);
+
+      if (ledgerRows.isNotEmpty) {
+        await _syncDelete('stock_ledger', ledgerRows.first['id'] as int);
+      }
+
+      // Delete purchase_item
+      await _syncDelete('purchase_items', item['id'] as int);
+    }
+
+    // Delete purchase_master
+    if (master.isNotEmpty) {
+      await _syncDelete('purchase_master', master.first['id'] as int);
+    }
+  }
+
+  /// Delete a single purchase row (item + stock_ledger) and clean up master if last item.
+  Future<void> deletePurchaseRow({
+    required int purchaseItemId,
+    required int purchaseNo,
+    required int? productId,
+    required int? shadeId,
+    required int? purchaseDate,
+    required String? invoiceNo,
+    required double qty,
+  }) async {
+    final db = await database;
+
+    // Delete matching stock_ledger IN entry
+    final ledgerRows = await db.rawQuery('''
+      SELECT id FROM stock_ledger
+      WHERE product_id=?
+        AND fabric_shade_id=?
+        AND type='IN'
+        AND date=?
+        AND reference=?
+        AND remarks='Purchase'
+        AND ABS(COALESCE(qty, 0) - ?) < 0.000001
+      ORDER BY id DESC
+      LIMIT 1
+    ''', [productId, shadeId, purchaseDate, invoiceNo ?? '', qty]);
+
+    if (ledgerRows.isNotEmpty) {
+      await _syncDelete('stock_ledger', ledgerRows.first['id'] as int);
+    }
+
+    // Delete purchase_item
+    await _syncDelete('purchase_items', purchaseItemId);
+
+    // If last item, delete purchase_master
+    final remaining = await db.query('purchase_items',
+        where: 'purchase_no=?', whereArgs: [purchaseNo]);
+    if (remaining.isEmpty) {
+      final masters = await db.query('purchase_master',
+          where: 'purchase_no=?', whereArgs: [purchaseNo]);
+      if (masters.isNotEmpty) {
+        await _syncDelete('purchase_master', masters.first['id'] as int);
+      }
+    }
+  }
+
   // ================= MACHINE / OPERATOR =================
   Future<List<Map<String, dynamic>>> getPlannedPrograms() async =>
       (await database).query('program_master', where: "status='PLANNED'");
@@ -690,16 +788,20 @@ class ErpDatabase {
     });
   }
 
-  Future<void> updateFabricShade(int id, {
+  Future<void> updateFabricShade(
+    int id, {
     required String shadeNo,
     required String shadeName,
     String? imagePath,
   }) async {
-    await _syncUpdate('fabric_shades', {
-      'shade_no': shadeNo,
-      'shade_name': shadeName,
-      'image_path': imagePath,
-    }, id);
+    await _syncUpdate(
+        'fabric_shades',
+        {
+          'shade_no': shadeNo,
+          'shade_name': shadeName,
+          'image_path': imagePath,
+        },
+        id);
   }
 
   Future<void> deleteFabricShade(int id) async {
