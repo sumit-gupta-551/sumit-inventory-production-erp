@@ -66,6 +66,7 @@ class _IssueReportPageState extends State<IssueReportPage> {
       LEFT JOIN products p ON p.id = sl.product_id
       LEFT JOIN fabric_shades fs ON fs.id = sl.fabric_shade_id
       WHERE sl.type = 'OUT'
+        AND (sl.fabric_shade_id IS NULL OR sl.fabric_shade_id = 0 OR fs.id IS NOT NULL)
       ORDER BY sl.date DESC, sl.id DESC
     ''');
 
@@ -371,7 +372,8 @@ class _IssueReportPageState extends State<IssueReportPage> {
     }
 
     final doc = pw.Document(theme: await _pdfTheme());
-    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoBytes =
+        (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
     final grouped = _groupByDate();
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());

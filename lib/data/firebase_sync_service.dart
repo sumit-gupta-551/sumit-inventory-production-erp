@@ -235,6 +235,16 @@ class FirebaseSyncService {
 
     try {
       final db = await ErpDatabase.instance.database;
+
+      // Cascade-delete orphaned records when a shade is removed
+      if (table == 'fabric_shades') {
+        await db.delete('stock_ledger',
+            where: 'fabric_shade_id=?', whereArgs: [id]);
+        await db.delete('purchase_items', where: 'shade_id=?', whereArgs: [id]);
+        await db.delete('challan_requirements',
+            where: 'fabric_shade_id=?', whereArgs: [id]);
+      }
+
       await db.delete(table, where: 'id=?', whereArgs: [id]);
       syncVersion.value++;
     } catch (e) {

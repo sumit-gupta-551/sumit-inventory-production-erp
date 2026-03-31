@@ -56,6 +56,7 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
       LEFT JOIN products p ON p.id = sl.product_id
       LEFT JOIN fabric_shades fs ON fs.id = sl.fabric_shade_id
       WHERE UPPER(sl.type) = 'OUT'
+        AND (sl.fabric_shade_id IS NULL OR sl.fabric_shade_id = 0 OR fs.id IS NOT NULL)
       ORDER BY sl.date DESC, sl.id DESC
     ''');
 

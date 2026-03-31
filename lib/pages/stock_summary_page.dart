@@ -149,7 +149,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
       LEFT JOIN parties pa ON pa.id = pm.party_id
       LEFT JOIN products pr ON pr.id = pi.product_id
       LEFT JOIN fabric_shades fs ON fs.id = pi.shade_id
-      WHERE (? IS NULL OR pm.purchase_date >= ?)
+      WHERE (pi.shade_id IS NULL OR pi.shade_id = 0 OR fs.id IS NOT NULL)
+        AND (? IS NULL OR pm.purchase_date >= ?)
         AND (? IS NULL OR pm.purchase_date <= ?)
         AND (? IS NULL OR pm.party_id = ?)
         AND (? IS NULL OR pi.product_id = ?)
@@ -356,7 +357,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
     }
 
     final doc = pw.Document(theme: await _pdfTheme());
-    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoBytes =
+        (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
 

@@ -59,6 +59,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
       LEFT JOIN products p ON p.id = sl.product_id
       LEFT JOIN fabric_shades fs ON fs.id = sl.fabric_shade_id
       WHERE UPPER(sl.type) = 'OUT'
+        AND (sl.fabric_shade_id IS NULL OR sl.fabric_shade_id = 0 OR fs.id IS NOT NULL)
       ORDER BY sl.date DESC, sl.id DESC
     ''');
 
@@ -259,7 +260,8 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
   Future<void> _generateChallanPdf(_ChallanGroup challan) async {
     final doc = pw.Document(theme: await _pdfTheme());
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
-    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoBytes =
+        (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
 
     // Build stock items table data

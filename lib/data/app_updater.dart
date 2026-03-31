@@ -19,7 +19,7 @@ class AppUpdater {
   static const owner = 'sumit-gupta-551';
   static const repo = 'sumit-inventory-production-erp';
   static const branch = 'main';
-  static const currentVersion = '1.0.0';
+  static const currentVersion = '1.0.2';
   // ──────────────────────────────────
 
   static String _rawUrl(String path) =>
