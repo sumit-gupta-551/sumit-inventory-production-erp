@@ -5,62 +5,53 @@ import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Checks GitHub Releases for a newer APK and installs it.
+/// Checks GitHub repo for a newer APK and installs it.
 ///
-/// Setup:
-///   1. Create a GitHub repo (public or private).
-///   2. Go to Releases → "Create a new release".
-///   3. Tag = version name, e.g. "1.0.1"
-///   4. Attach the APK file (app-release.apk).
-///   5. Set [owner] and [repo] below.
-///   6. Update [version] in pubspec.yaml before each build.
+/// How it works:
+///   1. Reads version.json from the repo (raw.githubusercontent.com).
+///   2. Compares remote version with [currentVersion].
+///   3. Downloads the APK directly from the repo.
+///   4. Update version.json, build APK, push to git for each new version.
 class AppUpdater {
   AppUpdater._();
 
   // ──────── CONFIGURE THESE ────────
-  /// GitHub username or organization
   static const owner = 'sumit-gupta-551';
-
-  /// GitHub repository name
   static const repo = 'sumit-inventory-production-erp';
-
-  /// Current app version (must match pubspec.yaml version)
+  static const branch = 'main';
   static const currentVersion = '1.0.0';
   // ──────────────────────────────────
 
-  /// Check GitHub for a newer release. Returns release info or null.
+  static String _rawUrl(String path) =>
+      'https://raw.githubusercontent.com/$owner/$repo/$branch/$path';
+
+  static String _repoFileUrl(String path) =>
+      'https://github.com/$owner/$repo/raw/$branch/$path';
+
+  /// Check GitHub repo version.json for a newer version. Returns info or null.
   static Future<Map<String, dynamic>?> checkForUpdate() async {
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 10);
       final request = await client.getUrl(
-        Uri.parse(
-            'https://api.github.com/repos/$owner/$repo/releases/latest'),
+        Uri.parse(_rawUrl('version.json')),
       );
-      request.headers.set('Accept', 'application/vnd.github.v3+json');
       final response = await request.close();
       if (response.statusCode != 200) return null;
 
       final body = await response.transform(utf8.decoder).join();
       final data = jsonDecode(body) as Map<String, dynamic>;
-      final tagName = (data['tag_name'] ?? '').toString().replaceAll('v', '');
+      final remoteVersion = (data['version'] ?? '').toString();
+      final apkName = (data['apk'] ?? '').toString();
+      final notes = (data['notes'] ?? '').toString();
 
-      if (_isNewer(tagName, currentVersion)) {
-        // Find the .apk asset
-        final assets = data['assets'] as List<dynamic>? ?? [];
-        final apkAsset = assets.cast<Map<String, dynamic>>().firstWhere(
-              (a) =>
-                  (a['name'] ?? '').toString().toLowerCase().endsWith('.apk'),
-              orElse: () => <String, dynamic>{},
-            );
-        final downloadUrl =
-            (apkAsset['browser_download_url'] ?? '').toString();
-        if (downloadUrl.isEmpty) return null;
+      if (apkName.isEmpty) return null;
 
+      if (_isNewer(remoteVersion, currentVersion)) {
         return {
-          'version': tagName,
-          'downloadUrl': downloadUrl,
-          'releaseNotes': (data['body'] ?? '').toString(),
+          'version': remoteVersion,
+          'downloadUrl': _repoFileUrl(apkName),
+          'releaseNotes': notes,
         };
       }
       return null;
@@ -137,7 +128,8 @@ class AppUpdater {
 
       if (result.type != ResultType.done) {
         messenger.showSnackBar(
-          SnackBar(content: Text('Could not open installer: ${result.message}')),
+          SnackBar(
+              content: Text('Could not open installer: ${result.message}')),
         );
         return;
       }
