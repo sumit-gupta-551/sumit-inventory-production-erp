@@ -1,0 +1,79 @@
+﻿plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.newReader())
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '1'
+def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0'
+
+android {
+    namespace "com.sssj.erp_inventory"
+    compileSdkVersion 34
+
+    defaultConfig {
+        applicationId "com.sssj.erp_inventory"
+        minSdkVersion 23
+        targetSdkVersion 34
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+        multiDexEnabled true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+            shrinkResources false
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+
+flutter {
+    source '../..'
+}
+
+dependencies {
+    // ✅ Firebase (stable version)
+    implementation platform('com.google.firebase:firebase-bom:33.0.0')
+    implementation 'com.google.firebase:firebase-analytics'
+
+    // ✅ Multidex
+    implementation 'androidx.multidex:multidex:2.0.1'
+
+}
+
+configurations.all {
+    resolutionStrategy {
+        force 'com.google.android.gms:play-services-measurement-api:22.0.0'
+        force 'com.google.android.gms:play-services-measurement-base:22.0.0'
+        force 'com.google.android.gms:play-services-measurement-impl:22.0.0'
+        force 'com.google.android.gms:play-services-measurement-sdk:22.0.0'
+        force 'com.google.android.gms:play-services-measurement-sdk-api:22.0.0'
+        eachDependency { DependencyResolveDetails details ->
+            if (details.requested.group == 'com.google.android.gms' &&
+                details.requested.name.startsWith('play-services-measurement')) {
+                details.useVersion '22.0.0'
+            }
+        }
+    }
+}

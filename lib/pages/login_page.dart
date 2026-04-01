@@ -239,27 +239,42 @@ class _LoginPageState extends State<LoginPage>
 
             // Main content
             SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: FadeTransition(
-                    opacity: _fadeAnim,
-                    child: SlideTransition(
-                      position: _slideAnim,
-                      child: Column(
-                        children: [
-                          // App logo
-                          ColorFiltered(
-                            colorFilter: const ColorFilter.mode(
-                              Color(0xFFFFF8EE),
-                              BlendMode.multiply,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: IntrinsicHeight(
+                        child: FadeTransition(
+                          opacity: _fadeAnim,
+                          child: SlideTransition(
+                            position: _slideAnim,
+                            child: Column(
+                              children: [
+                                const SizedBox(height: 32),
+                                // App logo
+                          Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(24),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFDAA520).withValues(alpha: 0.25),
+                                  blurRadius: 30,
+                                  spreadRadius: 2,
+                                ),
+                              ],
                             ),
                             child: Image.asset(
-                              'assets/sssj.png',
-                              width: 180,
-                              height: 180,
+                              'assets/mslogo.png',
+                              width: 120,
+                              height: 120,
                               fit: BoxFit.contain,
                               filterQuality: FilterQuality.high,
+                              color: const Color(0xFFFFF8EE),
+                              colorBlendMode: BlendMode.multiply,
                             ),
                           ),
                           if (_userName.isNotEmpty) ...[
@@ -267,14 +282,14 @@ class _LoginPageState extends State<LoginPage>
                             Text(
                               'Welcome back, $_userName',
                               style: TextStyle(
-                                color: const Color(0xFF334155)
+                                color: const Color(0xFFB8860B)
                                     .withValues(alpha: 0.7),
                                 fontSize: 15,
                                 fontWeight: FontWeight.w400,
                               ),
                             ),
                           ],
-                          const SizedBox(height: 32),
+                          const SizedBox(height: 20),
 
                           // Glass card
                           ClipRRect(
@@ -357,12 +372,12 @@ class _LoginPageState extends State<LoginPage>
                                                 !_obscurePassword),
                                       ),
                                     ),
-                                    const SizedBox(height: 24),
+                                    const SizedBox(height: 16),
 
                                     // LOGIN BUTTON
                                     SizedBox(
                                       width: double.infinity,
-                                      height: 52,
+                                      height: 42,
                                       child: DecoratedBox(
                                         decoration: BoxDecoration(
                                           gradient: const LinearGradient(
@@ -408,7 +423,7 @@ class _LoginPageState extends State<LoginPage>
                                                   'SIGN IN',
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.w700,
-                                                    fontSize: 16,
+                                                    fontSize: 14,
                                                     color: Colors.white,
                                                     letterSpacing: 1.2,
                                                   ),
@@ -417,9 +432,7 @@ class _LoginPageState extends State<LoginPage>
                                       ),
                                     ),
 
-                                    const SizedBox(height: 24),
-
-                                    // OR DIVIDER
+                                    const SizedBox(height: 16),
                                     Row(
                                       children: [
                                         Expanded(
@@ -495,10 +508,10 @@ class _LoginPageState extends State<LoginPage>
                                           ),
                                         ),
                                       ),
-                                      const SizedBox(height: 12),
+                                      const SizedBox(height: 8),
                                       SizedBox(
                                         width: double.infinity,
-                                        height: 46,
+                                        height: 38,
                                         child: OutlinedButton(
                                           onPressed: _loginWithPasscode,
                                           style: OutlinedButton.styleFrom(
@@ -529,7 +542,7 @@ class _LoginPageState extends State<LoginPage>
                             ),
                           ),
 
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 15),
 
                           // REGISTER LINK
                           GestureDetector(
@@ -554,12 +567,49 @@ class _LoginPageState extends State<LoginPage>
                               ),
                             ),
                           ),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 16),
+
+                          const Spacer(),
+
+                          // SSSJ logo at bottom
+                          Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFDAA520).withValues(alpha: 0.2),
+                                  blurRadius: 10,
+                                  spreadRadius: 1,
+                                ),
+                              ],
+                            ),
+                            child: Image.asset(
+                              'assets/sssj.png',
+                              width: 55,
+                              height: 55,
+                              fit: BoxFit.contain,                              filterQuality: FilterQuality.high,                              color: const Color(0xFFFFF8EE),
+                              colorBlendMode: BlendMode.multiply,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Powered & Built by SSSJ',
+                            style: TextStyle(
+                              color: const Color(0xFFB8860B).withValues(alpha: 0.6),
+                              fontSize: 5,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                         ],
                       ),
                     ),
                   ),
                 ),
+              ),
+            );
+          },
               ),
             ),
           ],
@@ -621,20 +671,20 @@ class _LoginPageState extends State<LoginPage>
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: const Color(0xFFFFF8EE),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
                   color: const Color(0xFFDAA520).withValues(alpha: 0.15)),
             ),
-            child: Icon(icon, size: 28, color: const Color(0xFFB8860B)),
+            child: Icon(icon, size: 20, color: const Color(0xFFB8860B)),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             label,
             style: const TextStyle(
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: FontWeight.w600,
               color: const Color(0xFF64748B),
               letterSpacing: 0.3,

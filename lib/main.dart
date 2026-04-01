@@ -28,7 +28,7 @@ Future<void> main() async {
     FirebaseDatabase.instanceFor(
       app: Firebase.app(),
       databaseURL:
-          'https://sssj-shiv-default-rtdb.asia-southeast1.firebasedatabase.app',
+          'https://mayur-synthetics-default-rtdb.asia-southeast1.firebasedatabase.app',
     ).setPersistenceEnabled(true);
   } catch (e) {
     debugPrint('⚠ Firebase init failed: $e');

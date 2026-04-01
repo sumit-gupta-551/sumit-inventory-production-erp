@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -258,6 +259,8 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
   Future<void> _generateChallanPdf(_ChallanGroup challan) async {
     final doc = pw.Document(theme: await _pdfTheme());
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
+    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoImage = pw.MemoryImage(logoBytes);
 
     // Build stock items table data
     final stockData = <List<String>>[];
@@ -295,6 +298,10 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
         header: (ctx) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
+            pw.Center(
+              child: pw.Image(logoImage, width: 80, height: 80),
+            ),
+            pw.SizedBox(height: 8),
             pw.Text(
               'Issue Challan',
               style: pw.TextStyle(

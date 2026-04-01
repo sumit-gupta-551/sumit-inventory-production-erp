@@ -2003,7 +2003,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
         final dbRef = FirebaseDatabase.instanceFor(
           app: Firebase.app(),
           databaseURL:
-              'https://sssj-shiv-default-rtdb.asia-southeast1.firebasedatabase.app',
+              'https://mayur-synthetics-default-rtdb.asia-southeast1.firebasedatabase.app',
         ).ref('inventory');
 
         final inventoryData = {

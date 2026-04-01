@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "448923146156",
+    "project_id": "mayur-synthetics",
+    "storage_bucket": "mayur-synthetics.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:448923146156:android:0e97a056e887ccbd518c09",
+        "android_client_info": {
+          "package_name": "com.sssj.erp_inventory"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD41XuYqfwVBKZPVIh8TfXYlFY6ha0TgIk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

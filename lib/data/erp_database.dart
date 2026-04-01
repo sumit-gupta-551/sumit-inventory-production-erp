@@ -42,6 +42,7 @@ class ErpDatabase {
     await _seedGstCategories(db);
     await _ensurePurchaseMasterReportingColumns(db);
     await _ensureChallanRequirementsTable(db);
+    await _createIndexes(db);
 
     return db;
   }
@@ -263,6 +264,31 @@ class ErpDatabase {
       closed_date INTEGER
     )
     ''');
+
+    // Performance indexes
+    await _createIndexes(db);
+  }
+
+  Future<void> _createIndexes(Database db) async {
+    const indexes = [
+      'CREATE INDEX IF NOT EXISTS idx_stock_ledger_product ON stock_ledger(product_id)',
+      'CREATE INDEX IF NOT EXISTS idx_stock_ledger_shade ON stock_ledger(fabric_shade_id)',
+      'CREATE INDEX IF NOT EXISTS idx_stock_ledger_date ON stock_ledger(date)',
+      'CREATE INDEX IF NOT EXISTS idx_purchase_items_purchase ON purchase_items(purchase_no)',
+      'CREATE INDEX IF NOT EXISTS idx_purchase_items_product ON purchase_items(product_id)',
+      'CREATE INDEX IF NOT EXISTS idx_purchase_items_shade ON purchase_items(shade_id)',
+      'CREATE INDEX IF NOT EXISTS idx_purchase_master_party ON purchase_master(party_id)',
+      'CREATE INDEX IF NOT EXISTS idx_purchase_master_firm ON purchase_master(firm_id)',
+      'CREATE INDEX IF NOT EXISTS idx_purchase_master_date ON purchase_master(purchase_date)',
+      'CREATE INDEX IF NOT EXISTS idx_challan_req_party ON challan_requirements(party_id)',
+      'CREATE INDEX IF NOT EXISTS idx_challan_req_product ON challan_requirements(product_id)',
+      'CREATE INDEX IF NOT EXISTS idx_challan_req_shade ON challan_requirements(fabric_shade_id)',
+    ];
+    for (final sql in indexes) {
+      try {
+        await db.execute(sql);
+      } catch (_) {}
+    }
   }
 
   // ================= GST SEED =================

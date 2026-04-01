@@ -18,7 +18,7 @@ class FirebaseSyncService {
   FirebaseSyncService._();
 
   static const _dbUrl =
-      'https://sssj-shiv-default-rtdb.asia-southeast1.firebasedatabase.app';
+      'https://mayur-synthetics-default-rtdb.asia-southeast1.firebasedatabase.app';
 
   static const _syncTables = [
     'gst_categories',
@@ -153,34 +153,42 @@ class FirebaseSyncService {
       if (!snap.exists || snap.value is! Map) return;
 
       final map = Map<String, dynamic>.from(snap.value as Map);
-      for (final entry in map.entries) {
-        final id = int.tryParse(entry.key.toString());
-        if (id == null) continue;
 
-        final data = Map<String, dynamic>.from(entry.value as Map);
-        data.remove('_ts');
-        data['id'] = id;
-
-        final existing = await db.query(table, where: 'id=?', whereArgs: [id]);
-        if (existing.isEmpty) {
-          await db.insert(table, data);
-        } else {
-          await db.update(table, data, where: 'id=?', whereArgs: [id]);
-        }
-      }
-
-      // Handle remote deletes: remove local rows whose IDs are not in Firebase
-      final remoteIds = map.keys
-          .map((k) => int.tryParse(k.toString()))
-          .whereType<int>()
-          .toSet();
+      // Get all local IDs in one query
       final localRows = await db.query(table, columns: ['id']);
+      final localIdSet = <int>{};
       for (final row in localRows) {
-        final localId = row['id'] as int?;
-        if (localId != null && !remoteIds.contains(localId)) {
-          await db.delete(table, where: 'id=?', whereArgs: [localId]);
-        }
+        final id = row['id'] as int?;
+        if (id != null) localIdSet.add(id);
       }
+
+      final remoteIds = <int>{};
+
+      // Use a single transaction for all inserts/updates
+      await db.transaction((txn) async {
+        for (final entry in map.entries) {
+          final id = int.tryParse(entry.key.toString());
+          if (id == null) continue;
+          remoteIds.add(id);
+
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          data.remove('_ts');
+          data['id'] = id;
+
+          if (localIdSet.contains(id)) {
+            await txn.update(table, data, where: 'id=?', whereArgs: [id]);
+          } else {
+            await txn.insert(table, data);
+          }
+        }
+
+        // Handle remote deletes
+        for (final localId in localIdSet) {
+          if (!remoteIds.contains(localId)) {
+            await txn.delete(table, where: 'id=?', whereArgs: [localId]);
+          }
+        }
+      });
     } catch (e) {
       debugPrint('⚠ pull table ($table): $e');
     }

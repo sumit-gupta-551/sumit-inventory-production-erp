@@ -7,60 +7,58 @@ import 'package:path_provider/path_provider.dart';
 
 /// Checks GitHub Releases for a newer APK and installs it.
 ///
-/// Setup:
-///   1. Create a GitHub repo (public or private).
-///   2. Go to Releases → "Create a new release".
-///   3. Tag = version name, e.g. "1.0.1"
-///   4. Attach the APK file (app-release.apk).
-///   5. Set [owner] and [repo] below.
-///   6. Update [version] in pubspec.yaml before each build.
+/// To release an update:
+///   1. Bump [currentVersion] below and version in pubspec.yaml
+///   2. Build APK: flutter build apk
+///   3. Go to GitHub → Releases → Create new release
+///   4. Tag: v1.0.1 (match the version)
+///   5. Attach the app-release.apk file
+///   6. Publish the release
 class AppUpdater {
   AppUpdater._();
 
-  // ──────── CONFIGURE THESE ────────
-  /// GitHub username or organization
-  static const owner = 'sumit-gupta-551';
-
-  /// GitHub repository name
-  static const repo = 'sumit-inventory-production-erp';
+  static const _owner = 'sumit-gupta-551';
+  static const _repo = 'sumit-inventory-production-erp';
 
   /// Current app version (must match pubspec.yaml version)
-  static const currentVersion = '1.0.0';
-  // ──────────────────────────────────
+  static const currentVersion = '1.0.4';
 
-  /// Check GitHub for a newer release. Returns release info or null.
+  /// Check GitHub Releases for a newer release. Returns release info or null.
   static Future<Map<String, dynamic>?> checkForUpdate() async {
     try {
       final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 10);
-      final request = await client.getUrl(
-        Uri.parse(
-            'https://api.github.com/repos/$owner/$repo/releases/latest'),
-      );
+      client.connectionTimeout = const Duration(seconds: 15);
+      final request = await client.getUrl(Uri.parse(
+          'https://api.github.com/repos/$_owner/$_repo/releases/latest'));
       request.headers.set('Accept', 'application/vnd.github.v3+json');
       final response = await request.close();
+
       if (response.statusCode != 200) return null;
 
       final body = await response.transform(utf8.decoder).join();
-      final data = jsonDecode(body) as Map<String, dynamic>;
-      final tagName = (data['tag_name'] ?? '').toString().replaceAll('v', '');
+      final data = json.decode(body) as Map<String, dynamic>;
+
+      final tagName = (data['tag_name'] ?? '').toString().replaceFirst('v', '');
+      final releaseNotes = (data['body'] ?? '').toString();
+      final assets = data['assets'] as List<dynamic>? ?? [];
+
+      String? downloadUrl;
+      for (final asset in assets) {
+        final name = (asset['name'] ?? '').toString().toLowerCase();
+        if (name.endsWith('.apk')) {
+          downloadUrl = asset['browser_download_url']?.toString();
+          break;
+        }
+      }
+
+      if (tagName.isEmpty || downloadUrl == null) return null;
 
       if (_isNewer(tagName, currentVersion)) {
-        // Find the .apk asset
-        final assets = data['assets'] as List<dynamic>? ?? [];
-        final apkAsset = assets.cast<Map<String, dynamic>>().firstWhere(
-              (a) =>
-                  (a['name'] ?? '').toString().toLowerCase().endsWith('.apk'),
-              orElse: () => <String, dynamic>{},
-            );
-        final downloadUrl =
-            (apkAsset['browser_download_url'] ?? '').toString();
-        if (downloadUrl.isEmpty) return null;
-
         return {
           'version': tagName,
           'downloadUrl': downloadUrl,
-          'releaseNotes': (data['body'] ?? '').toString(),
+          'releaseNotes': releaseNotes,
+          'forceUpdate': false,
         };
       }
       return null;
@@ -79,7 +77,6 @@ class AppUpdater {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
-    // Show progress dialog
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -103,35 +100,38 @@ class AppUpdater {
       final filePath = '${dir.path}/app-update-$version.apk';
       final file = File(filePath);
 
-      // Download
       final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 30);
       final request = await client.getUrl(Uri.parse(downloadUrl));
       final response = await request.close();
 
-      if (response.statusCode == 200 ||
-          response.statusCode == 301 ||
-          response.statusCode == 302) {
-        // Handle redirects
-        HttpClientResponse finalResponse = response;
-        if (response.isRedirect || response.statusCode == 302) {
-          final redirectUrl = response.headers.value('location');
-          if (redirectUrl != null) {
-            final req2 = await client.getUrl(Uri.parse(redirectUrl));
-            finalResponse = await req2.close();
-          }
-        }
-        final bytes = await finalResponse.fold<List<int>>(
+      if (response.statusCode == 200) {
+        final bytes = await response.fold<List<int>>(
           [],
           (prev, chunk) => prev..addAll(chunk),
         );
         await file.writeAsBytes(bytes);
+      } else if (response.statusCode == 301 ||
+          response.statusCode == 302 ||
+          response.statusCode == 307) {
+        final redirectUrl = response.headers.value('location');
+        if (redirectUrl != null) {
+          final req2 = await client.getUrl(Uri.parse(redirectUrl));
+          final resp2 = await req2.close();
+          final bytes = await resp2.fold<List<int>>(
+            [],
+            (prev, chunk) => prev..addAll(chunk),
+          );
+          await file.writeAsBytes(bytes);
+        } else {
+          throw Exception('Redirect without location header');
+        }
       } else {
         throw Exception('Download failed: HTTP ${response.statusCode}');
       }
 
-      navigator.pop(); // close progress dialog
+      navigator.pop();
 
-      // Open APK for installation
       final result = await OpenFilex.open(filePath,
           type: 'application/vnd.android.package-archive');
 
@@ -150,7 +150,7 @@ class AppUpdater {
         ),
       );
     } catch (e) {
-      navigator.pop(); // close progress dialog
+      navigator.pop();
       messenger.showSnackBar(
         SnackBar(content: Text('Update failed: $e')),
       );
