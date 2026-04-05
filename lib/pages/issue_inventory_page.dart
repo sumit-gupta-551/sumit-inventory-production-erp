@@ -1,4 +1,4 @@
-import 'package:firebase_core/firebase_core.dart';
+﻿import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -269,8 +269,9 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                           const TextInputType.numberWithOptions(
                                         decimal: true,
                                       ),
-                                      decoration: const InputDecoration(
-                                          labelText: 'Qty'),
+                                      decoration: InputDecoration(
+                                          labelText:
+                                              selectedProduct?.unit ?? 'Qty'),
                                       onChanged: (v) {
                                         final q =
                                             double.tryParse(v.trim()) ?? 0;
@@ -469,7 +470,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
           'qty': rowQty,
         });
       } else if (balance > 0 && balance < rowQty) {
-        // Partial stock — split
+        // Partial stock â€” split
         if (!mounted) return;
         final shortQty = rowQty - balance;
         final send = await showDialog<bool>(
@@ -720,8 +721,9 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                           const TextInputType.numberWithOptions(
                                         decimal: true,
                                       ),
-                                      decoration: const InputDecoration(
-                                          labelText: 'Qty'),
+                                      decoration: InputDecoration(
+                                          labelText:
+                                              selectedProduct?.unit ?? 'Qty'),
                                       onChanged: (v) {
                                         final q =
                                             double.tryParse(v.trim()) ?? 0;
@@ -1089,13 +1091,12 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
         elevation: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+              colors: [Color(0xFF130328), Color(0xFF1A043D)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -1129,7 +1130,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                   children: [
                     InventoryFormCard(
                       title: 'ISSUE HEADER',
-                      backgroundColor: const Color(0xFFE8EAF6),
+                      backgroundColor: const Color(0xFF0A0A28),
                       borderColor: const Color(0xFF7986CB),
                       padding: const EdgeInsets.all(10),
                       children: [
@@ -1198,8 +1199,8 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                     ),
                     InventoryFormCard(
                       title: 'STOCK ITEMS',
-                      backgroundColor: const Color(0xFFE8F5E9),
-                      borderColor: const Color(0xFF81C784),
+                      backgroundColor: const Color(0xFF0A2818),
+                      borderColor: const Color(0xFF2E7D32),
                       padding: const EdgeInsets.all(10),
                       children: [
                         SwitchListTile(
@@ -1214,12 +1215,12 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                           height: 40,
                           child: OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF2E7D32),
+                              foregroundColor: const Color(0xFF00F5FF),
                               side: const BorderSide(
-                                color: Color(0xFF66BB6A),
+                                color: Color(0xFF00F5FF),
                                 width: 1.5,
                               ),
-                              backgroundColor: Colors.white,
+                              backgroundColor: const Color(0xFF120230),
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 8),
                               shape: RoundedRectangleBorder(
@@ -1262,7 +1263,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     filled: true,
-                                    fillColor: Colors.white,
+                                    fillColor: const Color(0xFF0D0221),
                                   ),
                                 ),
                               ),
@@ -1273,8 +1274,8 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                               width: 100,
                               child: ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2E7D32),
-                                  foregroundColor: Colors.white,
+                                  backgroundColor: const Color(0xFF00F5FF),
+                                  foregroundColor: const Color(0xFF0D0221),
                                   padding:
                                       const EdgeInsets.symmetric(horizontal: 6),
                                   shape: RoundedRectangleBorder(
@@ -1320,7 +1321,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                             final qty = (item['qty'] as num).toDouble();
 
                             return Card(
-                              color: Colors.green.shade50,
+                              color: const Color(0xFF0A2818),
                               margin: const EdgeInsets.only(bottom: 4),
                               child: ListTile(
                                 dense: true,
@@ -1333,7 +1334,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                   style: const TextStyle(fontSize: 13),
                                 ),
                                 subtitle: Text(
-                                  'Qty: ${qty.toStringAsFixed(2)}',
+                                  '${selectedProduct?.unit ?? 'Qty'}: ${qty.toStringAsFixed(2)}',
                                   style: const TextStyle(fontSize: 11),
                                 ),
                                 trailing: Row(
@@ -1377,12 +1378,12 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                     // ---------- REQUIREMENT ITEMS GRID ----------
                     InventoryFormCard(
                       title: 'REQUIREMENT ITEMS',
-                      backgroundColor: const Color(0xFFFFF3E0),
+                      backgroundColor: const Color(0xFF2A1A0A),
                       borderColor: const Color(0xFFFFB74D),
                       padding: const EdgeInsets.all(10),
                       children: [
                         Text(
-                          'Items not in stock — tracked as requirement',
+                          'Items not in stock â€” tracked as requirement',
                           style: TextStyle(
                             fontSize: 11,
                             color: Colors.orange.shade800,
@@ -1395,12 +1396,12 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                           height: 40,
                           child: OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFFE65100),
+                              foregroundColor: const Color(0xFFFF00E5),
                               side: const BorderSide(
                                 color: Color(0xFFFFB74D),
                                 width: 1.5,
                               ),
-                              backgroundColor: Colors.white,
+                              backgroundColor: const Color(0xFF120230),
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 8),
                               shape: RoundedRectangleBorder(
@@ -1436,14 +1437,14 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                   decoration: InputDecoration(
-                                    labelText: 'Qty',
+                                    labelText: selectedProduct?.unit ?? 'Qty',
                                     contentPadding: const EdgeInsets.symmetric(
                                         horizontal: 10, vertical: 8),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     filled: true,
-                                    fillColor: Colors.white,
+                                    fillColor: const Color(0xFF0D0221),
                                   ),
                                 ),
                               ),
@@ -1454,7 +1455,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                               width: 100,
                               child: ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE65100),
+                                  backgroundColor: const Color(0xFFFF00E5),
                                   foregroundColor: Colors.white,
                                   padding:
                                       const EdgeInsets.symmetric(horizontal: 6),
@@ -1501,7 +1502,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                             final qty = (item['qty'] as num).toDouble();
 
                             return Card(
-                              color: Colors.orange.shade50,
+                              color: const Color(0xFF2A1A0A),
                               margin: const EdgeInsets.only(bottom: 4),
                               child: ListTile(
                                 dense: true,
@@ -1514,7 +1515,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                   style: const TextStyle(fontSize: 13),
                                 ),
                                 subtitle: Text(
-                                  'Req Qty: ${qty.toStringAsFixed(2)}',
+                                  'Req ${selectedProduct?.unit ?? 'Qty'}: ${qty.toStringAsFixed(2)}',
                                   style: const TextStyle(fontSize: 11),
                                 ),
                                 trailing: Row(
@@ -1558,8 +1559,8 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                     ),
                     InventoryFormCard(
                       title: 'SUMMARY',
-                      backgroundColor: const Color(0xFFEDE7F6),
-                      borderColor: const Color(0xFF9575CD),
+                      backgroundColor: const Color(0xFF1A0A2A),
+                      borderColor: const Color(0xFF7B61FF),
                       padding: const EdgeInsets.all(10),
                       children: [
                         Row(
@@ -1573,7 +1574,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                             ),
                             Expanded(
                               child: Text(
-                                'Qty: ${_totalIssueQty.toStringAsFixed(2)}',
+                                '${selectedProduct?.unit ?? 'Qty'}: ${_totalIssueQty.toStringAsFixed(2)}',
                                 textAlign: TextAlign.end,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
@@ -1599,7 +1600,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                               ),
                               Expanded(
                                 child: Text(
-                                  'Qty: ${_totalReqQty.toStringAsFixed(2)}',
+                                  '${selectedProduct?.unit ?? 'Qty'}: ${_totalReqQty.toStringAsFixed(2)}',
                                   textAlign: TextAlign.end,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,
@@ -1622,10 +1623,10 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
           : Container(
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: const Color(0xFF120230),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withOpacity(0.3),
                     blurRadius: 10,
                     offset: const Offset(0, -2),
                   ),
@@ -1636,8 +1637,8 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                   height: 44,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1A237E),
-                      foregroundColor: Colors.white,
+                      backgroundColor: const Color(0xFF00F5FF),
+                      foregroundColor: const Color(0xFF0D0221),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -1687,7 +1688,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
           borderRadius: BorderRadius.circular(8),
         ),
         filled: true,
-        fillColor: Colors.white,
+        fillColor: const Color(0xFF0D0221),
       ),
     );
   }
@@ -1716,7 +1717,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
           borderRadius: BorderRadius.circular(8),
         ),
         filled: true,
-        fillColor: Colors.white,
+        fillColor: const Color(0xFF0D0221),
       ),
     );
   }

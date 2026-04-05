@@ -4,7 +4,6 @@
   final String category;
   final String unit;
   final double minStock;
-  final int? gstCategoryId; // ✅ NEW
 
   Product({
     this.id,
@@ -12,7 +11,6 @@
     required this.category,
     required this.unit,
     required this.minStock,
-    this.gstCategoryId,
   });
 
   // ---------- FROM DB ----------
@@ -23,7 +21,6 @@
       category: map['category'] as String,
       unit: map['unit'] as String,
       minStock: (map['min_stock'] as num).toDouble(),
-      gstCategoryId: map['gst_category_id'] as int?, // ✅ NEW
     );
   }
 
@@ -34,7 +31,6 @@
       'category': category,
       'unit': unit,
       'min_stock': minStock,
-      'gst_category_id': gstCategoryId, // ✅ NEW
     };
 
     if (id != null) {
@@ -51,7 +47,6 @@
     String? category,
     String? unit,
     double? minStock,
-    int? gstCategoryId,
   }) {
     return Product(
       id: id ?? this.id,
@@ -59,14 +54,13 @@
       category: category ?? this.category,
       unit: unit ?? this.unit,
       minStock: minStock ?? this.minStock,
-      gstCategoryId: gstCategoryId ?? this.gstCategoryId,
     );
   }
 
   // ---------- TO STRING ----------
   @override
   String toString() {
-    return 'Product(id: $id, name: $name, category: $category, unit: $unit, minStock: $minStock, gstCategoryId: $gstCategoryId)';
+    return 'Product(id: $id, name: $name, category: $category, unit: $unit, minStock: $minStock)';
   }
 
   // ---------- EQUALITY ----------
@@ -78,8 +72,7 @@
         other.name == name &&
         other.category == category &&
         other.unit == unit &&
-        other.minStock == minStock &&
-        other.gstCategoryId == gstCategoryId;
+        other.minStock == minStock;
   }
 
   @override
@@ -88,7 +81,6 @@
         name.hashCode ^
         category.hashCode ^
         unit.hashCode ^
-        minStock.hashCode ^
-        gstCategoryId.hashCode;
+        minStock.hashCode;
   }
 }

@@ -13,12 +13,9 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
   // Controllers
   final nameCtrl = TextEditingController();
   final categoryCtrl = TextEditingController();
-  final unitCtrl = TextEditingController();
+  String? selectedUnit;
+  static const _unitOptions = ['Pcs', 'Kg', 'Mtr'];
   final minStockCtrl = TextEditingController();
-
-  // GST
-  List<Map<String, dynamic>> gstCategories = [];
-  int? selectedGstId;
 
   // Data
   List<Product> products = [];
@@ -33,12 +30,10 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
 
   Future<void> _load() async {
     try {
-      final g = await ErpDatabase.instance.getGstCategories();
       final p = await ErpDatabase.instance.getProducts();
 
       if (!mounted) return;
       setState(() {
-        gstCategories = g;
         products = p;
         loading = false;
       });
@@ -50,10 +45,8 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
   }
 
   Future<void> _save() async {
-    if (nameCtrl.text.isEmpty ||
-        unitCtrl.text.isEmpty ||
-        selectedGstId == null) {
-      _msg('Name, Unit & GST required');
+    if (nameCtrl.text.isEmpty || selectedUnit == null) {
+      _msg('Name & Unit required');
       return;
     }
 
@@ -61,9 +54,8 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
       id: editId,
       name: nameCtrl.text.trim(),
       category: categoryCtrl.text.trim(),
-      unit: unitCtrl.text.trim(),
+      unit: selectedUnit!,
       minStock: double.tryParse(minStockCtrl.text) ?? 0,
-      gstCategoryId: selectedGstId,
     );
 
     if (editId == null) {
@@ -82,9 +74,8 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
       editId = p.id;
       nameCtrl.text = p.name;
       categoryCtrl.text = p.category;
-      unitCtrl.text = p.unit;
+      selectedUnit = _unitOptions.contains(p.unit) ? p.unit : null;
       minStockCtrl.text = p.minStock.toString();
-      selectedGstId = p.gstCategoryId;
     });
   }
 
@@ -97,9 +88,8 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
     editId = null;
     nameCtrl.clear();
     categoryCtrl.clear();
-    unitCtrl.clear();
+    selectedUnit = null;
     minStockCtrl.clear();
-    selectedGstId = null;
   }
 
   void _msg(String m) {
@@ -135,10 +125,20 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
                               decoration:
                                   const InputDecoration(labelText: 'Category'),
                             ),
-                            TextField(
-                              controller: unitCtrl,
-                              decoration:
-                                  const InputDecoration(labelText: 'Unit'),
+                            DropdownButtonFormField<String>(
+                              value: selectedUnit,
+                              decoration: const InputDecoration(
+                                labelText: 'Unit',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: _unitOptions
+                                  .map((u) => DropdownMenuItem(
+                                        value: u,
+                                        child: Text(u),
+                                      ))
+                                  .toList(),
+                              onChanged: (v) =>
+                                  setState(() => selectedUnit = v),
                             ),
                             TextField(
                               controller: minStockCtrl,
@@ -147,25 +147,6 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
                                   const InputDecoration(labelText: 'Min Stock'),
                             ),
                             const SizedBox(height: 12),
-                            DropdownButtonFormField<int>(
-                              value: selectedGstId,
-                              decoration: const InputDecoration(
-                                labelText: 'GST',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: gstCategories
-                                  .map(
-                                    (g) => DropdownMenuItem<int>(
-                                      value: g['id'],
-                                      child: Text(
-                                          '${g['name']} (${g['gst_percent']}%)'),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (v) =>
-                                  setState(() => selectedGstId = v),
-                            ),
-                            const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               height: 46,
@@ -222,7 +203,6 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
   void dispose() {
     nameCtrl.dispose();
     categoryCtrl.dispose();
-    unitCtrl.dispose();
     minStockCtrl.dispose();
     super.dispose();
   }

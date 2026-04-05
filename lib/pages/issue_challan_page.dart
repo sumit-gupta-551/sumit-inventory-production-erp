@@ -259,7 +259,8 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
   Future<void> _generateChallanPdf(_ChallanGroup challan) async {
     final doc = pw.Document(theme: await _pdfTheme());
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
-    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoBytes =
+        (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
 
     // Build stock items table data
@@ -599,13 +600,12 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
         elevation: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+              colors: [Color(0xFF130328), Color(0xFF1A043D)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -647,11 +647,11 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: const Color(0xFF120230),
                     borderRadius: BorderRadius.circular(10),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withOpacity(0.2),
                         blurRadius: 6,
                         offset: const Offset(0, 2),
                       ),
@@ -693,7 +693,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                         style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
-                          color: Colors.black54,
+                          color: Color(0xFF94A3B8),
                         ),
                       ),
                     ],
@@ -706,8 +706,8 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                       ? const Center(
                           child: Text(
                             'No issue challans found',
-                            style:
-                                TextStyle(fontSize: 14, color: Colors.black45),
+                            style: TextStyle(
+                                fontSize: 14, color: Color(0xFF94A3B8)),
                           ),
                         )
                       : ListView.builder(
@@ -746,12 +746,12 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFF1A237E).withOpacity(0.1),
+              color: const Color(0xFF00F5FF).withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: const Icon(
               Icons.receipt_outlined,
-              color: Color(0xFF1A237E),
+              color: Color(0xFF00F5FF),
               size: 22,
             ),
           ),
@@ -764,7 +764,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
           ),
           subtitle: Text(
             '${ch.partyName}  |  ${_fmtDate(ch.dateMs)}',
-            style: const TextStyle(fontSize: 12, color: Colors.black54),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
           ),
           trailing: IconButton(
             tooltip: 'Download PDF',
@@ -784,7 +784,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: Color(0xFFF8FAFC),
                 ),
               ),
             ),
@@ -796,7 +796,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
+                  color: Colors.green.shade900.withValues(alpha: 0.3),
                   borderRadius:
                       const BorderRadius.vertical(top: Radius.circular(6)),
                 ),
@@ -827,7 +827,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
               ),
               Container(
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.green.shade200),
+                  border: Border.all(color: Colors.green.shade800),
                   borderRadius:
                       const BorderRadius.vertical(bottom: Radius.circular(6)),
                 ),
@@ -839,11 +839,12 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                   },
                   border: TableBorder(
                     horizontalInside:
-                        BorderSide(color: Colors.green.shade100, width: 0.5),
+                        BorderSide(color: Colors.green.shade900, width: 0.5),
                   ),
                   children: [
                     TableRow(
-                      decoration: BoxDecoration(color: Colors.green.shade100),
+                      decoration: BoxDecoration(
+                          color: Colors.green.shade900.withValues(alpha: 0.4)),
                       children: const [
                         _TableHeader('Sr'),
                         _TableHeader('Shade No'),
@@ -876,7 +877,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
+                  color: Colors.orange.shade900.withValues(alpha: 0.3),
                   borderRadius:
                       const BorderRadius.vertical(top: Radius.circular(6)),
                 ),
@@ -907,7 +908,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
               ),
               Container(
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.orange.shade200),
+                  border: Border.all(color: Colors.orange.shade800),
                   borderRadius:
                       const BorderRadius.vertical(bottom: Radius.circular(6)),
                 ),
@@ -920,11 +921,12 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                   },
                   border: TableBorder(
                     horizontalInside:
-                        BorderSide(color: Colors.orange.shade100, width: 0.5),
+                        BorderSide(color: Colors.orange.shade900, width: 0.5),
                   ),
                   children: [
                     TableRow(
-                      decoration: BoxDecoration(color: Colors.orange.shade100),
+                      decoration: BoxDecoration(
+                          color: Colors.orange.shade900.withValues(alpha: 0.4)),
                       children: const [
                         _TableHeader('Sr'),
                         _TableHeader('Shade No'),
@@ -961,7 +963,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFFEDE7F6),
+                color: const Color(0xFF1A0A2A),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Row(
@@ -989,7 +991,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
-                      color: Color(0xFF1A237E),
+                      color: Color(0xFF00F5FF),
                     ),
                   ),
                 ],

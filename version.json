@@ -1,0 +1,5 @@
+{
+    "version": "1.0.6",
+    "apk": "SSSJ-ERP-v1.0.6.apk",
+    "notes": "Auto Firebase sync on startup, full table sync (20 tables), attendance report PDF export"
+}

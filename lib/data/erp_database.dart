@@ -30,7 +30,7 @@ class ErpDatabase {
 
     final db = await openDatabase(
       path,
-      version: 8,
+      version: 20,
       onCreate: (db, version) async {
         await _createDB(db, version);
         await _seedGstCategories(db);
@@ -40,30 +40,148 @@ class ErpDatabase {
 
     // 🔥 ADD THIS LINE (VERY IMPORTANT)
     await _seedGstCategories(db);
+    await _ensureAllTables(db);
     await _ensurePurchaseMasterReportingColumns(db);
-    await _ensureChallanRequirementsTable(db);
     await _createIndexes(db);
 
     return db;
   }
 
-  Future<void> _ensureChallanRequirementsTable(Database db) async {
-    try {
-      await db.execute('''
-      CREATE TABLE IF NOT EXISTS challan_requirements (
+  /// Ensure every table exists (safe to call on every startup).
+  Future<void> _ensureAllTables(Database db) async {
+    const ddl = [
+      '''CREATE TABLE IF NOT EXISTS gst_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, gst_percent REAL)''',
+      '''CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, category TEXT,
+        unit TEXT, min_stock REAL, gst_category_id INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS parties (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, address TEXT,
+        mobile TEXT, party_type TEXT DEFAULT 'Sales')''',
+      '''CREATE TABLE IF NOT EXISTS firms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, firm_name TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS purchase_master (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_no INTEGER,
+        firm_id INTEGER, purchase_date INTEGER, invoice_no TEXT,
+        party_id INTEGER, gross_amount REAL, discount_amount REAL,
+        cgst REAL, sgst REAL, igst REAL, total_amount REAL)''',
+      '''CREATE TABLE IF NOT EXISTS purchase_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_no INTEGER,
+        product_id INTEGER, shade_id INTEGER, qty REAL, rate REAL,
+        amount REAL)''',
+      '''CREATE TABLE IF NOT EXISTS machines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT, name TEXT,
+        unit_name TEXT, status TEXT,
+        bonus_per_stitch REAL DEFAULT 0, incentive_per_stitch REAL DEFAULT 0,
+        incentive_after_stitch INTEGER DEFAULT 0, incentive_amount REAL DEFAULT 0,
+        bonus REAL DEFAULT 0)''',
+      '''CREATE TABLE IF NOT EXISTS fabric_shades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, shade_no TEXT,
+        shade_name TEXT, image_path TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS thread_shades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, shade_no TEXT,
+        company_name TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS delay_reasons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, reason TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS program_master (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, program_no INTEGER,
+        program_date INTEGER, party_id INTEGER, card_no TEXT,
+        design_no TEXT, designer TEXT, status TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS program_fabrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, program_no INTEGER,
+        fabric_shade_id INTEGER, qty REAL)''',
+      '''CREATE TABLE IF NOT EXISTS program_thread_shades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, program_no INTEGER,
+        thread_shade_id INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS program_allotment (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, program_no INTEGER,
+        machine_id INTEGER, status TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS program_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, program_no INTEGER,
+        message TEXT, date INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS stock_ledger (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER,
+        fabric_shade_id INTEGER, qty REAL, type TEXT, date INTEGER,
+        reference TEXT, remarks TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS challan_requirements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, challan_no TEXT,
+        party_id INTEGER, party_name TEXT, product_id INTEGER,
+        fabric_shade_id INTEGER, qty REAL, date INTEGER,
+        status TEXT DEFAULT 'pending', closed_date INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS employees (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+        mobile TEXT, designation TEXT, unit_name TEXT,
+        salary_type TEXT DEFAULT 'monthly', base_pay REAL DEFAULT 0,
+        salary_base_days INTEGER DEFAULT 30,
+        join_date INTEGER, status TEXT DEFAULT 'active')''',
+      '''CREATE TABLE IF NOT EXISTS employee_salary_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        challan_no TEXT,
-        party_id INTEGER,
-        party_name TEXT,
-        product_id INTEGER,
-        fabric_shade_id INTEGER,
-        qty REAL,
-        date INTEGER,
-        status TEXT DEFAULT 'pending',
-        closed_date INTEGER
-      )
-      ''');
-    } catch (_) {}
+        employee_id INTEGER NOT NULL,
+        base_pay REAL DEFAULT 0,
+        salary_type TEXT DEFAULT 'monthly',
+        salary_base_days INTEGER DEFAULT 30,
+        effective_from INTEGER NOT NULL,
+        created_at INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS production_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date INTEGER NOT NULL,
+        unit_name TEXT, machine_id INTEGER, employee_id INTEGER,
+        stitch INTEGER DEFAULT 0, bonus REAL DEFAULT 0,
+        incentive_bonus REAL DEFAULT 0, total_bonus REAL DEFAULT 0,
+        remarks TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS attendance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL, date INTEGER NOT NULL,
+        status TEXT DEFAULT 'present', shift TEXT DEFAULT 'day',
+        remarks TEXT)''',
+      '''CREATE TABLE IF NOT EXISTS units (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL)''',
+      '''CREATE TABLE IF NOT EXISTS salary_advances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        amount REAL NOT NULL DEFAULT 0,
+        payment_mode TEXT DEFAULT 'cash',
+        date INTEGER NOT NULL,
+        remarks TEXT,
+        created_at INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS salary_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        amount REAL NOT NULL DEFAULT 0,
+        payment_mode TEXT DEFAULT 'cash',
+        date INTEGER NOT NULL,
+        from_date INTEGER,
+        to_date INTEGER,
+        remarks TEXT,
+        created_at INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS saved_payroll (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        from_date INTEGER NOT NULL,
+        to_date INTEGER NOT NULL,
+        base_pay REAL DEFAULT 0,
+        salary_type TEXT DEFAULT 'monthly',
+        salary_base_days INTEGER DEFAULT 30,
+        present_days INTEGER DEFAULT 0,
+        half_days INTEGER DEFAULT 0,
+        absent_days INTEGER DEFAULT 0,
+        double_days INTEGER DEFAULT 0,
+        effective_days REAL DEFAULT 0,
+        base_salary REAL DEFAULT 0,
+        total_bonus REAL DEFAULT 0,
+        total_incentive REAL DEFAULT 0,
+        total_all_bonus REAL DEFAULT 0,
+        total_advance REAL DEFAULT 0,
+        net_salary REAL DEFAULT 0,
+        created_at INTEGER)''',
+    ];
+    for (final sql in ddl) {
+      try {
+        await db.execute(sql);
+      } catch (e) {
+        debugPrint('⚠ _ensureAllTables: $e');
+      }
+    }
   }
 
   Future<void> _ensurePurchaseMasterReportingColumns(Database db) async {
@@ -161,7 +279,12 @@ class ErpDatabase {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       code TEXT,
       name TEXT,
-      status TEXT
+      unit_name TEXT,
+      status TEXT,
+      bonus_per_stitch REAL DEFAULT 0,
+      incentive_per_stitch REAL DEFAULT 0,
+      bonus REAL DEFAULT 0,
+      incentive_amount REAL DEFAULT 0
     )
     ''');
 
@@ -265,8 +388,79 @@ class ErpDatabase {
     )
     ''');
 
+    // Payroll tables
+    await _createPayrollTables(db);
+
     // Performance indexes
     await _createIndexes(db);
+  }
+
+  Future<void> _createPayrollTables(Database db) async {
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS employees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      mobile TEXT,
+      designation TEXT,
+      unit_name TEXT,
+      salary_type TEXT DEFAULT 'monthly',
+      base_pay REAL DEFAULT 0,
+      join_date INTEGER,
+      status TEXT DEFAULT 'active'
+    )
+    ''');
+
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS production_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date INTEGER NOT NULL,
+      unit_name TEXT,
+      machine_id INTEGER,
+      employee_id INTEGER,
+      stitch INTEGER DEFAULT 0,
+      bonus REAL DEFAULT 0,
+      incentive_bonus REAL DEFAULT 0,
+      total_bonus REAL DEFAULT 0,
+      remarks TEXT
+    )
+    ''');
+
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS attendance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL,
+      date INTEGER NOT NULL,
+      status TEXT DEFAULT 'present',
+      shift TEXT DEFAULT 'day',
+      remarks TEXT
+    )
+    ''');
+
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS salary_advances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      payment_mode TEXT DEFAULT 'cash',
+      date INTEGER NOT NULL,
+      remarks TEXT,
+      created_at INTEGER
+    )
+    ''');
+
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS salary_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      payment_mode TEXT DEFAULT 'cash',
+      date INTEGER NOT NULL,
+      from_date INTEGER,
+      to_date INTEGER,
+      remarks TEXT,
+      created_at INTEGER
+    )
+    ''');
   }
 
   Future<void> _createIndexes(Database db) async {
@@ -274,6 +468,7 @@ class ErpDatabase {
       'CREATE INDEX IF NOT EXISTS idx_stock_ledger_product ON stock_ledger(product_id)',
       'CREATE INDEX IF NOT EXISTS idx_stock_ledger_shade ON stock_ledger(fabric_shade_id)',
       'CREATE INDEX IF NOT EXISTS idx_stock_ledger_date ON stock_ledger(date)',
+      'CREATE INDEX IF NOT EXISTS idx_stock_ledger_prod_shade ON stock_ledger(product_id, fabric_shade_id)',
       'CREATE INDEX IF NOT EXISTS idx_purchase_items_purchase ON purchase_items(purchase_no)',
       'CREATE INDEX IF NOT EXISTS idx_purchase_items_product ON purchase_items(product_id)',
       'CREATE INDEX IF NOT EXISTS idx_purchase_items_shade ON purchase_items(shade_id)',
@@ -283,6 +478,22 @@ class ErpDatabase {
       'CREATE INDEX IF NOT EXISTS idx_challan_req_party ON challan_requirements(party_id)',
       'CREATE INDEX IF NOT EXISTS idx_challan_req_product ON challan_requirements(product_id)',
       'CREATE INDEX IF NOT EXISTS idx_challan_req_shade ON challan_requirements(fabric_shade_id)',
+      'CREATE INDEX IF NOT EXISTS idx_production_date ON production_entries(date)',
+      'CREATE INDEX IF NOT EXISTS idx_production_employee ON production_entries(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_production_machine ON production_entries(machine_id)',
+      'CREATE INDEX IF NOT EXISTS idx_production_unit ON production_entries(unit_name)',
+      'CREATE INDEX IF NOT EXISTS idx_production_emp_date ON production_entries(employee_id, date)',
+      'CREATE INDEX IF NOT EXISTS idx_attendance_employee ON attendance(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date)',
+      'CREATE INDEX IF NOT EXISTS idx_attendance_emp_date ON attendance(employee_id, date)',
+      'CREATE INDEX IF NOT EXISTS idx_salary_advances_emp ON salary_advances(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_salary_advances_date ON salary_advances(date)',
+      'CREATE INDEX IF NOT EXISTS idx_salary_advances_emp_date ON salary_advances(employee_id, date)',
+      'CREATE INDEX IF NOT EXISTS idx_salary_payments_emp ON salary_payments(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_salary_payments_date ON salary_payments(date)',
+      'CREATE INDEX IF NOT EXISTS idx_saved_payroll_emp ON saved_payroll(employee_id)',
+      'CREATE INDEX IF NOT EXISTS idx_saved_payroll_dates ON saved_payroll(from_date, to_date)',
+      'CREATE INDEX IF NOT EXISTS idx_emp_salary_hist_emp ON employee_salary_history(employee_id)',
     ];
     for (final sql in indexes) {
       try {
@@ -399,14 +610,160 @@ class ErpDatabase {
           AND fabric_shade_id NOT IN (SELECT id FROM fabric_shades)
       ''');
     }
+
+    if (oldVersion < 9) {
+      await _createPayrollTables(db);
+    }
+
+    if (oldVersion < 10) {
+      try {
+        await db.execute('ALTER TABLE machines ADD COLUMN unit_name TEXT');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE employees ADD COLUMN unit_name TEXT');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 11) {
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS units (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL)''');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 12) {
+      try {
+        await db.execute(
+            'ALTER TABLE machines ADD COLUMN bonus_per_stitch REAL DEFAULT 0');
+      } catch (_) {}
+      try {
+        await db.execute(
+            'ALTER TABLE machines ADD COLUMN incentive_per_stitch REAL DEFAULT 0');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 13) {
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS machine_bonus_slabs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          machine_id INTEGER NOT NULL,
+          from_stitch INTEGER NOT NULL,
+          to_stitch INTEGER,
+          bonus_amount REAL NOT NULL DEFAULT 0,
+          incentive_amount REAL NOT NULL DEFAULT 0)''');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 14) {
+      try {
+        await db.execute(
+            'ALTER TABLE machine_bonus_slabs ADD COLUMN incentive_amount REAL NOT NULL DEFAULT 0');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 15) {
+      try {
+        await db.execute(
+            'ALTER TABLE machines ADD COLUMN incentive_after_stitch INTEGER DEFAULT 0');
+      } catch (_) {}
+      try {
+        await db.execute(
+            'ALTER TABLE machines ADD COLUMN incentive_amount REAL DEFAULT 0');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 16) {
+      try {
+        await db
+            .execute('ALTER TABLE machines ADD COLUMN bonus REAL DEFAULT 0');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 17) {
+      try {
+        await db.execute(
+            'ALTER TABLE employees ADD COLUMN salary_base_days INTEGER DEFAULT 30');
+      } catch (_) {}
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS employee_salary_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          employee_id INTEGER NOT NULL,
+          base_pay REAL DEFAULT 0,
+          salary_type TEXT DEFAULT 'monthly',
+          salary_base_days INTEGER DEFAULT 30,
+          effective_from INTEGER NOT NULL,
+          created_at INTEGER)''');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 18) {
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS salary_advances (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          employee_id INTEGER NOT NULL,
+          amount REAL NOT NULL DEFAULT 0,
+          payment_mode TEXT DEFAULT 'cash',
+          date INTEGER NOT NULL,
+          remarks TEXT,
+          created_at INTEGER)''');
+      } catch (_) {}
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS salary_payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          employee_id INTEGER NOT NULL,
+          amount REAL NOT NULL DEFAULT 0,
+          payment_mode TEXT DEFAULT 'cash',
+          date INTEGER NOT NULL,
+          from_date INTEGER,
+          to_date INTEGER,
+          remarks TEXT,
+          created_at INTEGER)''');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 19) {
+      try {
+        await db.execute(
+            "ALTER TABLE salary_advances ADD COLUMN payment_mode TEXT DEFAULT 'cash'");
+      } catch (_) {}
+    }
+
+    if (oldVersion < 20) {
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS saved_payroll (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          employee_id INTEGER NOT NULL,
+          from_date INTEGER NOT NULL,
+          to_date INTEGER NOT NULL,
+          base_pay REAL DEFAULT 0,
+          salary_type TEXT DEFAULT 'monthly',
+          salary_base_days INTEGER DEFAULT 30,
+          present_days INTEGER DEFAULT 0,
+          half_days INTEGER DEFAULT 0,
+          absent_days INTEGER DEFAULT 0,
+          double_days INTEGER DEFAULT 0,
+          effective_days REAL DEFAULT 0,
+          base_salary REAL DEFAULT 0,
+          total_bonus REAL DEFAULT 0,
+          total_incentive REAL DEFAULT 0,
+          total_all_bonus REAL DEFAULT 0,
+          total_advance REAL DEFAULT 0,
+          net_salary REAL DEFAULT 0,
+          created_at INTEGER)''');
+      } catch (_) {}
+    }
   }
 
   // ================= SYNC HELPERS =================
+  /// Set to false to disable Firebase sync (e.g. for adding sample data)
+  bool syncEnabled = false;
+
   Future<int> _syncInsert(String table, Map<String, dynamic> data) async {
     final db = await database;
     final sync = FirebaseSyncService.instance;
     int id;
-    if (sync.isInitialized && !sync.isSyncing) {
+    if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
       try {
         id = await sync.getNextId(table);
         data['id'] = id;
@@ -430,7 +787,7 @@ class ErpDatabase {
     final db = await database;
     await db.update(table, data, where: 'id=?', whereArgs: [id]);
     final sync = FirebaseSyncService.instance;
-    if (sync.isInitialized && !sync.isSyncing) {
+    if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
       data['id'] = id;
       await sync.pushRecord(table, id, data);
     }
@@ -441,7 +798,7 @@ class ErpDatabase {
     final db = await database;
     await db.delete(table, where: 'id=?', whereArgs: [id]);
     final sync = FirebaseSyncService.instance;
-    if (sync.isInitialized && !sync.isSyncing) {
+    if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
       await sync.deleteRecord(table, id);
     }
     dataVersion.value++;
@@ -611,6 +968,33 @@ class ErpDatabase {
     ''');
   }
 
+  Future<List<Map<String, dynamic>>> getAllStockBalances() async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT
+        l.product_id,
+        COALESCE(l.fabric_shade_id, 0) AS shade_id,
+        p.name AS product_name,
+        COALESCE(p.unit, 'Mtr') AS product_unit,
+        COALESCE(f.shade_no, 'NO SHADE') AS shade_no,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN UPPER(l.type) = 'OUT' THEN -l.qty
+              ELSE l.qty
+            END
+          ),
+          0
+        ) AS balance
+      FROM stock_ledger l
+      JOIN products p ON p.id = l.product_id
+      LEFT JOIN fabric_shades f ON f.id = l.fabric_shade_id
+      WHERE (l.fabric_shade_id IS NULL OR l.fabric_shade_id = 0 OR f.id IS NOT NULL)
+      GROUP BY l.product_id, COALESCE(l.fabric_shade_id, 0)
+      ORDER BY p.name, f.shade_no
+    ''');
+  }
+
   Future<void> updateLedgerFull({
     required int id,
     required int productId,
@@ -716,16 +1100,20 @@ class ErpDatabase {
     });
   }
 
-  Future<void> updateFabricShade(int id, {
+  Future<void> updateFabricShade(
+    int id, {
     required String shadeNo,
     required String shadeName,
     String? imagePath,
   }) async {
-    await _syncUpdate('fabric_shades', {
-      'shade_no': shadeNo,
-      'shade_name': shadeName,
-      'image_path': imagePath,
-    }, id);
+    await _syncUpdate(
+        'fabric_shades',
+        {
+          'shade_no': shadeNo,
+          'shade_name': shadeName,
+          'image_path': imagePath,
+        },
+        id);
   }
 
   Future<void> deleteFabricShade(int id) async {
@@ -782,6 +1170,20 @@ class ErpDatabase {
   Future<void> deleteDelayReason(int id) async =>
       _syncDelete('delay_reasons', id);
 
+// ================= UNITS (FACTORY UNITS) =================
+  Future<List<Map<String, dynamic>>> getUnits() async {
+    final db = await database;
+    return db.query('units', orderBy: 'name');
+  }
+
+  Future<void> insertUnit(String name) async =>
+      _syncInsert('units', {'name': name});
+
+  Future<void> updateUnit(int id, String name) async =>
+      _syncUpdate('units', {'name': name}, id);
+
+  Future<void> deleteUnit(int id) async => _syncDelete('units', id);
+
 // ================= GST CATEGORIES =================
   Future<List<Map<String, dynamic>>> getGstCategories() async {
     final db = await database;
@@ -798,7 +1200,13 @@ class ErpDatabase {
       await _syncInsert('challan_requirements', data);
     } catch (_) {
       final db = await database;
-      await _ensureChallanRequirementsTable(db);
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS challan_requirements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, challan_no TEXT,
+          party_id INTEGER, party_name TEXT, product_id INTEGER,
+          fabric_shade_id INTEGER, qty REAL, date INTEGER,
+          status TEXT DEFAULT 'pending', closed_date INTEGER)
+      ''');
       await _syncInsert('challan_requirements', data);
     }
   }
@@ -814,7 +1222,6 @@ class ErpDatabase {
 
   Future<List<Map<String, dynamic>>> getPendingChallanRequirements() async {
     final db = await database;
-    await _ensureChallanRequirementsTable(db);
     return db.rawQuery('''
       SELECT cr.id, cr.challan_no, cr.party_id, cr.party_name,
              cr.product_id, cr.fabric_shade_id, cr.qty, cr.date, cr.status,
@@ -866,5 +1273,662 @@ class ErpDatabase {
         await sync.pushRecord('challan_requirements', id, fullRow);
       }
     }
+  }
+
+  // ================= EMPLOYEES =================
+  Future<List<Map<String, dynamic>>> getEmployees({String? status}) async {
+    final db = await database;
+    if (status != null) {
+      return db.query('employees',
+          where: 'status = ?', whereArgs: [status], orderBy: 'name');
+    }
+    return db.query('employees', orderBy: 'name');
+  }
+
+  Future<int> insertEmployee(Map<String, dynamic> data) async {
+    return _syncInsert('employees', data);
+  }
+
+  Future<void> updateEmployee(Map<String, dynamic> data, int id,
+      {DateTime? effectiveFrom}) async {
+    // Auto-create salary history if pay/type/base-days changed
+    final salaryFields = ['base_pay', 'salary_type', 'salary_base_days'];
+    if (salaryFields.any((f) => data.containsKey(f))) {
+      final db = await database;
+      final rows =
+          await db.query('employees', where: 'id = ?', whereArgs: [id]);
+      if (rows.isNotEmpty) {
+        final old = rows.first;
+        final oldPay = (old['base_pay'] as num?)?.toDouble() ?? 0;
+        final oldType = old['salary_type'] ?? 'monthly';
+        final oldDays = (old['salary_base_days'] as num?)?.toInt() ?? 30;
+        final newPay = data.containsKey('base_pay')
+            ? (data['base_pay'] as num?)?.toDouble() ?? 0
+            : oldPay;
+        final newType = data['salary_type'] ?? oldType;
+        final newDays = data.containsKey('salary_base_days')
+            ? (data['salary_base_days'] as num?)?.toInt() ?? 30
+            : oldDays;
+        if (newPay != oldPay || newType != oldType || newDays != oldDays) {
+          final effMs = effectiveFrom?.millisecondsSinceEpoch ??
+              DateTime.now().millisecondsSinceEpoch;
+          await insertSalaryHistory({
+            'employee_id': id,
+            'base_pay': newPay,
+            'salary_type': newType,
+            'salary_base_days': newDays,
+            'effective_from': effMs,
+            'created_at': DateTime.now().millisecondsSinceEpoch,
+          });
+        }
+      }
+    }
+    await _syncUpdate('employees', data, id);
+  }
+
+  /// Update employee without auto salary history (used when history is already inserted manually)
+  Future<void> updateEmployeeRaw(Map<String, dynamic> data, int id) async {
+    await _syncUpdate('employees', data, id);
+  }
+
+  Future<void> deleteEmployee(int id) async {
+    await _syncDelete('employees', id);
+  }
+
+  // ================= PRODUCTION ENTRIES =================
+  Future<List<Map<String, dynamic>>> getProductionEntries({
+    int? dateMs,
+    int? fromMs,
+    int? toMs,
+    int? employeeId,
+    int? machineId,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+
+    if (dateMs != null) {
+      where.add('pe.date = ?');
+      args.add(dateMs);
+    }
+    if (fromMs != null) {
+      where.add('pe.date >= ?');
+      args.add(fromMs);
+    }
+    if (toMs != null) {
+      where.add('pe.date <= ?');
+      args.add(toMs);
+    }
+    if (employeeId != null) {
+      where.add('pe.employee_id = ?');
+      args.add(employeeId);
+    }
+    if (machineId != null) {
+      where.add('pe.machine_id = ?');
+      args.add(machineId);
+    }
+
+    final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
+
+    return db.rawQuery('''
+      SELECT pe.*,
+             e.name AS employee_name,
+             m.name AS machine_name,
+             m.code AS machine_code
+      FROM production_entries pe
+      LEFT JOIN employees e ON e.id = pe.employee_id
+      LEFT JOIN machines m ON m.id = pe.machine_id
+      $whereClause
+      ORDER BY pe.date DESC, pe.id DESC
+    ''', args);
+  }
+
+  Future<int> insertProductionEntry(Map<String, dynamic> data) async {
+    return _syncInsert('production_entries', data);
+  }
+
+  Future<void> updateProductionEntry(Map<String, dynamic> data, int id) async {
+    await _syncUpdate('production_entries', data, id);
+  }
+
+  Future<void> deleteProductionEntry(int id) async {
+    await _syncDelete('production_entries', id);
+  }
+
+  /// Get distinct employee IDs that have production entries in a date range
+  Future<List<int>> getProductionEmployeeIds({
+    required int fromMs,
+    required int toMs,
+  }) async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT employee_id FROM production_entries
+      WHERE date >= ? AND date <= ? AND employee_id IS NOT NULL
+    ''', [fromMs, toMs]);
+    return rows.map((r) => (r['employee_id'] as num).toInt()).toList();
+  }
+
+  // ================= ATTENDANCE =================
+  Future<List<Map<String, dynamic>>> getAttendance({
+    int? dateMs,
+    int? fromMs,
+    int? toMs,
+    int? employeeId,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+
+    if (dateMs != null) {
+      where.add('a.date = ?');
+      args.add(dateMs);
+    }
+    if (fromMs != null) {
+      where.add('a.date >= ?');
+      args.add(fromMs);
+    }
+    if (toMs != null) {
+      where.add('a.date <= ?');
+      args.add(toMs);
+    }
+    if (employeeId != null) {
+      where.add('a.employee_id = ?');
+      args.add(employeeId);
+    }
+
+    final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
+
+    return db.rawQuery('''
+      SELECT a.*, e.name AS employee_name, e.designation
+      FROM attendance a
+      LEFT JOIN employees e ON e.id = a.employee_id
+      $whereClause
+      ORDER BY a.date DESC, e.name ASC
+    ''', args);
+  }
+
+  Future<int> insertAttendance(Map<String, dynamic> data) async {
+    return _syncInsert('attendance', data);
+  }
+
+  Future<void> updateAttendance(Map<String, dynamic> data, int id) async {
+    await _syncUpdate('attendance', data, id);
+  }
+
+  Future<void> deleteAttendance(int id) async {
+    await _syncDelete('attendance', id);
+  }
+
+  /// Attendance report: present/absent/half/double counts per employee for a month range.
+  Future<List<Map<String, dynamic>>> getAttendanceReport({
+    required int fromMs,
+    required int toMs,
+  }) async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT
+        e.id AS employee_id,
+        e.name AS employee_name,
+        e.designation,
+        e.unit_name,
+        SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS present_days,
+        SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
+        SUM(CASE WHEN a.status = 'half_day' THEN 1 ELSE 0 END) AS half_days,
+        SUM(CASE WHEN a.status = 'double' THEN 1 ELSE 0 END) AS double_days
+      FROM employees e
+      LEFT JOIN attendance a
+        ON a.employee_id = e.id
+        AND a.date >= ? AND a.date <= ?
+      WHERE e.status = 'active'
+      GROUP BY e.id
+      ORDER BY e.unit_name, e.designation, e.name
+    ''', [fromMs, toMs]);
+  }
+
+  /// Bulk salary summary for ALL active employees in a date range.
+  /// Uses only ~6 queries total instead of 5 per employee.
+  Future<Map<int, Map<String, dynamic>>> getAllEmployeeSalarySummaries({
+    required int fromMs,
+    required int toMs,
+  }) async {
+    final db = await database;
+
+    // 1. All active employees
+    final empList = await db.query('employees',
+        where: "status = 'active'", orderBy: 'name');
+
+    // 2. All salary history records effective before or at fromMs (one per employee)
+    final histRows = await db.rawQuery('''
+      SELECT h.* FROM employee_salary_history h
+      INNER JOIN (
+        SELECT employee_id, MAX(effective_from) as max_ef
+        FROM employee_salary_history
+        WHERE effective_from <= ?
+        GROUP BY employee_id
+      ) latest ON h.employee_id = latest.employee_id
+                AND h.effective_from = latest.max_ef
+    ''', [fromMs]);
+    final histMap = <int, Map<String, dynamic>>{};
+    for (final h in histRows) {
+      histMap[(h['employee_id'] as int)] = h;
+    }
+
+    // 3. Attendance counts grouped by employee
+    final attRows = await db.rawQuery('''
+      SELECT employee_id, status, shift, COUNT(*) as cnt
+      FROM attendance
+      WHERE date >= ? AND date <= ?
+      GROUP BY employee_id, status, shift
+    ''', [fromMs, toMs]);
+    final attMap = <int, Map<String, int>>{};
+    for (final r in attRows) {
+      final eid = r['employee_id'] as int;
+      final status = (r['status'] ?? '').toString();
+      final shift = (r['shift'] ?? '').toString();
+      final cnt = (r['cnt'] as int?) ?? 0;
+      attMap.putIfAbsent(
+          eid,
+          () => {
+                'present': 0,
+                'half_day': 0,
+                'absent': 0,
+                'double': 0,
+                'night': 0,
+              });
+      final m = attMap[eid]!;
+      if (status == 'present') {
+        m['present'] = (m['present'] ?? 0) + cnt;
+        if (shift == 'night') m['night'] = (m['night'] ?? 0) + cnt;
+      } else if (status == 'half_day') {
+        m['half_day'] = (m['half_day'] ?? 0) + cnt;
+      } else if (status == 'absent') {
+        m['absent'] = (m['absent'] ?? 0) + cnt;
+      } else if (status == 'double') {
+        m['double'] = (m['double'] ?? 0) + cnt;
+        if (shift == 'night') m['night'] = (m['night'] ?? 0) + cnt;
+      }
+    }
+
+    // 4. Production totals grouped by employee
+    final prodRows = await db.rawQuery('''
+      SELECT employee_id,
+        COALESCE(SUM(stitch), 0) as total_stitch,
+        COALESCE(SUM(bonus), 0) as total_bonus,
+        COALESCE(SUM(incentive_bonus), 0) as total_incentive,
+        COALESCE(SUM(total_bonus), 0) as total_all_bonus
+      FROM production_entries
+      WHERE date >= ? AND date <= ?
+      GROUP BY employee_id
+    ''', [fromMs, toMs]);
+    final prodMap = <int, Map<String, dynamic>>{};
+    for (final r in prodRows) {
+      prodMap[(r['employee_id'] as int)] = r;
+    }
+
+    // 5. Advance totals grouped by employee (till end of period)
+    final advRows = await db.rawQuery('''
+      SELECT employee_id, COALESCE(SUM(amount), 0) as total_advance
+      FROM salary_advances
+      WHERE date <= ?
+      GROUP BY employee_id
+    ''', [toMs]);
+    final advMap = <int, double>{};
+    for (final r in advRows) {
+      advMap[(r['employee_id'] as int)] =
+          (r['total_advance'] as num?)?.toDouble() ?? 0;
+    }
+
+    // Build result map
+    final result = <int, Map<String, dynamic>>{};
+    for (final emp in empList) {
+      final eid = emp['id'] as int;
+
+      final hist = histMap[eid];
+      final double basePay;
+      final String salaryType;
+      final int salaryBaseDays;
+      if (hist != null) {
+        basePay = (hist['base_pay'] as num?)?.toDouble() ?? 0;
+        salaryType = (hist['salary_type'] ?? 'monthly').toString();
+        salaryBaseDays = (hist['salary_base_days'] as num?)?.toInt() ?? 30;
+      } else {
+        basePay = (emp['base_pay'] as num?)?.toDouble() ?? 0;
+        salaryType = (emp['salary_type'] ?? 'monthly').toString();
+        salaryBaseDays = (emp['salary_base_days'] as num?)?.toInt() ?? 30;
+      }
+
+      final att = attMap[eid] ?? {};
+      final presentDays = att['present'] ?? 0;
+      final halfDays = att['half_day'] ?? 0;
+      final absentDays = att['absent'] ?? 0;
+      final doubleDays = att['double'] ?? 0;
+      final nightShifts = att['night'] ?? 0;
+
+      final effectiveDays = presentDays + (halfDays * 0.5) + (doubleDays * 2.0);
+      final baseDays = salaryBaseDays > 0 ? salaryBaseDays : 30;
+
+      double baseSalary = 0;
+      if (salaryType == 'monthly') {
+        baseSalary = (basePay / baseDays) * effectiveDays;
+      } else {
+        baseSalary = basePay * effectiveDays;
+      }
+
+      final prod = prodMap[eid] ?? {};
+      final totalBonus = (prod['total_all_bonus'] as num?)?.toDouble() ?? 0;
+      final totalAdvance = advMap[eid] ?? 0;
+      final netSalaryRaw = baseSalary + totalBonus - totalAdvance;
+      final netSalary = (netSalaryRaw / 10).round() * 10.0;
+
+      result[eid] = {
+        'employee': emp,
+        'present_days': presentDays,
+        'half_days': halfDays,
+        'absent_days': absentDays,
+        'double_days': doubleDays,
+        'night_shifts': nightShifts,
+        'effective_days': effectiveDays,
+        'base_pay': basePay,
+        'salary_type': salaryType,
+        'salary_base_days': baseDays,
+        'base_salary': baseSalary,
+        'total_stitch': (prod['total_stitch'] as num?)?.toInt() ?? 0,
+        'total_bonus': (prod['total_bonus'] as num?)?.toDouble() ?? 0,
+        'total_incentive': (prod['total_incentive'] as num?)?.toDouble() ?? 0,
+        'total_all_bonus': totalBonus,
+        'total_advance': totalAdvance,
+        'net_salary': netSalary,
+      };
+    }
+    return result;
+  }
+
+  /// Get salary summary for an employee in a date range
+  ///
+  /// Uses employee_salary_history to find the effective salary for the period.
+  /// Falls back to the current employees.base_pay if no history exists.
+  Future<Map<String, dynamic>> getEmployeeSalarySummary({
+    required int employeeId,
+    required int fromMs,
+    required int toMs,
+  }) async {
+    final db = await database;
+
+    // Employee info
+    final empRows =
+        await db.query('employees', where: 'id = ?', whereArgs: [employeeId]);
+    final emp = empRows.isNotEmpty ? empRows.first : <String, dynamic>{};
+
+    // Find effective salary for this period from salary history
+    // Pick the history record whose effective_from is <= the start of the period
+    // (most recent one before or at the period start)
+    final histRows = await db.rawQuery('''
+      SELECT * FROM employee_salary_history
+      WHERE employee_id = ? AND effective_from <= ?
+      ORDER BY effective_from DESC
+      LIMIT 1
+    ''', [employeeId, fromMs]);
+
+    final double basePay;
+    final String salaryType;
+    final int salaryBaseDays;
+
+    if (histRows.isNotEmpty) {
+      final h = histRows.first;
+      basePay = (h['base_pay'] as num?)?.toDouble() ?? 0;
+      salaryType = (h['salary_type'] ?? 'monthly').toString();
+      salaryBaseDays = (h['salary_base_days'] as num?)?.toInt() ?? 30;
+    } else {
+      basePay = (emp['base_pay'] as num?)?.toDouble() ?? 0;
+      salaryType = (emp['salary_type'] ?? 'monthly').toString();
+      salaryBaseDays = (emp['salary_base_days'] as num?)?.toInt() ?? 30;
+    }
+
+    // Attendance counts
+    final attRows = await db.rawQuery('''
+      SELECT status, shift, COUNT(*) as cnt
+      FROM attendance
+      WHERE employee_id = ? AND date >= ? AND date <= ?
+      GROUP BY status, shift
+    ''', [employeeId, fromMs, toMs]);
+
+    int presentDays = 0;
+    int halfDays = 0;
+    int absentDays = 0;
+    int doubleDays = 0;
+    int nightShifts = 0;
+
+    for (final r in attRows) {
+      final status = (r['status'] ?? '').toString();
+      final shift = (r['shift'] ?? '').toString();
+      final cnt = (r['cnt'] as int?) ?? 0;
+      if (status == 'present') {
+        presentDays += cnt;
+        if (shift == 'night') nightShifts += cnt;
+      } else if (status == 'half_day') {
+        halfDays += cnt;
+      } else if (status == 'absent') {
+        absentDays += cnt;
+      } else if (status == 'double') {
+        doubleDays += cnt;
+        if (shift == 'night') nightShifts += cnt;
+      }
+    }
+
+    // Production bonus totals
+    final prodRows = await db.rawQuery('''
+      SELECT
+        COALESCE(SUM(stitch), 0) as total_stitch,
+        COALESCE(SUM(bonus), 0) as total_bonus,
+        COALESCE(SUM(incentive_bonus), 0) as total_incentive,
+        COALESCE(SUM(total_bonus), 0) as total_all_bonus
+      FROM production_entries
+      WHERE employee_id = ? AND date >= ? AND date <= ?
+    ''', [employeeId, fromMs, toMs]);
+
+    final prod = prodRows.isNotEmpty ? prodRows.first : <String, dynamic>{};
+
+    // Effective working days: present + half*0.5 + double*2
+    final effectiveDays = presentDays + (halfDays * 0.5) + (doubleDays * 2.0);
+
+    final int baseDays = salaryBaseDays > 0 ? salaryBaseDays : 30;
+
+    double baseSalary = 0;
+    if (salaryType == 'monthly') {
+      // Proportional: (basePay / baseDays) * effectiveDays
+      baseSalary = (basePay / baseDays) * effectiveDays;
+    } else {
+      // daily: basePay * effectiveDays
+      baseSalary = basePay * effectiveDays;
+    }
+
+    final totalBonus = (prod['total_all_bonus'] as num?)?.toDouble() ?? 0;
+
+    // Advance total till end-of-period
+    final advRows = await db.rawQuery('''
+      SELECT COALESCE(SUM(amount), 0) as total_advance
+      FROM salary_advances
+      WHERE employee_id = ? AND date <= ?
+    ''', [employeeId, toMs]);
+    final totalAdvance =
+        (advRows.isNotEmpty ? advRows.first['total_advance'] as num? : null)
+                ?.toDouble() ??
+            0;
+
+    final netSalaryRaw = baseSalary + totalBonus - totalAdvance;
+    // Round to nearest 10 (0-4 down, 5-9 up)
+    final netSalary = (netSalaryRaw / 10).round() * 10.0;
+
+    return {
+      'employee': emp,
+      'present_days': presentDays,
+      'half_days': halfDays,
+      'absent_days': absentDays,
+      'double_days': doubleDays,
+      'night_shifts': nightShifts,
+      'effective_days': effectiveDays,
+      'base_pay': basePay,
+      'salary_type': salaryType,
+      'salary_base_days': baseDays,
+      'base_salary': baseSalary,
+      'total_stitch': (prod['total_stitch'] as num?)?.toInt() ?? 0,
+      'total_bonus': (prod['total_bonus'] as num?)?.toDouble() ?? 0,
+      'total_incentive': (prod['total_incentive'] as num?)?.toDouble() ?? 0,
+      'total_all_bonus': totalBonus,
+      'total_advance': totalAdvance,
+      'net_salary': netSalary,
+    };
+  }
+
+  // ================= SALARY HISTORY =================
+  Future<List<Map<String, dynamic>>> getEmployeeSalaryHistory(
+      int employeeId) async {
+    final db = await database;
+    return db.query('employee_salary_history',
+        where: 'employee_id = ?',
+        whereArgs: [employeeId],
+        orderBy: 'effective_from DESC');
+  }
+
+  Future<int> insertSalaryHistory(Map<String, dynamic> data) async {
+    return _syncInsert('employee_salary_history', data);
+  }
+
+  Future<void> deleteSalaryHistory(int id) async {
+    await _syncDelete('employee_salary_history', id);
+  }
+
+  // ================= SALARY ADVANCES =================
+  Future<List<Map<String, dynamic>>> getSalaryAdvances({
+    int? employeeId,
+    int? fromMs,
+    int? toMs,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+    if (employeeId != null) {
+      where.add('sa.employee_id = ?');
+      args.add(employeeId);
+    }
+    if (fromMs != null) {
+      where.add('sa.date >= ?');
+      args.add(fromMs);
+    }
+    if (toMs != null) {
+      where.add('sa.date <= ?');
+      args.add(toMs);
+    }
+    final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
+    return db.rawQuery('''
+      SELECT sa.*, e.name AS employee_name, e.designation, e.unit_name
+      FROM salary_advances sa
+      LEFT JOIN employees e ON e.id = sa.employee_id
+      $whereClause
+      ORDER BY sa.date DESC, e.name ASC
+    ''', args);
+  }
+
+  Future<int> insertSalaryAdvance(Map<String, dynamic> data) async {
+    return _syncInsert('salary_advances', data);
+  }
+
+  Future<void> updateSalaryAdvance(Map<String, dynamic> data, int id) async {
+    await _syncUpdate('salary_advances', data, id);
+  }
+
+  Future<void> deleteSalaryAdvance(int id) async {
+    await _syncDelete('salary_advances', id);
+  }
+
+  // ================= SALARY PAYMENTS =================
+  Future<List<Map<String, dynamic>>> getSalaryPayments({
+    int? employeeId,
+    int? fromMs,
+    int? toMs,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+    if (employeeId != null) {
+      where.add('sp.employee_id = ?');
+      args.add(employeeId);
+    }
+    if (fromMs != null) {
+      where.add('sp.date >= ?');
+      args.add(fromMs);
+    }
+    if (toMs != null) {
+      where.add('sp.date <= ?');
+      args.add(toMs);
+    }
+    final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
+    return db.rawQuery('''
+      SELECT sp.*, e.name AS employee_name, e.designation, e.unit_name
+      FROM salary_payments sp
+      LEFT JOIN employees e ON e.id = sp.employee_id
+      $whereClause
+      ORDER BY sp.date DESC, e.name ASC
+    ''', args);
+  }
+
+  Future<int> insertSalaryPayment(Map<String, dynamic> data) async {
+    return _syncInsert('salary_payments', data);
+  }
+
+  Future<void> updateSalaryPayment(Map<String, dynamic> data, int id) async {
+    await _syncUpdate('salary_payments', data, id);
+  }
+
+  Future<void> deleteSalaryPayment(int id) async {
+    await _syncDelete('salary_payments', id);
+  }
+
+  // ================= SAVED PAYROLL =================
+  Future<int> insertSavedPayroll(Map<String, dynamic> data) async {
+    return _syncInsert('saved_payroll', data);
+  }
+
+  Future<void> deleteSavedPayroll(int id) async {
+    await _syncDelete('saved_payroll', id);
+  }
+
+  /// Delete all saved payroll for a given period
+  Future<void> deleteSavedPayrollForPeriod(int fromMs, int toMs) async {
+    final db = await database;
+    await db.delete('saved_payroll',
+        where: 'from_date = ? AND to_date = ?', whereArgs: [fromMs, toMs]);
+  }
+
+  /// Get saved payroll rows for a period, optionally for one employee
+  Future<List<Map<String, dynamic>>> getSavedPayroll({
+    required int fromMs,
+    required int toMs,
+    int? employeeId,
+  }) async {
+    final db = await database;
+    final where = <String>['sp.from_date = ?', 'sp.to_date = ?'];
+    final args = <dynamic>[fromMs, toMs];
+    if (employeeId != null) {
+      where.add('sp.employee_id = ?');
+      args.add(employeeId);
+    }
+    return db.rawQuery('''
+      SELECT sp.*, e.name AS employee_name, e.designation, e.unit_name
+      FROM saved_payroll sp
+      LEFT JOIN employees e ON e.id = sp.employee_id
+      ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}
+      ORDER BY e.unit_name ASC, e.designation ASC, e.name ASC
+    ''', args);
+  }
+
+  /// Check if payroll is saved for this period
+  Future<bool> isPayrollSaved(int fromMs, int toMs) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) as cnt FROM saved_payroll WHERE from_date = ? AND to_date = ?',
+      [fromMs, toMs],
+    );
+    return (rows.first['cnt'] as int? ?? 0) > 0;
   }
 }

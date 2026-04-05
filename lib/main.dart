@@ -12,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/erp_database.dart';
 import 'data/firebase_sync_service.dart';
+import 'data/permission_service.dart';
+import 'theme/app_theme.dart';
 import 'pages/dashboard_page.dart';
 import 'pages/login_page.dart';
 
@@ -40,15 +42,23 @@ Future<void> main() async {
     debugPrint('⚠ Database init failed: $e');
   }
 
-  // Just initialize the sync service reference. No auto-pull, no listeners.
-  // User taps "Update Data" on dashboard to sync from Firebase.
-  FirebaseSyncService.instance.init().catchError((e) {
-    debugPrint('⚠ Firebase sync init failed: $e');
-  });
+  // Auto-sync: init → full sync → start real-time listeners
+  try {
+    await FirebaseSyncService.instance.init();
+    await FirebaseSyncService.instance.fullSync();
+    FirebaseSyncService.instance.startListening();
+  } catch (e) {
+    debugPrint('⚠ Firebase sync failed: $e');
+  }
 
   final prefs = await SharedPreferences.getInstance();
   final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
   final isRegistered = prefs.getBool('is_registered') ?? false;
+
+  if (isLoggedIn) {
+    final phone = prefs.getString('user_phone') ?? '';
+    await PermissionService.instance.loadPermissions(phone);
+  }
 
   runApp(
       MyApp(showLogin: isRegistered && !isLoggedIn, showDashboard: isLoggedIn));
@@ -75,6 +85,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'ERP Inventory',
+      theme: AppTheme.neonDark,
       home: home,
     );
   }

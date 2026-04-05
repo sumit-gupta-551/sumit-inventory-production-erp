@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/permission_service.dart';
+
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
 
@@ -24,7 +26,7 @@ class _RegisterPageState extends State<RegisterPage> {
   /// Only users who know this code can register.
   static const _validAppCode = '9586551551';
 
-  static const _primary = Color(0xFF4F46E5);
+  static const _primary = Color(0xFF00F5FF);
 
   @override
   void dispose() {
@@ -77,6 +79,9 @@ class _RegisterPageState extends State<RegisterPage> {
       await prefs.setBool('is_registered', true);
       await prefs.setBool('is_logged_in', true);
 
+      await PermissionService.instance
+          .registerUser(phone, name, hashedPassword);
+
       if (!mounted) return;
       Navigator.of(context).pop(true); // Return success
     } catch (e) {
@@ -102,7 +107,7 @@ class _RegisterPageState extends State<RegisterPage> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+            colors: [Color(0xFF0D0221), Color(0xFF150530)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -141,7 +146,8 @@ class _RegisterPageState extends State<RegisterPage> {
                       const SizedBox(height: 8),
                       const Text(
                         'Register to get started',
-                        style: TextStyle(color: Colors.black54, fontSize: 14),
+                        style:
+                            TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
                       ),
                       const SizedBox(height: 28),
 

@@ -6,16 +6,16 @@ import '../models/party.dart';
 /// DASHBOARD COLOR SYSTEM
 /// =======================
 class AppColors {
-  static const bg = Color(0xFFF6F8FC);
-  static const card = Colors.white;
-  static const shadow = Color(0x1A000000);
+  static const bg = Color(0xFF0D0221);
+  static const card = Color(0xFF120230);
+  static const shadow = Color(0x40000000);
 
-  static const primary = Color(0xFF5C7CFA);
+  static const primary = Color(0xFF00F5FF);
   static const success = Color(0xFF51CF66);
-  static const pink = Color(0xFFF783AC);
+  static const pink = Color(0xFFFF00E5);
 
-  static const textDark = Color(0xFF212529);
-  static const textLight = Color(0xFF868E96);
+  static const textDark = Color(0xFFF8FAFC);
+  static const textLight = Color(0xFF94A3B8);
 }
 
 /// =======================
@@ -131,19 +131,22 @@ class _PartyFormPageState extends State<PartyFormPage> {
                   decoration: InputDecoration(
                     labelText: 'Party Type',
                     labelStyle: const TextStyle(color: AppColors.textLight),
-                    prefixIcon: const Icon(Icons.category, color: AppColors.primary),
+                    prefixIcon:
+                        const Icon(Icons.category, color: AppColors.primary),
                     filled: true,
                     fillColor: AppColors.bg,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(18),
                       borderSide: BorderSide.none,
                     ),
                   ),
                   items: const [
-                    DropdownMenuItem(value: 'Sales', child: Text('Sales Party')),
-                    DropdownMenuItem(value: 'Purchase', child: Text('Purchase Party')),
+                    DropdownMenuItem(
+                        value: 'Sales', child: Text('Sales Party')),
+                    DropdownMenuItem(
+                        value: 'Purchase', child: Text('Purchase Party')),
                   ],
                   onChanged: (val) {
                     if (val != null) setState(() => _selectedPartyType = val);

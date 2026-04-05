@@ -275,7 +275,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     setState(() {
       if (editingItemIndex != null) {
         if (qty <= 0) {
-          _msg('Enter valid mtr');
+          _msg('Enter valid ${selectedProduct?.unit ?? 'qty'}');
           return;
         }
         final shadeId = selectedFabricShadeId!;
@@ -290,7 +290,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
             (id) => (selectedShadeQtyById[id] ?? 0) <= 0,
           );
           if (invalid) {
-            _msg('Enter mtr for each selected shade');
+            _msg(
+                'Enter ${selectedProduct?.unit ?? 'qty'} for each selected shade');
             return;
           }
         }
@@ -303,7 +304,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                   : qty);
 
           if (rowQty <= 0) {
-            _msg('Enter valid mtr');
+            _msg('Enter valid ${selectedProduct?.unit ?? 'qty'}');
             return;
           }
 
@@ -850,7 +851,6 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
       'category': 'Fabric',
       'unit': 'Mtr',
       'min_stock': 0,
-      'gst_category_id': null,
     });
     await _loadMasters();
     return _findProductByToken(clean);
@@ -1300,7 +1300,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                           decimal: true,
                         ),
                         decoration: InputDecoration(
-                          labelText: 'Mtr',
+                          labelText: selectedProduct?.unit ?? 'Qty',
                           suffixIcon: lines.isEmpty
                               ? null
                               : IconButton(
@@ -1341,7 +1341,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                             ('party', 'Party'),
                             ('product', 'Product'),
                             ('shade', 'Shade'),
-                            ('qty', 'Mtr'),
+                            ('qty', selectedProduct?.unit ?? 'Qty'),
                           ].map((e) {
                             final key = e.$1;
                             return ChoiceChip(
@@ -1878,8 +1878,9 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                                           const TextInputType.numberWithOptions(
                                         decimal: true,
                                       ),
-                                      decoration: const InputDecoration(
-                                          labelText: 'Mtr'),
+                                      decoration: InputDecoration(
+                                          labelText:
+                                              selectedProduct?.unit ?? 'Qty'),
                                       onChanged: (v) {
                                         final q =
                                             double.tryParse(v.trim()) ?? 0;
@@ -1995,6 +1996,23 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
       }
 
       if (!mounted) return;
+
+      // Capture data BEFORE clearing form for SMS & Firebase sync
+      final savedDate = dateCtrl.text.trim().isEmpty
+          ? DateFormat('dd-MM-yyyy').format(DateTime.now())
+          : dateCtrl.text.trim();
+      final savedPartyName = selectedParty?.name ?? '';
+      final savedProductName = selectedProduct?.name ?? '';
+      final savedUnit = selectedProduct?.unit ?? 'Qty';
+      final savedTotalMtr = _totalMtr;
+      final savedShadeLines = _buildShadeQtySummaryText();
+      final savedItems = items
+          .map((i) => {
+                'shade_no': i['shade_no'] ?? _shadeLabel(i['shade_id'] as int?),
+                'mtr': i['qty'],
+              })
+          .toList();
+
       _prepareNextEntry();
       _msg('Inventory saved. Ready for next entry.');
 
@@ -2007,20 +2025,12 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
         ).ref('inventory');
 
         final inventoryData = {
-          'date': dateCtrl.text.trim().isEmpty
-              ? DateFormat('dd-MM-yyyy').format(DateTime.now())
-              : dateCtrl.text.trim(),
-          'party_name': selectedParty?.name ?? '',
+          'date': savedDate,
+          'party_name': savedPartyName,
           'bill_no': savedInvoice,
-          'product': selectedProduct?.name ?? '',
-          'items': [
-            for (final i in items)
-              {
-                'shade_no': i['shade_no'] ?? _shadeLabel(i['shade_id'] as int?),
-                'mtr': i['qty'],
-              }
-          ],
-          'total_mtr': _totalMtr,
+          'product': savedProductName,
+          'items': savedItems,
+          'total_mtr': savedTotalMtr,
           'timestamp': ServerValue.timestamp,
         };
         await dbRef.push().set(inventoryData);
@@ -2032,6 +2042,12 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
 
       await _autoSendInventoryMessage(
         invoiceNo: savedInvoice,
+        date: savedDate,
+        partyName: savedPartyName,
+        productName: savedProductName,
+        unit: savedUnit,
+        shadeLines: savedShadeLines,
+        totalMtr: savedTotalMtr,
       );
     } catch (e) {
       if (mounted) setState(() => _syncState = SyncState.error);
@@ -2041,22 +2057,26 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
 
   Future<void> _autoSendInventoryMessage({
     required String invoiceNo,
+    required String date,
+    required String partyName,
+    required String productName,
+    required String unit,
+    required String shadeLines,
+    required double totalMtr,
   }) async {
     if (kIsWeb || defaultTargetPlatform == TargetPlatform.iOS) {
       return;
     }
 
-    final fixed = _autoReportMobile.trim();
-    final to = fixed;
+    final to = _autoReportMobile.trim();
     if (to.isEmpty) return;
 
-    final shadeLines = _buildShadeQtySummaryText();
-    final body = 'Date: ${dateCtrl.text.trim()}\n'
-        'Party: ${selectedParty?.name ?? '-'}\n'
+    final body = 'Date: $date\n'
+        'Party: ${partyName.isEmpty ? '-' : partyName}\n'
         'Bill No: ${invoiceNo.isEmpty ? '-' : invoiceNo}\n'
-        'Product: ${selectedProduct?.name ?? '-'}\n'
+        'Product: ${productName.isEmpty ? '-' : productName}\n'
         'Shades: ${shadeLines.isNotEmpty ? shadeLines : '-'}\n'
-        'Total Mtr: ${_totalMtr.toStringAsFixed(2)}';
+        'Total $unit: ${totalMtr.toStringAsFixed(2)}';
 
     final granted = await _telephony.requestPhoneAndSmsPermissions;
     if (granted != true) {
@@ -2120,13 +2140,12 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
         elevation: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF1B5E20), Color(0xFF388E3C)],
+              colors: [Color(0xFF130328), Color(0xFF1A043D)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -2197,8 +2216,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                     // ---------- HEADER ----------
                     InventoryFormCard(
                       title: 'INVENTORY HEADER',
-                      backgroundColor: const Color(0xFFE8F5E9),
-                      borderColor: const Color(0xFF81C784),
+                      backgroundColor: const Color(0xFF0A2818),
+                      borderColor: const Color(0xFF2E7D32),
                       padding: const EdgeInsets.all(10),
                       children: [
                         Row(
@@ -2217,7 +2236,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                             'Auto SMS to: $_autoReportMobile',
                             style: const TextStyle(
                               fontSize: 11,
-                              color: Colors.black54,
+                              color: Color(0xFF94A3B8),
                             ),
                           ),
                         ),
@@ -2276,8 +2295,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                     // ---------- SHADE ITEMS ----------
                     InventoryFormCard(
                       title: 'SHADE-WISE ITEMS',
-                      backgroundColor: const Color(0xFFE3F2FD),
-                      borderColor: const Color(0xFF64B5F6),
+                      backgroundColor: const Color(0xFF0A1828),
+                      borderColor: const Color(0xFF1565C0),
                       padding: const EdgeInsets.all(10),
                       children: [
                         SwitchListTile(
@@ -2293,12 +2312,12 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                           height: 40,
                           child: OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF1565C0),
+                              foregroundColor: const Color(0xFF00F5FF),
                               side: const BorderSide(
-                                color: Color(0xFF64B5F6),
+                                color: Color(0xFF00F5FF),
                                 width: 1.5,
                               ),
-                              backgroundColor: Colors.white,
+                              backgroundColor: const Color(0xFF120230),
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 8),
                               shape: RoundedRectangleBorder(
@@ -2334,14 +2353,14 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                   decoration: InputDecoration(
-                                    labelText: 'Mtr',
+                                    labelText: selectedProduct?.unit ?? 'Qty',
                                     contentPadding: const EdgeInsets.symmetric(
                                         horizontal: 10, vertical: 8),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     filled: true,
-                                    fillColor: Colors.white,
+                                    fillColor: const Color(0xFF0D0221),
                                   ),
                                 ),
                               ),
@@ -2352,8 +2371,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                               width: 100,
                               child: ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF1565C0),
-                                  foregroundColor: Colors.white,
+                                  backgroundColor: const Color(0xFF00F5FF),
+                                  foregroundColor: const Color(0xFF0D0221),
                                   padding:
                                       const EdgeInsets.symmetric(horizontal: 6),
                                   shape: RoundedRectangleBorder(
@@ -2399,7 +2418,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                             final qty = (item['qty'] as num).toDouble();
 
                             return Card(
-                              color: Colors.blue.shade50,
+                              color: const Color(0xFF120230),
                               margin: const EdgeInsets.only(bottom: 4),
                               child: ListTile(
                                 dense: true,
@@ -2412,7 +2431,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                                   style: const TextStyle(fontSize: 13),
                                 ),
                                 subtitle: Text(
-                                  'Mtr: ${qty.toStringAsFixed(2)}',
+                                  '${selectedProduct?.unit ?? 'Qty'}: ${qty.toStringAsFixed(2)}',
                                   style: const TextStyle(fontSize: 11),
                                 ),
                                 trailing: Row(
@@ -2458,8 +2477,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                     // ---------- SUMMARY ----------
                     InventoryFormCard(
                       title: 'SUMMARY',
-                      backgroundColor: const Color(0xFFEDE7F6),
-                      borderColor: const Color(0xFF9575CD),
+                      backgroundColor: const Color(0xFF1A0A2A),
+                      borderColor: const Color(0xFF7B61FF),
                       padding: const EdgeInsets.all(10),
                       children: [
                         Row(
@@ -2473,7 +2492,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                             ),
                             Expanded(
                               child: Text(
-                                'Total Mtr: ${_totalMtr.toStringAsFixed(2)}',
+                                'Total ${selectedProduct?.unit ?? 'Qty'}: ${_totalMtr.toStringAsFixed(2)}',
                                 textAlign: TextAlign.end,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
@@ -2494,10 +2513,10 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
           : Container(
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: const Color(0xFF120230),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withOpacity(0.3),
                     blurRadius: 10,
                     offset: const Offset(0, -2),
                   ),
@@ -2508,8 +2527,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                   height: 44,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1B5E20),
-                      foregroundColor: Colors.white,
+                      backgroundColor: const Color(0xFF00F5FF),
+                      foregroundColor: const Color(0xFF0D0221),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -2563,7 +2582,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
           borderRadius: BorderRadius.circular(8),
         ),
         filled: true,
-        fillColor: Colors.white,
+        fillColor: const Color(0xFF0D0221),
       ),
     );
   }
@@ -2581,7 +2600,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
           borderRadius: BorderRadius.circular(8),
         ),
         filled: true,
-        fillColor: Colors.white,
+        fillColor: const Color(0xFF0D0221),
       ),
     );
   }

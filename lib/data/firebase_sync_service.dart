@@ -33,6 +33,14 @@ class FirebaseSyncService {
     'purchase_master',
     'purchase_items',
     'challan_requirements',
+    'units',
+    'employees',
+    'production_entries',
+    'attendance',
+    'employee_salary_history',
+    'salary_advances',
+    'salary_payments',
+    'saved_payroll',
   ];
 
   late final DatabaseReference _ref;

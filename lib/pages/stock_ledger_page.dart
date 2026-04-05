@@ -98,7 +98,8 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
     }
 
     final doc = pw.Document(theme: await _pdfTheme());
-    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoBytes =
+        (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
     final dateRange = '${_fmtDateChip(fromDate)} to ${_fmtDateChip(toDate)}';
@@ -125,7 +126,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(24),
         build: (context) {
-          final widgets = <pw.Widget>[
+          return [
             pw.Center(
               child: pw.Image(logoImage, width: 80, height: 80),
             ),
@@ -144,59 +145,6 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
               'Shade filter: ${selectedShadeId == null ? 'All Shades' : 'Applied'}',
             ),
             pw.SizedBox(height: 12),
-          ];
-
-          // Product-wise sections with totals
-          for (final entry in grouped.entries) {
-            final productName = entry.key;
-            final rows = entry.value;
-            final productTotal = rows.fold<double>(
-              0,
-              (sum, r) => sum + ((r['balance'] as num?)?.toDouble() ?? 0),
-            );
-            final shadeRows = rows
-                .map((r) => [
-                      (r['shade'] ?? '-').toString(),
-                      ((r['balance'] as num?)?.toDouble() ?? 0)
-                          .toStringAsFixed(2),
-                    ])
-                .toList();
-            shadeRows.add(['TOTAL', productTotal.toStringAsFixed(2)]);
-
-            widgets.add(
-              pw.Container(
-                margin: const pw.EdgeInsets.only(bottom: 12),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      'Product: $productName   |   Total Qty: ${productTotal.toStringAsFixed(2)}',
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                    ),
-                    pw.SizedBox(height: 4),
-                    pw.TableHelper.fromTextArray(
-                      headers: const ['Shade', 'Balance'],
-                      data: shadeRows,
-                      headerStyle:
-                          pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                      cellAlignment: pw.Alignment.center,
-                      cellAlignments: {
-                        0: pw.Alignment.center,
-                        1: pw.Alignment.center,
-                      },
-                      columnWidths: {
-                        0: const pw.FlexColumnWidth(2),
-                        1: const pw.FlexColumnWidth(1),
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          // Grand total
-          widgets.add(
             pw.Container(
               padding: const pw.EdgeInsets.all(8),
               decoration: pw.BoxDecoration(
@@ -212,12 +160,81 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
                 textAlign: pw.TextAlign.center,
               ),
             ),
-          );
-
-          return widgets;
+          ];
         },
       ),
     );
+
+    // Each product on its own page
+    for (final entry in grouped.entries) {
+      final productName = entry.key;
+      final rows = entry.value;
+      final unit =
+          rows.isNotEmpty ? (rows.first['unit'] ?? 'Mtr').toString() : 'Mtr';
+      final productTotal = rows.fold<double>(
+        0,
+        (sum, r) => sum + ((r['balance'] as num?)?.toDouble() ?? 0),
+      );
+      final shadeRows = rows
+          .map((r) => [
+                (r['shade'] ?? '-').toString(),
+                ((r['balance'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
+              ])
+          .toList();
+
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (context) {
+            return [
+              pw.Center(
+                child: pw.Image(logoImage, width: 60, height: 60),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text(
+                productName,
+                style:
+                    pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text('Shades: ${rows.length}   |   Unit: $unit'),
+              pw.SizedBox(height: 10),
+              pw.TableHelper.fromTextArray(
+                headers: ['Shade', 'Balance ($unit)'],
+                data: shadeRows,
+                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                cellAlignment: pw.Alignment.center,
+                cellAlignments: {
+                  0: pw.Alignment.center,
+                  1: pw.Alignment.center,
+                },
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(2),
+                  1: const pw.FlexColumnWidth(1),
+                },
+              ),
+              pw.SizedBox(height: 12),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.grey200,
+                  border: pw.Border.all(color: PdfColors.grey400),
+                ),
+                child: pw.Text(
+                  'Total: ${productTotal.toStringAsFixed(2)} $unit',
+                  style: pw.TextStyle(
+                    fontSize: 16,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+            ];
+          },
+        ),
+      );
+    }
 
     await Printing.layoutPdf(
       onLayout: (_) async => doc.save(),
@@ -242,6 +259,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         'product': (r['product_name'] ?? 'Product #$pid').toString(),
         'shade': (r['shade_no'] ?? (sid == 0 ? 'NO SHADE' : 'Shade #$sid'))
             .toString(),
+        'unit': (r['product_unit'] ?? 'Mtr').toString(),
       };
     }
 
@@ -259,6 +277,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         'product': (labels?['product'] ?? 'Product #$pid').toString(),
         'shade': (labels?['shade'] ?? (sid == 0 ? 'NO SHADE' : 'Shade #$sid'))
             .toString(),
+        'unit': (labels?['unit'] ?? 'Mtr').toString(),
         'balance': bal,
       });
     });
@@ -266,7 +285,14 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
     rows.sort((a, b) {
       final p = (a['product'] as String).compareTo(b['product'] as String);
       if (p != 0) return p;
-      return (a['shade'] as String).compareTo(b['shade'] as String);
+      final sA = a['shade'] as String;
+      final sB = b['shade'] as String;
+      final nA = num.tryParse(sA);
+      final nB = num.tryParse(sB);
+      if (nA != null && nB != null) return nA.compareTo(nB);
+      if (nA != null) return -1;
+      if (nB != null) return 1;
+      return sA.compareTo(sB);
     });
 
     return rows;
@@ -285,6 +311,8 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
   }
 
   Widget _shadeBalanceGrid(List<Map<String, dynamic>> rows) {
+    final unit =
+        rows.isNotEmpty ? (rows.first['unit'] ?? 'Mtr').toString() : 'Mtr';
     return Table(
       border: TableBorder.all(color: Colors.black12),
       columnWidths: const {
@@ -292,10 +320,10 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         1: FlexColumnWidth(1),
       },
       children: [
-        const TableRow(
-          decoration: BoxDecoration(color: Color(0xFFF3F4F6)),
+        TableRow(
+          decoration: const BoxDecoration(color: Color(0xFFF3F4F6)),
           children: [
-            Padding(
+            const Padding(
               padding: EdgeInsets.all(10),
               child: Text(
                 'Shade No',
@@ -304,11 +332,11 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
               ),
             ),
             Padding(
-              padding: EdgeInsets.all(10),
+              padding: const EdgeInsets.all(10),
               child: Text(
-                'Balance',
+                'Balance ($unit)',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontWeight: FontWeight.w700),
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
           ],
@@ -379,6 +407,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
     ledger = await db.rawQuery('''
       SELECT l.*, 
              p.name AS product_name,
+             COALESCE(p.unit, 'Mtr') AS product_unit,
              COALESCE(f.shade_no, 'NO SHADE') AS shade_no
       FROM stock_ledger l
       JOIN products p ON p.id = l.product_id
@@ -456,7 +485,14 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
             (selectedProductId == null || r['productId'] == selectedProductId))
           r['shadeId'] as int: (r['shade'] ?? '').toString(),
     }.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
+      ..sort((a, b) {
+        final nA = num.tryParse(a.value);
+        final nB = num.tryParse(b.value);
+        if (nA != null && nB != null) return nA.compareTo(nB);
+        if (nA != null) return -1;
+        if (nB != null) return 1;
+        return a.value.compareTo(b.value);
+      });
     final filteredRows = _applyProductShadeFilters(summaryRows);
     final grouped = _groupByProduct(filteredRows);
     final productTitle = selectedProductId == null
@@ -643,7 +679,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
                                   ),
                                 ),
                                 subtitle: Text(
-                                  'Shades: ${rows.length}  |  Total Qty: ${rows.fold<double>(0, (sum, r) => sum + ((r['balance'] as num?)?.toDouble() ?? 0)).toStringAsFixed(2)}',
+                                  'Shades: ${rows.length}  |  Total: ${rows.fold<double>(0, (sum, r) => sum + ((r['balance'] as num?)?.toDouble() ?? 0)).toStringAsFixed(2)} ${(rows.isNotEmpty ? (rows.first['unit'] ?? 'Mtr') : 'Mtr')}',
                                   textAlign: TextAlign.center,
                                 ),
                                 children: [

@@ -14,7 +14,6 @@ class MasterControlPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FB),
       appBar: AppBar(
         centerTitle: true,
         title: const Text(
@@ -33,43 +32,43 @@ class MasterControlPage extends StatelessWidget {
             _MasterTile(
               title: 'Firms',
               icon: Icons.business,
-              color: Colors.blue,
+              color: const Color(0xFF00F5FF),
               page: FirmListPage(),
             ),
             _MasterTile(
               title: 'Parties',
               icon: Icons.people,
-              color: Colors.green,
+              color: const Color(0xFF51CF66),
               page: PartyMasterPage(),
             ),
             _MasterTile(
               title: 'Products / Items',
               icon: Icons.inventory_2,
-              color: Colors.orange,
+              color: const Color(0xFFFFB74D),
               page: ProductMasterPage(),
             ),
             _MasterTile(
               title: 'Machines',
               icon: Icons.precision_manufacturing,
-              color: Colors.teal,
+              color: const Color(0xFF7B61FF),
               page: MachineMasterPage(),
             ),
             _MasterTile(
               title: 'Programs',
               icon: Icons.list_alt,
-              color: Colors.indigo,
+              color: const Color(0xFF7DF9FF),
               page: ProgramMasterPage(),
             ),
             _MasterTile(
               title: 'Thread / Shade',
               icon: Icons.palette,
-              color: Colors.purple,
+              color: const Color(0xFFFF00E5),
               page: ThreadShadeMasterPage(),
             ),
             _MasterTile(
               title: 'Delay Reasons',
               icon: Icons.timer_off,
-              color: Colors.redAccent,
+              color: const Color(0xFFFF6B6B),
               page: DelayReasonMasterPage(),
             ),
           ],
@@ -107,11 +106,11 @@ class _MasterTile extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: const Color(0xFF120230),
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.15),
+              color: color.withOpacity(0.2),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -124,7 +123,7 @@ class _MasterTile extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: color.withOpacity(0.12),
+                color: color.withOpacity(0.15),
               ),
               child: Icon(icon, size: 32, color: color),
             ),
@@ -135,7 +134,7 @@ class _MasterTile extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Colors.black87,
+                color: Color(0xFFF8FAFC),
               ),
             ),
           ],

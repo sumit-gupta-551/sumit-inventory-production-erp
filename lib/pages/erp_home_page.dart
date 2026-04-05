@@ -48,7 +48,7 @@ class ErpHomePage extends StatelessWidget {
     required Widget page,
   }) {
     return Material(
-      color: Colors.white,
+      color: const Color(0xFF120230),
       borderRadius: BorderRadius.circular(12),
       elevation: 4,
       child: InkWell(
@@ -64,7 +64,7 @@ class ErpHomePage extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 42, color: Colors.blue),
+              Icon(icon, size: 42, color: const Color(0xFF00F5FF)),
               const SizedBox(height: 12),
               Text(
                 title,

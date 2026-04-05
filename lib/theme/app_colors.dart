@@ -1,23 +1,22 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // 🌤 Light theme colors
-  static const lightBg = Color(0xFFF6F8FC);
-  static const lightCard = Colors.white;
-  static const lightShadow = Color(0x1A000000);
+  // � Neon dark theme
+  static const bg = Color(0xFF0D0221);
+  static const surface = Color(0xFF120230);
+  static const card = Color(0xFF1A043D);
+  static const appBar = Color(0xFF130328);
 
-  // 🌙 Dark theme colors
-  static const darkBg = Color(0xFF0B0F1A);
-  static const darkCard = Color(0xFF12172A);
-
-  // 🎨 Brand colors (used in both themes)
-  static const primary = Color(0xFF5C7CFA); // dashboard blue
-  static const pink = Color(0xFFF783AC);
+  // 🎨 Accent
+  static const accent = Color(0xFF00F5FF);
+  static const accentLight = Color(0xFF7DF9FF);
+  static const magenta = Color(0xFFFF00E5);
+  static const violet = Color(0xFF7B61FF);
   static const success = Color(0xFF51CF66);
-  static const cyan = Color(0xFF22B8CF);
+  static const error = Color(0xFFFF6B6B);
 
   // 📝 Text
-  static const textDark = Color(0xFF212529);
-  static const textLight = Color(0xFF868E96);
-  static const textWhite = Colors.white;
+  static const textPrimary = Color(0xFFF8FAFC);
+  static const textMuted = Color(0xFF94A3B8);
+  static const textDark = Color(0xFF212529); // for rare light surfaces
 }
