@@ -14,7 +14,7 @@ class StockSlider extends StatelessWidget {
           StockCard(
             title: 'Total Stock',
             value: '1,250',
-            colors: [Color(0xFF1976D2), Color(0xFF0066FF)],
+            colors: [Color(0xFF1565C0), Color(0xFF0066FF)],
           ),
           StockCard(
             title: 'Low Stock',

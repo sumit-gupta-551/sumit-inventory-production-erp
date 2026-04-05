@@ -32,7 +32,7 @@ class MasterControlPage extends StatelessWidget {
             _MasterTile(
               title: 'Firms',
               icon: Icons.business,
-              color: const Color(0xFF1976D2),
+              color: const Color(0xFF1565C0),
               page: FirmListPage(),
             ),
             _MasterTile(

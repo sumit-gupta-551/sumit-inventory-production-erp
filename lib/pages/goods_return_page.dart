@@ -36,9 +36,14 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
   }
 
   Future<void> _loadMasters() async {
-    products = await ErpDatabase.instance.getProducts();
-    parties = await ErpDatabase.instance.getParties();
-    fabricShades = await ErpDatabase.instance.getFabricShades();
+    final results = await Future.wait([
+      ErpDatabase.instance.getProducts(),
+      ErpDatabase.instance.getParties(),
+      ErpDatabase.instance.getFabricShades(),
+    ]);
+    products = results[0] as List<Product>;
+    parties = results[1] as List<Party>;
+    fabricShades = results[2] as List<Map<String, dynamic>>;
     setState(() {});
   }
 
@@ -119,116 +124,183 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Goods Return')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF5F5F5), Color(0xFFE3F2FD), Color(0xFFF5F5F5)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Stack(
           children: [
-            InventoryFormCard(
-              title: 'Return Details',
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: dateCtrl,
-                        readOnly: true,
-                        onTap: () async {
-                          final d = await showDatePicker(
-                            context: context,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2100),
-                            initialDate: DateTime.now(),
-                          );
-                          if (d != null) {
-                            dateCtrl.text = DateFormat('dd-MM-yyyy').format(d);
-                          }
-                        },
-                        decoration: const InputDecoration(labelText: 'Date'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: invoiceCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Return / Bill No'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<Party>(
-                  value: selectedParty,
-                  decoration: const InputDecoration(labelText: 'Party'),
-                  items: parties
-                      .map((p) =>
-                          DropdownMenuItem(value: p, child: Text(p.name)))
-                      .toList(),
-                  onChanged: (v) => setState(() => selectedParty = v),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<Product>(
-                  value: selectedProduct,
-                  decoration: const InputDecoration(labelText: 'Product'),
-                  items: products
-                      .map((p) =>
-                          DropdownMenuItem(value: p, child: Text(p.name)))
-                      .toList(),
-                  onChanged: (v) => setState(() => selectedProduct = v),
-                ),
-              ],
-            ),
-            InventoryFormCard(
-              title: 'Add Fabric Shade',
-              // ignore: sort_child_properties_last
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<Map<String, dynamic>>(
-                        value: selectedShade,
-                        decoration:
-                            const InputDecoration(labelText: 'Fabric Shade'),
-                        items: fabricShades
-                            .map((s) => DropdownMenuItem(
-                                  value: s,
-                                  child: Text(s['shade_no']),
-                                ))
-                            .toList(),
-                        onChanged: (v) => setState(() => selectedShade = v),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: qtyCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration:
-                            const InputDecoration(labelText: 'Quantity'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              footer: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _addShade,
-                  child: const Text('ADD SHADE'),
+            Positioned(
+              top: -100,
+              right: -60,
+              child: Container(
+                width: 300,
+                height: 300,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    const Color(0xFF1565C0).withValues(alpha: 0.15),
+                    const Color(0xFF1565C0).withValues(alpha: 0.04),
+                    Colors.transparent,
+                  ], stops: const [
+                    0.0,
+                    0.4,
+                    1.0
+                  ]),
                 ),
               ),
             ),
-            _addedShadesList(),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _saveReturn,
-                child: const Text(
-                  'SAVE GOODS RETURN',
-                  style: TextStyle(fontSize: 16),
+            Positioned(
+              bottom: -140,
+              left: -80,
+              child: Container(
+                width: 320,
+                height: 320,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    const Color(0xFFE91E63).withValues(alpha: 0.12),
+                    Colors.transparent,
+                  ]),
                 ),
+              ),
+            ),
+            Positioned(
+              top: 300,
+              left: -50,
+              child: Container(
+                width: 200,
+                height: 200,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    const Color(0xFF673AB7).withValues(alpha: 0.10),
+                    Colors.transparent,
+                  ]),
+                ),
+              ),
+            ),
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  InventoryFormCard(
+                    title: 'Return Details',
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: dateCtrl,
+                              readOnly: true,
+                              onTap: () async {
+                                final d = await showDatePicker(
+                                  context: context,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime(2100),
+                                  initialDate: DateTime.now(),
+                                );
+                                if (d != null) {
+                                  dateCtrl.text =
+                                      DateFormat('dd-MM-yyyy').format(d);
+                                }
+                              },
+                              decoration:
+                                  const InputDecoration(labelText: 'Date'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: invoiceCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: 'Return / Bill No'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<Party>(
+                        value: selectedParty,
+                        decoration: const InputDecoration(labelText: 'Party'),
+                        items: parties
+                            .map((p) =>
+                                DropdownMenuItem(value: p, child: Text(p.name)))
+                            .toList(),
+                        onChanged: (v) => setState(() => selectedParty = v),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<Product>(
+                        value: selectedProduct,
+                        decoration: const InputDecoration(labelText: 'Product'),
+                        items: products
+                            .map((p) =>
+                                DropdownMenuItem(value: p, child: Text(p.name)))
+                            .toList(),
+                        onChanged: (v) => setState(() => selectedProduct = v),
+                      ),
+                    ],
+                  ),
+                  InventoryFormCard(
+                    title: 'Add Fabric Shade',
+                    // ignore: sort_child_properties_last
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child:
+                                DropdownButtonFormField<Map<String, dynamic>>(
+                              value: selectedShade,
+                              decoration: const InputDecoration(
+                                  labelText: 'Fabric Shade'),
+                              items: fabricShades
+                                  .map((s) => DropdownMenuItem(
+                                        value: s,
+                                        child: Text(s['shade_no']),
+                                      ))
+                                  .toList(),
+                              onChanged: (v) =>
+                                  setState(() => selectedShade = v),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: qtyCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration:
+                                  const InputDecoration(labelText: 'Quantity'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    footer: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _addShade,
+                        child: const Text('ADD SHADE'),
+                      ),
+                    ),
+                  ),
+                  _addedShadesList(),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: _saveReturn,
+                      child: const Text(
+                        'SAVE GOODS RETURN',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

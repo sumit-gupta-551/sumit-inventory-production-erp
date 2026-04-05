@@ -88,7 +88,7 @@ class AppTheme {
     ),
     chipTheme: const ChipThemeData(
       backgroundColor: AppColors.bg,
-      selectedColor: Color(0xFFBBDEFB),
+      selectedColor: Color(0xFFB3E5FC),
       labelStyle: TextStyle(color: AppColors.textPrimary),
     ),
     inputDecorationTheme: InputDecorationTheme(

@@ -26,7 +26,7 @@ class _RegisterPageState extends State<RegisterPage> {
   /// Only users who know this code can register.
   static const _validAppCode = '9586551551';
 
-  static const _primary = Color(0xFF1976D2);
+  static const _primary = Color(0xFF1565C0);
 
   @override
   void dispose() {

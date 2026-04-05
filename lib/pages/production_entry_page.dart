@@ -56,14 +56,16 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
 
   Future<void> _loadMasters() async {
     try {
-      final m = await ErpDatabase.instance.getMachines();
-      final e = await ErpDatabase.instance.getEmployees(status: 'active');
-      final u = await ErpDatabase.instance.getUnits();
+      final results = await Future.wait([
+        ErpDatabase.instance.getMachines(),
+        ErpDatabase.instance.getEmployees(status: 'active'),
+        ErpDatabase.instance.getUnits(),
+      ]);
       if (!mounted) return;
       setState(() {
-        machines = m;
-        employees = e;
-        units = u;
+        machines = (results[0] as List).cast<Map<String, dynamic>>();
+        employees = (results[1] as List).cast<Map<String, dynamic>>();
+        units = (results[2] as List).cast<Map<String, dynamic>>();
         loading = false;
       });
       _loadSavedEntries();
@@ -491,7 +493,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF1976D2), Color(0xFFFFFFFF)],
+              colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -510,397 +512,473 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
         ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: MediaQuery(
-        data: MediaQuery.of(context)
-            .copyWith(textScaler: const TextScaler.linear(0.85)),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-          child: Column(
-            children: [
-              // HEADER
-              InventoryFormCard(
-                title: 'PRODUCTION HEADER',
-                backgroundColor: const Color(0xFF0A1828),
-                borderColor: const Color(0xFF1565C0),
-                padding: const EdgeInsets.all(10),
-                children: [
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.chevron_left, size: 22),
-                        onPressed: _prevDay,
-                        constraints: const BoxConstraints(),
-                        padding: EdgeInsets.zero,
-                      ),
-                      Expanded(
-                        child: InkWell(
-                          onTap: _pickDate,
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 8, horizontal: 8),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                  color: const Color(0xFF1976D2)
-                                      .withValues(alpha: 0.3)),
-                              borderRadius: BorderRadius.circular(6),
-                              color: const Color(0xFFFFFFFF),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF5F5F5), Color(0xFFE3F2FD), Color(0xFFF5F5F5)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: -100,
+              right: -60,
+              child: Container(
+                width: 300,
+                height: 300,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    const Color(0xFF1565C0).withValues(alpha: 0.15),
+                    const Color(0xFF1565C0).withValues(alpha: 0.04),
+                    Colors.transparent,
+                  ], stops: const [
+                    0.0,
+                    0.4,
+                    1.0
+                  ]),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: -140,
+              left: -80,
+              child: Container(
+                width: 320,
+                height: 320,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    const Color(0xFFE91E63).withValues(alpha: 0.12),
+                    Colors.transparent,
+                  ]),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 300,
+              left: -50,
+              child: Container(
+                width: 200,
+                height: 200,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    const Color(0xFF673AB7).withValues(alpha: 0.10),
+                    Colors.transparent,
+                  ]),
+                ),
+              ),
+            ),
+            MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(0.85)),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Column(
+                  children: [
+                    // HEADER
+                    InventoryFormCard(
+                      title: 'PRODUCTION HEADER',
+                      backgroundColor: const Color(0xFFE3F2FD),
+                      borderColor: const Color(0xFF90CAF9),
+                      padding: const EdgeInsets.all(10),
+                      children: [
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.chevron_left, size: 22),
+                              onPressed: _prevDay,
+                              constraints: const BoxConstraints(),
+                              padding: EdgeInsets.zero,
                             ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.calendar_today,
-                                    size: 16, color: Colors.grey),
-                                const SizedBox(width: 6),
-                                Text(
-                                  DateFormat('dd MMM yyyy (EEEE)')
-                                      .format(_selectedDate),
+                            Expanded(
+                              child: InkWell(
+                                onTap: _pickDate,
+                                borderRadius: BorderRadius.circular(6),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 8, horizontal: 8),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                        color: const Color(0xFF1565C0)
+                                            .withValues(alpha: 0.3)),
+                                    borderRadius: BorderRadius.circular(6),
+                                    color: const Color(0xFFFFFFFF),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.calendar_today,
+                                          size: 16, color: Colors.grey),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        DateFormat('dd MMM yyyy (EEEE)')
+                                            .format(_selectedDate),
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.chevron_right, size: 22),
+                              onPressed: _nextDay,
+                              constraints: const BoxConstraints(),
+                              padding: EdgeInsets.zero,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        DropdownButtonFormField<String>(
+                          value: _selectedUnit,
+                          isDense: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Unit',
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 8),
+                          ),
+                          isExpanded: true,
+                          items: [
+                            const DropdownMenuItem<String>(
+                                value: null, child: Text('All Units')),
+                            ...units.map((u) => DropdownMenuItem<String>(
+                                  value: u['name'] as String,
+                                  child: Text(u['name'] as String),
+                                )),
+                          ],
+                          onChanged: (v) => setState(() {
+                            _selectedUnit = v;
+                            _selMachineId = null;
+                          }),
+                        ),
+                        const SizedBox(height: 6),
+                        DropdownButtonFormField<int>(
+                          focusNode: _machineFocusNode,
+                          value: _selMachineId,
+                          isDense: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Machine',
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 8),
+                          ),
+                          isExpanded: true,
+                          items: fMachines
+                              .map((m) => DropdownMenuItem<int>(
+                                    value: m['id'] as int,
+                                    child: Text(
+                                        '${m['code'] ?? ''} ${m['name'] ?? ''}'
+                                            .trim()),
+                                  ))
+                              .toList(),
+                          onChanged: (v) => setState(() => _selMachineId = v),
+                        ),
+                        const SizedBox(height: 6),
+                        DropdownButtonFormField<int>(
+                          value: _selEmployeeId,
+                          isDense: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Employee *',
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 8),
+                          ),
+                          isExpanded: true,
+                          items: employees
+                              .map((e) => DropdownMenuItem<int>(
+                                    value: e['id'] as int,
+                                    child: Text((e['name'] ?? '').toString()),
+                                  ))
+                              .toList(),
+                          onChanged: (v) => setState(() => _selEmployeeId = v),
+                        ),
+                      ],
+                    ),
+
+                    // ENTRY DETAILS
+                    InventoryFormCard(
+                      title: 'ENTRY DETAILS',
+                      backgroundColor: const Color(0xFFE8F5E9),
+                      borderColor: const Color(0xFF81C784),
+                      padding: const EdgeInsets.all(10),
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: SizedBox(
+                                height: 40,
+                                child: TextField(
+                                  controller: _stitchCtrl,
+                                  keyboardType: TextInputType.number,
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600),
+                                  decoration: InputDecoration(
+                                    labelText: 'Stitch',
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
+                                    border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8)),
+                                    filled: true,
+                                    fillColor: const Color(0xFFF5F5F5),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: SizedBox(
+                                height: 40,
+                                child: TextField(
+                                  controller: _bonusCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          decimal: true),
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600),
+                                  decoration: InputDecoration(
+                                    labelText: 'Bonus',
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
+                                    border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8)),
+                                    filled: true,
+                                    fillColor: const Color(0xFFF5F5F5),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: SizedBox(
+                                height: 40,
+                                child: TextField(
+                                  controller: _incentiveCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          decimal: true),
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600),
+                                  decoration: InputDecoration(
+                                    labelText: 'Incentive',
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
+                                    border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8)),
+                                    filled: true,
+                                    fillColor: const Color(0xFFF5F5F5),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 40,
+                                child: TextField(
+                                  controller: _remarksCtrl,
+                                  textCapitalization:
+                                      TextCapitalization.sentences,
+                                  style: const TextStyle(fontSize: 13),
+                                  decoration: InputDecoration(
+                                    labelText: 'Remarks',
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
+                                    border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8)),
+                                    filled: true,
+                                    fillColor: const Color(0xFFF5F5F5),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              height: 40,
+                              width: 100,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1565C0),
+                                  foregroundColor: const Color(0xFFF5F5F5),
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 6),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8)),
+                                  textStyle: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700),
+                                ),
+                                onPressed: _editingSavedId != null
+                                    ? _updateSavedItem
+                                    : _addItem,
+                                icon: Icon(
+                                  (_editingIndex != null ||
+                                          _editingSavedId != null)
+                                      ? Icons.check
+                                      : Icons.add,
+                                  size: 18,
+                                ),
+                                label: Text((_editingIndex != null ||
+                                        _editingSavedId != null)
+                                    ? 'UPDATE'
+                                    : 'ADD'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_editingIndex != null ||
+                            _editingSavedId != null) ...[
+                          const SizedBox(height: 6),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _cancelEdit,
+                              child: const Text('Cancel edit'),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        if (_items.isEmpty)
+                          const Text('No items added',
+                              style: TextStyle(
+                                  fontSize: 12, color: Color(0xFF757575)))
+                        else
+                          ..._items.asMap().entries.map((entry) {
+                            final i = entry.key;
+                            final item = entry.value;
+                            final stitch = (item['stitch'] as int?) ?? 0;
+                            final bonus =
+                                (item['bonus'] as num?)?.toDouble() ?? 0;
+                            final incentive =
+                                (item['incentive'] as num?)?.toDouble() ?? 0;
+                            final total = bonus + incentive;
+                            return Card(
+                              color: const Color(0xFF0A2818),
+                              margin: const EdgeInsets.only(bottom: 4),
+                              child: ListTile(
+                                dense: true,
+                                visualDensity:
+                                    const VisualDensity(vertical: -3),
+                                contentPadding:
+                                    const EdgeInsets.symmetric(horizontal: 10),
+                                title: Text(
+                                  '${_empName(item['employee_id'] as int?)}  |  ${_machineName(item['machine_id'] as int?)}',
                                   style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.chevron_right, size: 22),
-                        onPressed: _nextDay,
-                        constraints: const BoxConstraints(),
-                        padding: EdgeInsets.zero,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  DropdownButtonFormField<String>(
-                    value: _selectedUnit,
-                    isDense: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Unit',
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                subtitle: Text(
+                                  'St: $stitch  |  B: ${bonus.toStringAsFixed(0)}  |  I: ${incentive.toStringAsFixed(0)}  |  T: ${total.toStringAsFixed(0)}'
+                                  '${(item['remarks'] ?? '').toString().isNotEmpty ? '  |  ${item['remarks']}' : ''}',
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      iconSize: 20,
+                                      constraints: const BoxConstraints(
+                                          minWidth: 32, minHeight: 32),
+                                      padding: EdgeInsets.zero,
+                                      icon: const Icon(Icons.edit_outlined),
+                                      onPressed: () => _startEdit(i),
+                                    ),
+                                    IconButton(
+                                      iconSize: 20,
+                                      constraints: const BoxConstraints(
+                                          minWidth: 32, minHeight: 32),
+                                      padding: EdgeInsets.zero,
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.red),
+                                      onPressed: () => _removeItem(i),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+                      ],
                     ),
-                    isExpanded: true,
-                    items: [
-                      const DropdownMenuItem<String>(
-                          value: null, child: Text('All Units')),
-                      ...units.map((u) => DropdownMenuItem<String>(
-                            value: u['name'] as String,
-                            child: Text(u['name'] as String),
-                          )),
-                    ],
-                    onChanged: (v) => setState(() {
-                      _selectedUnit = v;
-                      _selMachineId = null;
-                    }),
-                  ),
-                  const SizedBox(height: 6),
-                  DropdownButtonFormField<int>(
-                    focusNode: _machineFocusNode,
-                    value: _selMachineId,
-                    isDense: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Machine',
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    ),
-                    isExpanded: true,
-                    items: fMachines
-                        .map((m) => DropdownMenuItem<int>(
-                              value: m['id'] as int,
+
+                    // SUMMARY
+                    InventoryFormCard(
+                      title: 'SUMMARY',
+                      backgroundColor: const Color(0xFFF3E5F5),
+                      borderColor: const Color(0xFFCE93D8),
+                      padding: const EdgeInsets.all(10),
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
                               child: Text(
-                                  '${m['code'] ?? ''} ${m['name'] ?? ''}'
-                                      .trim()),
-                            ))
-                        .toList(),
-                    onChanged: (v) => setState(() => _selMachineId = v),
-                  ),
-                  const SizedBox(height: 6),
-                  DropdownButtonFormField<int>(
-                    value: _selEmployeeId,
-                    isDense: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Employee *',
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    ),
-                    isExpanded: true,
-                    items: employees
-                        .map((e) => DropdownMenuItem<int>(
-                              value: e['id'] as int,
-                              child: Text((e['name'] ?? '').toString()),
-                            ))
-                        .toList(),
-                    onChanged: (v) => setState(() => _selEmployeeId = v),
-                  ),
-                ],
-              ),
-
-              // ENTRY DETAILS
-              InventoryFormCard(
-                title: 'ENTRY DETAILS',
-                backgroundColor: const Color(0xFF0A2818),
-                borderColor: const Color(0xFF2E7D32),
-                padding: const EdgeInsets.all(10),
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: SizedBox(
-                          height: 40,
-                          child: TextField(
-                            controller: _stitchCtrl,
-                            keyboardType: TextInputType.number,
-                            style: const TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w600),
-                            decoration: InputDecoration(
-                              labelText: 'Stitch',
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 8),
-                              border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8)),
-                              filled: true,
-                              fillColor: const Color(0xFFF5F5F5),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: SizedBox(
-                          height: 40,
-                          child: TextField(
-                            controller: _bonusCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
-                            style: const TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w600),
-                            decoration: InputDecoration(
-                              labelText: 'Bonus',
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 8),
-                              border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8)),
-                              filled: true,
-                              fillColor: const Color(0xFFF5F5F5),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: SizedBox(
-                          height: 40,
-                          child: TextField(
-                            controller: _incentiveCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
-                            style: const TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w600),
-                            decoration: InputDecoration(
-                              labelText: 'Incentive',
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 8),
-                              border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8)),
-                              filled: true,
-                              fillColor: const Color(0xFFF5F5F5),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 40,
-                          child: TextField(
-                            controller: _remarksCtrl,
-                            textCapitalization: TextCapitalization.sentences,
-                            style: const TextStyle(fontSize: 13),
-                            decoration: InputDecoration(
-                              labelText: 'Remarks',
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 8),
-                              border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8)),
-                              filled: true,
-                              fillColor: const Color(0xFFF5F5F5),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        height: 40,
-                        width: 100,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF1976D2),
-                            foregroundColor: const Color(0xFFF5F5F5),
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8)),
-                            textStyle: const TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.w700),
-                          ),
-                          onPressed: _editingSavedId != null
-                              ? _updateSavedItem
-                              : _addItem,
-                          icon: Icon(
-                            (_editingIndex != null || _editingSavedId != null)
-                                ? Icons.check
-                                : Icons.add,
-                            size: 18,
-                          ),
-                          label: Text(
-                              (_editingIndex != null || _editingSavedId != null)
-                                  ? 'UPDATE'
-                                  : 'ADD'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_editingIndex != null || _editingSavedId != null) ...[
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: _cancelEdit,
-                        child: const Text('Cancel edit'),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 6),
-                  if (_items.isEmpty)
-                    const Text('No items added',
-                        style:
-                            TextStyle(fontSize: 12, color: Color(0xFF757575)))
-                  else
-                    ..._items.asMap().entries.map((entry) {
-                      final i = entry.key;
-                      final item = entry.value;
-                      final stitch = (item['stitch'] as int?) ?? 0;
-                      final bonus = (item['bonus'] as num?)?.toDouble() ?? 0;
-                      final incentive =
-                          (item['incentive'] as num?)?.toDouble() ?? 0;
-                      final total = bonus + incentive;
-                      return Card(
-                        color: const Color(0xFF0A2818),
-                        margin: const EdgeInsets.only(bottom: 4),
-                        child: ListTile(
-                          dense: true,
-                          visualDensity: const VisualDensity(vertical: -3),
-                          contentPadding:
-                              const EdgeInsets.symmetric(horizontal: 10),
-                          title: Text(
-                            '${_empName(item['employee_id'] as int?)}  |  ${_machineName(item['machine_id'] as int?)}',
-                            style: const TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: Text(
-                            'St: $stitch  |  B: ${bonus.toStringAsFixed(0)}  |  I: ${incentive.toStringAsFixed(0)}  |  T: ${total.toStringAsFixed(0)}'
-                            '${(item['remarks'] ?? '').toString().isNotEmpty ? '  |  ${item['remarks']}' : ''}',
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                iconSize: 20,
-                                constraints: const BoxConstraints(
-                                    minWidth: 32, minHeight: 32),
-                                padding: EdgeInsets.zero,
-                                icon: const Icon(Icons.edit_outlined),
-                                onPressed: () => _startEdit(i),
+                                'Items: ${_items.length}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600, fontSize: 13),
                               ),
-                              IconButton(
-                                iconSize: 20,
-                                constraints: const BoxConstraints(
-                                    minWidth: 32, minHeight: 32),
-                                padding: EdgeInsets.zero,
-                                icon: const Icon(Icons.delete_outline,
-                                    color: Colors.red),
-                                onPressed: () => _removeItem(i),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Stitch: $_totalStitch',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600, fontSize: 13),
                               ),
-                            ],
-                          ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Bonus: ${_totalBonus.toStringAsFixed(0)}',
+                                textAlign: TextAlign.end,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700, fontSize: 14),
+                              ),
+                            ),
+                          ],
                         ),
-                      );
-                    }),
-                ],
-              ),
-
-              // SUMMARY
-              InventoryFormCard(
-                title: 'SUMMARY',
-                backgroundColor: const Color(0xFF1A0A2A),
-                borderColor: const Color(0xFF673AB7),
-                padding: const EdgeInsets.all(10),
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Items: ${_items.length}',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          'Stitch: $_totalStitch',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          'Bonus: ${_totalBonus.toStringAsFixed(0)}',
-                          textAlign: TextAlign.end,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 14),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-
-              // SAVED ENTRIES
-              if (savedCount > 0)
-                InventoryFormCard(
-                  title:
-                      'SAVED  ${DateFormat('dd MMM').format(_selectedDate)} ($savedCount)',
-                  backgroundColor: const Color(0xFF2A1A0A),
-                  borderColor: const Color(0xFFFFB74D),
-                  padding: const EdgeInsets.all(10),
-                  children: [
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2A1A0A),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'Stitch: $savedTotalStitch  |  Bonus: ${savedTotalBonus.toStringAsFixed(0)}',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 12),
-                      ),
+                      ],
                     ),
-                    ..._buildGroupedSaved(),
+
+                    // SAVED ENTRIES
+                    if (savedCount > 0)
+                      InventoryFormCard(
+                        title:
+                            'SAVED  ${DateFormat('dd MMM').format(_selectedDate)} ($savedCount)',
+                        backgroundColor: const Color(0xFFFFF3E0),
+                        borderColor: const Color(0xFFFFCC80),
+                        padding: const EdgeInsets.all(10),
+                        children: [
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2A1A0A),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'Stitch: $savedTotalStitch  |  Bonus: ${savedTotalBonus.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 12),
+                            ),
+                          ),
+                          ..._buildGroupedSaved(),
+                        ],
+                      ),
                   ],
                 ),
-            ],
-          ),
+              ),
+            ),
+          ],
         ),
       ),
       bottomNavigationBar: loading
@@ -922,7 +1000,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                   height: 44,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1976D2),
+                      backgroundColor: const Color(0xFF1565C0),
                       foregroundColor: const Color(0xFFF5F5F5),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10)),

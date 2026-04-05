@@ -64,7 +64,7 @@ class ErpHomePage extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 42, color: const Color(0xFF1976D2)),
+              Icon(icon, size: 42, color: const Color(0xFF1565C0)),
               const SizedBox(height: 12),
               Text(
                 title,

@@ -10,7 +10,7 @@ class AppColors {
   static const card = Color(0xFFFFFFFF);
   static const shadow = Color(0x40000000);
 
-  static const primary = Color(0xFF1976D2);
+  static const primary = Color(0xFF1565C0);
   static const success = Color(0xFF4CAF50);
   static const pink = Color(0xFFE91E63);
 

@@ -73,15 +73,21 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
 
   Future<void> _loadMasters() async {
     try {
-      final p = await ErpDatabase.instance.getProducts();
-      final pa = await ErpDatabase.instance.getParties();
-      final s = await ErpDatabase.instance.getFabricShades();
       final db = await ErpDatabase.instance.database;
-      final links = await db.rawQuery('''
-        SELECT DISTINCT product_id, shade_id
-        FROM purchase_items
-        WHERE product_id IS NOT NULL AND shade_id IS NOT NULL
-      ''');
+      final results = await Future.wait([
+        ErpDatabase.instance.getProducts(),
+        ErpDatabase.instance.getParties(),
+        ErpDatabase.instance.getFabricShades(),
+        db.rawQuery('''
+          SELECT DISTINCT product_id, shade_id
+          FROM purchase_items
+          WHERE product_id IS NOT NULL AND shade_id IS NOT NULL
+        '''),
+      ]);
+      final p = results[0] as List<Product>;
+      final pa = results[1] as List<Party>;
+      final s = results[2] as List<Map<String, dynamic>>;
+      final links = results[3] as List<Map<String, dynamic>>;
 
       final map = <int, Set<int>>{};
       for (final r in links) {
@@ -1096,7 +1102,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF1976D2), Color(0xFFFFFFFF)],
+              colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -1120,502 +1126,594 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
       ),
       body: loading
           ? const Center(child: CircularProgressIndicator())
-          : MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                textScaler: const TextScaler.linear(0.85),
+          : Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFFF5F5F5),
+                    Color(0xFFE3F2FD),
+                    Color(0xFFF5F5F5)
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
               ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                child: Column(
-                  children: [
-                    InventoryFormCard(
-                      title: 'ISSUE HEADER',
-                      backgroundColor: const Color(0xFF0A0A28),
-                      borderColor: const Color(0xFF7986CB),
-                      padding: const EdgeInsets.all(10),
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(child: _dateField()),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: _field(
-                                chNoCtrl,
-                                'Challan No',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        DropdownButtonFormField<Party>(
-                          value: selectedParty,
-                          isDense: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Party Code',
-                            contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 8),
-                          ),
-                          items: parties
-                              .map(
-                                (p) => DropdownMenuItem<Party>(
-                                  value: p,
-                                  child: Text(p.name),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) => setState(() => selectedParty = v),
-                        ),
-                        const SizedBox(height: 6),
-                        DropdownButtonFormField<Product>(
-                          value: selectedProduct,
-                          isDense: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Product',
-                            contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 8),
-                          ),
-                          items: products
-                              .map(
-                                (p) => DropdownMenuItem<Product>(
-                                  value: p,
-                                  child: Text(p.name),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) {
-                            setState(() {
-                              selectedProduct = v;
-                              selectedShadeId = null;
-                              selectedShadeIds.clear();
-                              selectedShadeQtyById.clear();
-                              if (editingIndex != null) {
-                                editingIndex = null;
-                                qtyCtrl.clear();
-                              }
-                            });
-                          },
-                        ),
-                      ],
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: -100,
+                    right: -60,
+                    child: Container(
+                      width: 300,
+                      height: 300,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(colors: [
+                          const Color(0xFF1565C0).withValues(alpha: 0.15),
+                          const Color(0xFF1565C0).withValues(alpha: 0.04),
+                          Colors.transparent,
+                        ], stops: const [
+                          0.0,
+                          0.4,
+                          1.0
+                        ]),
+                      ),
                     ),
-                    InventoryFormCard(
-                      title: 'STOCK ITEMS',
-                      backgroundColor: const Color(0xFF0A2818),
-                      borderColor: const Color(0xFF2E7D32),
-                      padding: const EdgeInsets.all(10),
-                      children: [
-                        SwitchListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Merge same shade'),
-                          value: mergeSameShade,
-                          onChanged: (v) => setState(() => mergeSameShade = v),
-                        ),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 40,
-                          child: OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF1976D2),
-                              side: const BorderSide(
-                                color: Color(0xFF1976D2),
-                                width: 1.5,
-                              ),
-                              backgroundColor: const Color(0xFFFFFFFF),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            focusNode: shadeFocusNode,
-                            onPressed: _openShadePicker,
-                            icon:
-                                const Icon(Icons.color_lens_outlined, size: 18),
-                            label: Text(
-                              _selectedShadeText(),
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SizedBox(
-                                height: 40,
-                                child: TextField(
-                                  controller: qtyCtrl,
-                                  focusNode: qtyFocusNode,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                                  onSubmitted: (_) => _addShade(),
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  decoration: InputDecoration(
-                                    labelText: 'Qty',
-                                    contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 8),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    filled: true,
-                                    fillColor: const Color(0xFFF5F5F5),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              height: 40,
-                              width: 100,
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF1976D2),
-                                  foregroundColor: const Color(0xFFF5F5F5),
-                                  padding:
-                                      const EdgeInsets.symmetric(horizontal: 6),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                onPressed: _addShade,
-                                icon: Icon(
-                                  editingIndex == null
-                                      ? Icons.add
-                                      : Icons.check,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  editingIndex == null ? 'ADD' : 'UPDATE',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (editingIndex != null) ...[
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: _cancelEditShade,
-                              child: const Text('Cancel edit'),
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 6),
-                        if (addedShades.isEmpty)
-                          const Text('No shade items added',
-                              style: TextStyle(fontSize: 12))
-                        else
-                          ...addedShades.asMap().entries.map((entry) {
-                            final i = entry.key;
-                            final item = entry.value;
-                            final qty = (item['qty'] as num).toDouble();
-
-                            return Card(
-                              color: const Color(0xFF0A2818),
-                              margin: const EdgeInsets.only(bottom: 4),
-                              child: ListTile(
-                                dense: true,
-                                visualDensity:
-                                    const VisualDensity(vertical: -3),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(horizontal: 10),
-                                title: Text(
-                                  _shadeLabel(item['shade_id'] as int?),
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                                subtitle: Text(
-                                  '${selectedProduct?.unit ?? 'Qty'}: ${qty.toStringAsFixed(2)}',
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      iconSize: 20,
-                                      constraints: const BoxConstraints(
-                                          minWidth: 32, minHeight: 32),
-                                      padding: EdgeInsets.zero,
-                                      icon: const Icon(Icons.edit_outlined),
-                                      onPressed: () => _startEditShade(i),
-                                    ),
-                                    IconButton(
-                                      iconSize: 20,
-                                      constraints: const BoxConstraints(
-                                          minWidth: 32, minHeight: 32),
-                                      padding: EdgeInsets.zero,
-                                      icon: const Icon(Icons.delete_outline),
-                                      onPressed: () {
-                                        setState(() {
-                                          if (editingIndex == i) {
-                                            editingIndex = null;
-                                            selectedShadeId = null;
-                                            qtyCtrl.clear();
-                                          } else if (editingIndex != null &&
-                                              editingIndex! > i) {
-                                            editingIndex = editingIndex! - 1;
-                                          }
-                                          addedShades.removeAt(i);
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }),
-                      ],
+                  ),
+                  Positioned(
+                    bottom: -140,
+                    left: -80,
+                    child: Container(
+                      width: 320,
+                      height: 320,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(colors: [
+                          const Color(0xFFE91E63).withValues(alpha: 0.12),
+                          Colors.transparent,
+                        ]),
+                      ),
                     ),
-                    // ---------- REQUIREMENT ITEMS GRID ----------
-                    InventoryFormCard(
-                      title: 'REQUIREMENT ITEMS',
-                      backgroundColor: const Color(0xFF2A1A0A),
-                      borderColor: const Color(0xFFFFB74D),
-                      padding: const EdgeInsets.all(10),
-                      children: [
-                        Text(
-                          'Items not in stock â€” tracked as requirement',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.orange.shade800,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 40,
-                          child: OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFFE91E63),
-                              side: const BorderSide(
-                                color: Color(0xFFFFB74D),
-                                width: 1.5,
-                              ),
-                              backgroundColor: const Color(0xFFFFFFFF),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            focusNode: reqShadeFocusNode,
-                            onPressed: _openReqShadePicker,
-                            icon:
-                                const Icon(Icons.color_lens_outlined, size: 18),
-                            label: Text(
-                              _reqSelectedShadeText(),
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SizedBox(
-                                height: 40,
-                                child: TextField(
-                                  controller: reqQtyCtrl,
-                                  focusNode: reqQtyFocusNode,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                                  onSubmitted: (_) => _addReqShade(),
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  decoration: InputDecoration(
-                                    labelText: selectedProduct?.unit ?? 'Qty',
-                                    contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 8),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    filled: true,
-                                    fillColor: const Color(0xFFF5F5F5),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              height: 40,
-                              width: 100,
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE91E63),
-                                  foregroundColor: Colors.white,
-                                  padding:
-                                      const EdgeInsets.symmetric(horizontal: 6),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                onPressed: _addReqShade,
-                                icon: Icon(
-                                  reqEditingIndex == null
-                                      ? Icons.add
-                                      : Icons.check,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  reqEditingIndex == null ? 'ADD' : 'UPDATE',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (reqEditingIndex != null) ...[
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: _cancelEditReqShade,
-                              child: const Text('Cancel edit'),
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 6),
-                        if (addedReqShades.isEmpty)
-                          const Text('No requirement items added',
-                              style: TextStyle(fontSize: 12))
-                        else
-                          ...addedReqShades.asMap().entries.map((entry) {
-                            final i = entry.key;
-                            final item = entry.value;
-                            final qty = (item['qty'] as num).toDouble();
-
-                            return Card(
-                              color: const Color(0xFF2A1A0A),
-                              margin: const EdgeInsets.only(bottom: 4),
-                              child: ListTile(
-                                dense: true,
-                                visualDensity:
-                                    const VisualDensity(vertical: -3),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(horizontal: 10),
-                                title: Text(
-                                  _shadeLabel(item['shade_id'] as int?),
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                                subtitle: Text(
-                                  'Req ${selectedProduct?.unit ?? 'Qty'}: ${qty.toStringAsFixed(2)}',
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      iconSize: 20,
-                                      constraints: const BoxConstraints(
-                                          minWidth: 32, minHeight: 32),
-                                      padding: EdgeInsets.zero,
-                                      icon: const Icon(Icons.edit_outlined),
-                                      onPressed: () => _startEditReqShade(i),
-                                    ),
-                                    IconButton(
-                                      iconSize: 20,
-                                      constraints: const BoxConstraints(
-                                          minWidth: 32, minHeight: 32),
-                                      padding: EdgeInsets.zero,
-                                      icon: const Icon(Icons.delete_outline),
-                                      onPressed: () {
-                                        setState(() {
-                                          if (reqEditingIndex == i) {
-                                            reqEditingIndex = null;
-                                            reqSelectedShadeId = null;
-                                            reqQtyCtrl.clear();
-                                          } else if (reqEditingIndex != null &&
-                                              reqEditingIndex! > i) {
-                                            reqEditingIndex =
-                                                reqEditingIndex! - 1;
-                                          }
-                                          addedReqShades.removeAt(i);
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }),
-                      ],
+                  ),
+                  Positioned(
+                    top: 300,
+                    left: -50,
+                    child: Container(
+                      width: 200,
+                      height: 200,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(colors: [
+                          const Color(0xFF673AB7).withValues(alpha: 0.10),
+                          Colors.transparent,
+                        ]),
+                      ),
                     ),
-                    InventoryFormCard(
-                      title: 'SUMMARY',
-                      backgroundColor: const Color(0xFF1A0A2A),
-                      borderColor: const Color(0xFF673AB7),
-                      padding: const EdgeInsets.all(10),
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Stock: ${addedShades.length} shades',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600, fontSize: 13),
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                '${selectedProduct?.unit ?? 'Qty'}: ${_totalIssueQty.toStringAsFixed(2)}',
-                                textAlign: TextAlign.end,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (addedReqShades.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Row(
+                  ),
+                  MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      textScaler: const TextScaler.linear(0.85),
+                    ),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                      child: Column(
+                        children: [
+                          InventoryFormCard(
+                            title: 'ISSUE HEADER',
+                            backgroundColor: const Color(0xFFE8EAF6),
+                            borderColor: const Color(0xFF9FA8DA),
+                            padding: const EdgeInsets.all(10),
                             children: [
-                              Expanded(
-                                child: Text(
-                                  'Req: ${addedReqShades.length} shades',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                    color: Colors.deepOrange,
+                              Row(
+                                children: [
+                                  Expanded(child: _dateField()),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: _field(
+                                      chNoCtrl,
+                                      'Challan No',
+                                    ),
                                   ),
-                                ),
+                                ],
                               ),
-                              Expanded(
-                                child: Text(
-                                  '${selectedProduct?.unit ?? 'Qty'}: ${_totalReqQty.toStringAsFixed(2)}',
-                                  textAlign: TextAlign.end,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                    color: Colors.deepOrange,
-                                  ),
+                              const SizedBox(height: 6),
+                              DropdownButtonFormField<Party>(
+                                value: selectedParty,
+                                isDense: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'Party Code',
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 8),
                                 ),
+                                items: parties
+                                    .map(
+                                      (p) => DropdownMenuItem<Party>(
+                                        value: p,
+                                        child: Text(p.name),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (v) =>
+                                    setState(() => selectedParty = v),
+                              ),
+                              const SizedBox(height: 6),
+                              DropdownButtonFormField<Product>(
+                                value: selectedProduct,
+                                isDense: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'Product',
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 8),
+                                ),
+                                items: products
+                                    .map(
+                                      (p) => DropdownMenuItem<Product>(
+                                        value: p,
+                                        child: Text(p.name),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (v) {
+                                  setState(() {
+                                    selectedProduct = v;
+                                    selectedShadeId = null;
+                                    selectedShadeIds.clear();
+                                    selectedShadeQtyById.clear();
+                                    if (editingIndex != null) {
+                                      editingIndex = null;
+                                      qtyCtrl.clear();
+                                    }
+                                  });
+                                },
                               ),
                             ],
                           ),
+                          InventoryFormCard(
+                            title: 'STOCK ITEMS',
+                            backgroundColor: const Color(0xFFE8F5E9),
+                            borderColor: const Color(0xFF81C784),
+                            padding: const EdgeInsets.all(10),
+                            children: [
+                              SwitchListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Merge same shade'),
+                                value: mergeSameShade,
+                                onChanged: (v) =>
+                                    setState(() => mergeSameShade = v),
+                              ),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 40,
+                                child: OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF1565C0),
+                                    side: const BorderSide(
+                                      color: Color(0xFF1565C0),
+                                      width: 1.5,
+                                    ),
+                                    backgroundColor: const Color(0xFFFFFFFF),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  focusNode: shadeFocusNode,
+                                  onPressed: _openShadePicker,
+                                  icon: const Icon(Icons.color_lens_outlined,
+                                      size: 18),
+                                  label: Text(
+                                    _selectedShadeText(),
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 40,
+                                      child: TextField(
+                                        controller: qtyCtrl,
+                                        focusNode: qtyFocusNode,
+                                        keyboardType: const TextInputType
+                                            .numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                        onSubmitted: (_) => _addShade(),
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        decoration: InputDecoration(
+                                          labelText: 'Qty',
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 10, vertical: 8),
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF5F5F5),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  SizedBox(
+                                    height: 40,
+                                    width: 100,
+                                    child: ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            const Color(0xFF1565C0),
+                                        foregroundColor:
+                                            const Color(0xFFF5F5F5),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 6),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        textStyle: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      onPressed: _addShade,
+                                      icon: Icon(
+                                        editingIndex == null
+                                            ? Icons.add
+                                            : Icons.check,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        editingIndex == null ? 'ADD' : 'UPDATE',
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (editingIndex != null) ...[
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: _cancelEditShade,
+                                    child: const Text('Cancel edit'),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              if (addedShades.isEmpty)
+                                const Text('No shade items added',
+                                    style: TextStyle(fontSize: 12))
+                              else
+                                ...addedShades.asMap().entries.map((entry) {
+                                  final i = entry.key;
+                                  final item = entry.value;
+                                  final qty = (item['qty'] as num).toDouble();
+
+                                  return Card(
+                                    color: const Color(0xFF0A2818),
+                                    margin: const EdgeInsets.only(bottom: 4),
+                                    child: ListTile(
+                                      dense: true,
+                                      visualDensity:
+                                          const VisualDensity(vertical: -3),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                      title: Text(
+                                        _shadeLabel(item['shade_id'] as int?),
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                      subtitle: Text(
+                                        '${selectedProduct?.unit ?? 'Qty'}: ${qty.toStringAsFixed(2)}',
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            iconSize: 20,
+                                            constraints: const BoxConstraints(
+                                                minWidth: 32, minHeight: 32),
+                                            padding: EdgeInsets.zero,
+                                            icon:
+                                                const Icon(Icons.edit_outlined),
+                                            onPressed: () => _startEditShade(i),
+                                          ),
+                                          IconButton(
+                                            iconSize: 20,
+                                            constraints: const BoxConstraints(
+                                                minWidth: 32, minHeight: 32),
+                                            padding: EdgeInsets.zero,
+                                            icon: const Icon(
+                                                Icons.delete_outline),
+                                            onPressed: () {
+                                              setState(() {
+                                                if (editingIndex == i) {
+                                                  editingIndex = null;
+                                                  selectedShadeId = null;
+                                                  qtyCtrl.clear();
+                                                } else if (editingIndex !=
+                                                        null &&
+                                                    editingIndex! > i) {
+                                                  editingIndex =
+                                                      editingIndex! - 1;
+                                                }
+                                                addedShades.removeAt(i);
+                                              });
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }),
+                            ],
+                          ),
+                          // ---------- REQUIREMENT ITEMS GRID ----------
+                          InventoryFormCard(
+                            title: 'REQUIREMENT ITEMS',
+                            backgroundColor: const Color(0xFFFFF3E0),
+                            borderColor: const Color(0xFFFFCC80),
+                            padding: const EdgeInsets.all(10),
+                            children: [
+                              Text(
+                                'Items not in stock â€” tracked as requirement',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.orange.shade800,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 40,
+                                child: OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFE91E63),
+                                    side: const BorderSide(
+                                      color: Color(0xFFFFB74D),
+                                      width: 1.5,
+                                    ),
+                                    backgroundColor: const Color(0xFFFFFFFF),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  focusNode: reqShadeFocusNode,
+                                  onPressed: _openReqShadePicker,
+                                  icon: const Icon(Icons.color_lens_outlined,
+                                      size: 18),
+                                  label: Text(
+                                    _reqSelectedShadeText(),
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 40,
+                                      child: TextField(
+                                        controller: reqQtyCtrl,
+                                        focusNode: reqQtyFocusNode,
+                                        keyboardType: const TextInputType
+                                            .numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                        onSubmitted: (_) => _addReqShade(),
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        decoration: InputDecoration(
+                                          labelText:
+                                              selectedProduct?.unit ?? 'Qty',
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 10, vertical: 8),
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          filled: true,
+                                          fillColor: const Color(0xFFF5F5F5),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  SizedBox(
+                                    height: 40,
+                                    width: 100,
+                                    child: ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            const Color(0xFFE91E63),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 6),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        textStyle: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      onPressed: _addReqShade,
+                                      icon: Icon(
+                                        reqEditingIndex == null
+                                            ? Icons.add
+                                            : Icons.check,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        reqEditingIndex == null
+                                            ? 'ADD'
+                                            : 'UPDATE',
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (reqEditingIndex != null) ...[
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: _cancelEditReqShade,
+                                    child: const Text('Cancel edit'),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              if (addedReqShades.isEmpty)
+                                const Text('No requirement items added',
+                                    style: TextStyle(fontSize: 12))
+                              else
+                                ...addedReqShades.asMap().entries.map((entry) {
+                                  final i = entry.key;
+                                  final item = entry.value;
+                                  final qty = (item['qty'] as num).toDouble();
+
+                                  return Card(
+                                    color: const Color(0xFF2A1A0A),
+                                    margin: const EdgeInsets.only(bottom: 4),
+                                    child: ListTile(
+                                      dense: true,
+                                      visualDensity:
+                                          const VisualDensity(vertical: -3),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 10),
+                                      title: Text(
+                                        _shadeLabel(item['shade_id'] as int?),
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                      subtitle: Text(
+                                        'Req ${selectedProduct?.unit ?? 'Qty'}: ${qty.toStringAsFixed(2)}',
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            iconSize: 20,
+                                            constraints: const BoxConstraints(
+                                                minWidth: 32, minHeight: 32),
+                                            padding: EdgeInsets.zero,
+                                            icon:
+                                                const Icon(Icons.edit_outlined),
+                                            onPressed: () =>
+                                                _startEditReqShade(i),
+                                          ),
+                                          IconButton(
+                                            iconSize: 20,
+                                            constraints: const BoxConstraints(
+                                                minWidth: 32, minHeight: 32),
+                                            padding: EdgeInsets.zero,
+                                            icon: const Icon(
+                                                Icons.delete_outline),
+                                            onPressed: () {
+                                              setState(() {
+                                                if (reqEditingIndex == i) {
+                                                  reqEditingIndex = null;
+                                                  reqSelectedShadeId = null;
+                                                  reqQtyCtrl.clear();
+                                                } else if (reqEditingIndex !=
+                                                        null &&
+                                                    reqEditingIndex! > i) {
+                                                  reqEditingIndex =
+                                                      reqEditingIndex! - 1;
+                                                }
+                                                addedReqShades.removeAt(i);
+                                              });
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }),
+                            ],
+                          ),
+                          InventoryFormCard(
+                            title: 'SUMMARY',
+                            backgroundColor: const Color(0xFFF3E5F5),
+                            borderColor: const Color(0xFFCE93D8),
+                            padding: const EdgeInsets.all(10),
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Stock: ${addedShades.length} shades',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      '${selectedProduct?.unit ?? 'Qty'}: ${_totalIssueQty.toStringAsFixed(2)}',
+                                      textAlign: TextAlign.end,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (addedReqShades.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Req: ${addedReqShades.length} shades',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                          color: Colors.deepOrange,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        '${selectedProduct?.unit ?? 'Qty'}: ${_totalReqQty.toStringAsFixed(2)}',
+                                        textAlign: TextAlign.end,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14,
+                                          color: Colors.deepOrange,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
                         ],
-                      ],
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
       bottomNavigationBar: loading
@@ -1637,7 +1735,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                   height: 44,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1976D2),
+                      backgroundColor: const Color(0xFF1565C0),
                       foregroundColor: const Color(0xFFF5F5F5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
