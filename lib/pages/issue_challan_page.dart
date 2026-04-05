@@ -605,7 +605,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF130328), Color(0xFF1A043D)],
+              colors: [Color(0xFF1976D2), Color(0xFFFFFFFF)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -647,7 +647,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF120230),
+                    color: const Color(0xFFFFFFFF),
                     borderRadius: BorderRadius.circular(10),
                     boxShadow: [
                       BoxShadow(
@@ -693,7 +693,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                         style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
-                          color: Color(0xFF94A3B8),
+                          color: Color(0xFF757575),
                         ),
                       ),
                     ],
@@ -707,7 +707,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                           child: Text(
                             'No issue challans found',
                             style: TextStyle(
-                                fontSize: 14, color: Color(0xFF94A3B8)),
+                                fontSize: 14, color: Color(0xFF757575)),
                           ),
                         )
                       : ListView.builder(
@@ -746,12 +746,12 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFF00F5FF).withOpacity(0.1),
+              color: const Color(0xFF1976D2).withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: const Icon(
               Icons.receipt_outlined,
-              color: Color(0xFF00F5FF),
+              color: Color(0xFF1976D2),
               size: 22,
             ),
           ),
@@ -764,7 +764,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
           ),
           subtitle: Text(
             '${ch.partyName}  |  ${_fmtDate(ch.dateMs)}',
-            style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF757575)),
           ),
           trailing: IconButton(
             tooltip: 'Download PDF',
@@ -784,7 +784,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFFF8FAFC),
+                  color: Color(0xFF212121),
                 ),
               ),
             ),
@@ -991,7 +991,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
-                      color: Color(0xFF00F5FF),
+                      color: Color(0xFF1976D2),
                     ),
                   ),
                 ],

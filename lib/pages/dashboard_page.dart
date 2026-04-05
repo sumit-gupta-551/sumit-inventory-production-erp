@@ -293,12 +293,12 @@ class _DashboardPageState extends State<DashboardPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A043D),
+        backgroundColor: const Color(0xFFFFFFFF),
         title: const Text('Backup to Cloud',
-            style: TextStyle(color: Color(0xFF00F5FF))),
+            style: TextStyle(color: Color(0xFF1976D2))),
         content: const Text(
           'This will backup all data tables to the secondary Firebase database.\n\nNo user or permission data will be included.',
-          style: TextStyle(color: Color(0xFFF8FAFC)),
+          style: TextStyle(color: Color(0xFF212121)),
         ),
         actions: [
           TextButton(
@@ -307,12 +307,12 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00F5FF)),
+                backgroundColor: const Color(0xFF1976D2)),
             onPressed: () => Navigator.pop(ctx, true),
             icon: const Icon(Icons.cloud_upload_rounded,
-                color: Color(0xFF0D0221)),
+                color: Color(0xFFF5F5F5)),
             label: const Text('Start Backup',
-                style: TextStyle(color: Color(0xFF0D0221))),
+                style: TextStyle(color: Color(0xFFF5F5F5))),
           ),
         ],
       ),
@@ -357,13 +357,13 @@ class _DashboardPageState extends State<DashboardPage> {
           });
 
           return AlertDialog(
-            backgroundColor: const Color(0xFF1A043D),
+            backgroundColor: const Color(0xFFFFFFFF),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CircularProgressIndicator(color: Color(0xFF00F5FF)),
+                const CircularProgressIndicator(color: Color(0xFF1976D2)),
                 const SizedBox(height: 16),
-                Text(status, style: const TextStyle(color: Color(0xFFF8FAFC))),
+                Text(status, style: const TextStyle(color: Color(0xFF212121))),
               ],
             ),
           );
@@ -559,7 +559,7 @@ class _DashboardPageState extends State<DashboardPage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A043D),
+      backgroundColor: const Color(0xFFFFFFFF),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -616,7 +616,7 @@ class _DashboardPageState extends State<DashboardPage> {
           _ReportItem(
               'Attendance Report',
               Icons.fact_check_rounded,
-              const Color(0xFF00F5FF),
+              const Color(0xFF1976D2),
               const AttendanceReportPage(),
               'payroll_attendance'),
         ].where((r) => _perm.hasPermission(r.permKey)).toList();
@@ -648,7 +648,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF00F5FF),
+                      color: Color(0xFF1976D2),
                     ),
                   ),
                 ),
@@ -666,7 +666,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
-                            color: Color(0xFFF8FAFC),
+                            color: Color(0xFF212121),
                           )),
                       trailing: Icon(Icons.chevron_right_rounded,
                           color: Colors.grey.shade600),
@@ -688,7 +688,7 @@ class _DashboardPageState extends State<DashboardPage> {
   void _openReportsList() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1A043D),
+      backgroundColor: const Color(0xFFFFFFFF),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -743,7 +743,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF00F5FF),
+                  color: Color(0xFF1976D2),
                 ),
               ),
               const SizedBox(height: 12),
@@ -760,7 +760,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
-                          color: Color(0xFFF8FAFC),
+                          color: Color(0xFF212121),
                         )),
                     trailing: Icon(Icons.chevron_right_rounded,
                         color: Colors.grey.shade600),
@@ -854,12 +854,12 @@ class _DashboardPageState extends State<DashboardPage> {
   // ================= UI =================
 
   // Premium dark palette
-  static const _bgDark = Color(0xFF0D0221);
-  static const _bgCard = Color(0xFF120230);
-  static const _accent = Color(0xFF00F5FF);
-  static const _accentLight = Color(0xFF7DF9FF);
-  static const _textLight = Color(0xFFF8FAFC);
-  static const _textMuted = Color(0xFF94A3B8);
+  static const _bgDark = Color(0xFFF5F5F5);
+  static const _bgCard = Color(0xFFFFFFFF);
+  static const _accent = Color(0xFF1976D2);
+  static const _accentLight = Color(0xFF64B5F6);
+  static const _textLight = Color(0xFF212121);
+  static const _textMuted = Color(0xFF757575);
 
   String get _greeting => 'Welcome Back';
 
@@ -895,7 +895,7 @@ class _DashboardPageState extends State<DashboardPage> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0D0221), Color(0xFF150530), Color(0xFF0A0118)],
+            colors: [Color(0xFFF5F5F5), Color(0xFFE3F2FD), Color(0xFFF5F5F5)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -913,8 +913,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      const Color(0xFF00F5FF).withValues(alpha: 0.15),
-                      const Color(0xFF00F5FF).withValues(alpha: 0.04),
+                      const Color(0xFF1976D2).withValues(alpha: 0.15),
+                      const Color(0xFF1976D2).withValues(alpha: 0.04),
                       Colors.transparent,
                     ],
                     stops: const [0.0, 0.4, 1.0],
@@ -932,7 +932,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      const Color(0xFFFF00E5).withValues(alpha: 0.12),
+                      const Color(0xFFE91E63).withValues(alpha: 0.12),
                       Colors.transparent,
                     ],
                   ),
@@ -949,7 +949,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      const Color(0xFF7B61FF).withValues(alpha: 0.10),
+                      const Color(0xFF673AB7).withValues(alpha: 0.10),
                       Colors.transparent,
                     ],
                   ),
@@ -974,9 +974,9 @@ class _DashboardPageState extends State<DashboardPage> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            const Color(0xFF130328),
+                            const Color(0xFF1976D2),
                             const Color(0xFF180435),
-                            const Color(0xFF130328).withValues(alpha: 0.95),
+                            const Color(0xFF1976D2).withValues(alpha: 0.95),
                           ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
@@ -1020,9 +1020,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                       shaderCallback: (bounds) =>
                                           const LinearGradient(
                                         colors: [
-                                          Color(0xFF00F5FF),
-                                          Color(0xFFFF00E5),
-                                          Color(0xFF7B61FF),
+                                          Color(0xFF1976D2),
+                                          Color(0xFFE91E63),
+                                          Color(0xFF673AB7),
                                         ],
                                       ).createShader(bounds),
                                       child: const Text(
@@ -1397,7 +1397,7 @@ class _DashboardPageState extends State<DashboardPage> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
-      color: const Color(0xFF1A043D),
+      color: const Color(0xFFFFFFFF),
       offset: const Offset(0, 48),
       onSelected: (value) {
         switch (value) {
@@ -1565,8 +1565,8 @@ class _DashboardPageState extends State<DashboardPage> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              const Color(0xFF120230),
-              const Color(0xFF1A043D),
+              const Color(0xFFFFFFFF),
+              const Color(0xFFFFFFFF),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -1725,14 +1725,14 @@ class _SectionTitle extends StatelessWidget {
           height: 22,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF00F5FF), Color(0xFF7B61FF)],
+              colors: [Color(0xFF1976D2), Color(0xFF673AB7)],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
             ),
             borderRadius: BorderRadius.circular(2),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF00F5FF).withValues(alpha: 0.3),
+                color: const Color(0xFF1976D2).withValues(alpha: 0.3),
                 blurRadius: 6,
               ),
             ],
@@ -1744,7 +1744,7 @@ class _SectionTitle extends StatelessWidget {
           style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w800,
-            color: Color(0xFFF8FAFC),
+            color: Color(0xFF212121),
             letterSpacing: 0.5,
           ),
         ),
@@ -1755,7 +1755,7 @@ class _SectionTitle extends StatelessWidget {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  const Color(0xFF00F5FF).withValues(alpha: 0.2),
+                  const Color(0xFF1976D2).withValues(alpha: 0.2),
                   Colors.transparent,
                 ],
               ),
@@ -1776,13 +1776,13 @@ class _MenuRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: const Color(0xFF00F5FF)),
+        Icon(icon, size: 20, color: const Color(0xFF1976D2)),
         const SizedBox(width: 12),
         Text(label,
             style: const TextStyle(
               fontWeight: FontWeight.w500,
               fontSize: 14,
-              color: Color(0xFFF8FAFC),
+              color: Color(0xFF212121),
             )),
       ],
     );

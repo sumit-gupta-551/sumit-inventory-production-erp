@@ -279,10 +279,10 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF120230),
+                    color: const Color(0xFFFFFFFF),
                     border: Border(
                       bottom: BorderSide(
-                        color: const Color(0xFF00F5FF).withValues(alpha: 0.15),
+                        color: const Color(0xFF1976D2).withValues(alpha: 0.15),
                       ),
                     ),
                   ),
@@ -296,10 +296,10 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0D0221),
+                            color: const Color(0xFFF5F5F5),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: const Color(0xFF00F5FF)
+                              color: const Color(0xFF1976D2)
                                   .withValues(alpha: 0.3),
                             ),
                           ),
@@ -307,19 +307,19 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const Icon(Icons.calendar_month,
-                                  size: 18, color: Color(0xFF00F5FF)),
+                                  size: 18, color: Color(0xFF1976D2)),
                               const SizedBox(width: 8),
                               Text(
                                 monthLabel,
                                 style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700,
-                                  color: Color(0xFF00F5FF),
+                                  color: Color(0xFF1976D2),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               const Icon(Icons.arrow_drop_down,
-                                  color: Color(0xFF00F5FF)),
+                                  color: Color(0xFF1976D2)),
                             ],
                           ),
                         ),
@@ -330,7 +330,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         children: [
                           const Text('Group by:',
                               style: TextStyle(
-                                  color: Color(0xFF94A3B8), fontSize: 13)),
+                                  color: Color(0xFF757575), fontSize: 13)),
                           const SizedBox(width: 10),
                           _groupChip('Unit', 'unit'),
                           const SizedBox(width: 8),
@@ -340,7 +340,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                           Text(
                             '${_data.length} employees',
                             style: const TextStyle(
-                                color: Color(0xFF94A3B8), fontSize: 12),
+                                color: Color(0xFF757575), fontSize: 12),
                           ),
                         ],
                       ),
@@ -352,14 +352,14 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  color: const Color(0xFF1A043D),
+                  color: const Color(0xFFFFFFFF),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _summaryChip('P', _totalPresent, const Color(0xFF51CF66)),
-                      _summaryChip('A', _totalAbsent, const Color(0xFFFF6B6B)),
+                      _summaryChip('P', _totalPresent, const Color(0xFF4CAF50)),
+                      _summaryChip('A', _totalAbsent, const Color(0xFFE53935)),
                       _summaryChip('H', _totalHalf, const Color(0xFFFFB74D)),
-                      _summaryChip('D', _totalDouble, const Color(0xFF7B61FF)),
+                      _summaryChip('D', _totalDouble, const Color(0xFF673AB7)),
                     ],
                   ),
                 ),
@@ -370,7 +370,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                       ? const Center(
                           child: Text(
                             'No attendance data for this month',
-                            style: TextStyle(color: Color(0xFF94A3B8)),
+                            style: TextStyle(color: Color(0xFF757575)),
                           ),
                         )
                       : ListView(
@@ -401,11 +401,11 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF00F5FF) : const Color(0xFF0D0221),
+          color: selected ? const Color(0xFF1976D2) : const Color(0xFFF5F5F5),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color:
-                const Color(0xFF00F5FF).withValues(alpha: selected ? 1 : 0.3),
+                const Color(0xFF1976D2).withValues(alpha: selected ? 1 : 0.3),
           ),
         ),
         child: Text(
@@ -413,7 +413,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: selected ? const Color(0xFF0D0221) : const Color(0xFF00F5FF),
+            color: selected ? const Color(0xFFF5F5F5) : const Color(0xFF1976D2),
           ),
         ),
       ),
@@ -448,10 +448,10 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF120230),
+        color: const Color(0xFFFFFFFF),
         borderRadius: BorderRadius.circular(12),
         border:
-            Border.all(color: const Color(0xFF00F5FF).withValues(alpha: 0.15)),
+            Border.all(color: const Color(0xFF1976D2).withValues(alpha: 0.15)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -462,8 +462,8 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  const Color(0xFF00F5FF).withValues(alpha: 0.12),
-                  const Color(0xFF7B61FF).withValues(alpha: 0.08),
+                  const Color(0xFF1976D2).withValues(alpha: 0.12),
+                  const Color(0xFF673AB7).withValues(alpha: 0.08),
                 ],
               ),
               borderRadius:
@@ -474,7 +474,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                 Icon(
                   _groupBy == 'unit' ? Icons.business : Icons.badge,
                   size: 18,
-                  color: const Color(0xFF00F5FF),
+                  color: const Color(0xFF1976D2),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -483,7 +483,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFFF8FAFC),
+                      color: Color(0xFF212121),
                     ),
                   ),
                 ),
@@ -491,7 +491,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                   '${employees.length} emp  •  P: $groupPresent',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF51CF66),
+                    color: Color(0xFF4CAF50),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -502,7 +502,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
           // Table header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            color: const Color(0xFF0D0221).withValues(alpha: 0.5),
+            color: const Color(0xFFF5F5F5).withValues(alpha: 0.5),
             child: const Row(
               children: [
                 SizedBox(
@@ -511,14 +511,14 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF94A3B8)))),
+                            color: Color(0xFF757575)))),
                 Expanded(
                     flex: 3,
                     child: Text('Employee',
                         style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF94A3B8)))),
+                            color: Color(0xFF757575)))),
                 SizedBox(
                     width: 36,
                     child: Text('P',
@@ -526,7 +526,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF51CF66)))),
+                            color: Color(0xFF4CAF50)))),
                 SizedBox(
                     width: 36,
                     child: Text('A',
@@ -534,7 +534,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFFFF6B6B)))),
+                            color: Color(0xFFE53935)))),
                 SizedBox(
                     width: 36,
                     child: Text('H',
@@ -550,7 +550,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF7B61FF)))),
+                            color: Color(0xFF673AB7)))),
               ],
             ),
           ),
@@ -573,7 +573,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(
-                    color: const Color(0xFF00F5FF).withValues(alpha: 0.06),
+                    color: const Color(0xFF1976D2).withValues(alpha: 0.06),
                   ),
                 ),
               ),
@@ -584,7 +584,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                     child: Text(
                       '${idx + 1}',
                       style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF94A3B8)),
+                          fontSize: 12, color: Color(0xFF757575)),
                     ),
                   ),
                   Expanded(
@@ -597,13 +597,13 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                           style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFFF8FAFC)),
+                              color: Color(0xFF212121)),
                         ),
                         if (subtitle.isNotEmpty)
                           Text(
                             subtitle,
                             style: const TextStyle(
-                                fontSize: 10, color: Color(0xFF94A3B8)),
+                                fontSize: 10, color: Color(0xFF757575)),
                           ),
                       ],
                     ),
@@ -617,8 +617,8 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: present > 0
-                            ? const Color(0xFF51CF66)
-                            : const Color(0xFF94A3B8),
+                            ? const Color(0xFF4CAF50)
+                            : const Color(0xFF757575),
                       ),
                     ),
                   ),
@@ -631,8 +631,8 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: absent > 0
-                            ? const Color(0xFFFF6B6B)
-                            : const Color(0xFF94A3B8),
+                            ? const Color(0xFFE53935)
+                            : const Color(0xFF757575),
                       ),
                     ),
                   ),
@@ -646,7 +646,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         fontWeight: FontWeight.w700,
                         color: half > 0
                             ? const Color(0xFFFFB74D)
-                            : const Color(0xFF94A3B8),
+                            : const Color(0xFF757575),
                       ),
                     ),
                   ),
@@ -659,8 +659,8 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: double_ > 0
-                            ? const Color(0xFF7B61FF)
-                            : const Color(0xFF94A3B8),
+                            ? const Color(0xFF673AB7)
+                            : const Color(0xFF757575),
                       ),
                     ),
                   ),

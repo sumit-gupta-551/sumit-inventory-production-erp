@@ -1,4 +1,4 @@
-﻿// ignore_for_file: use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -396,7 +396,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                 ),
                 Text(
                   '${items.length} entries',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                  style: TextStyle(fontSize: 11, color: Color(0xFF757575)),
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -491,7 +491,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF130328), Color(0xFF1A043D)],
+              colors: [Color(0xFF1976D2), Color(0xFFFFFFFF)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -541,10 +541,10 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                                 vertical: 8, horizontal: 8),
                             decoration: BoxDecoration(
                               border: Border.all(
-                                  color: const Color(0xFF00F5FF)
+                                  color: const Color(0xFF1976D2)
                                       .withValues(alpha: 0.3)),
                               borderRadius: BorderRadius.circular(6),
-                              color: const Color(0xFF120230),
+                              color: const Color(0xFFFFFFFF),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -662,7 +662,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                               border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8)),
                               filled: true,
-                              fillColor: const Color(0xFF0D0221),
+                              fillColor: const Color(0xFFF5F5F5),
                             ),
                           ),
                         ),
@@ -684,7 +684,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                               border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8)),
                               filled: true,
-                              fillColor: const Color(0xFF0D0221),
+                              fillColor: const Color(0xFFF5F5F5),
                             ),
                           ),
                         ),
@@ -706,7 +706,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                               border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8)),
                               filled: true,
-                              fillColor: const Color(0xFF0D0221),
+                              fillColor: const Color(0xFFF5F5F5),
                             ),
                           ),
                         ),
@@ -730,7 +730,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                               border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8)),
                               filled: true,
-                              fillColor: const Color(0xFF0D0221),
+                              fillColor: const Color(0xFFF5F5F5),
                             ),
                           ),
                         ),
@@ -741,8 +741,8 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                         width: 100,
                         child: ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF00F5FF),
-                            foregroundColor: const Color(0xFF0D0221),
+                            backgroundColor: const Color(0xFF1976D2),
+                            foregroundColor: const Color(0xFFF5F5F5),
                             padding: const EdgeInsets.symmetric(horizontal: 6),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8)),
@@ -780,7 +780,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                   if (_items.isEmpty)
                     const Text('No items added',
                         style:
-                            TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))
+                            TextStyle(fontSize: 12, color: Color(0xFF757575)))
                   else
                     ..._items.asMap().entries.map((entry) {
                       final i = entry.key;
@@ -840,7 +840,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
               InventoryFormCard(
                 title: 'SUMMARY',
                 backgroundColor: const Color(0xFF1A0A2A),
-                borderColor: const Color(0xFF7B61FF),
+                borderColor: const Color(0xFF673AB7),
                 padding: const EdgeInsets.all(10),
                 children: [
                   Row(
@@ -908,7 +908,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
           : Container(
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF120230),
+                color: const Color(0xFFFFFFFF),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.3),
@@ -922,8 +922,8 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                   height: 44,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00F5FF),
-                      foregroundColor: const Color(0xFF0D0221),
+                      backgroundColor: const Color(0xFF1976D2),
+                      foregroundColor: const Color(0xFFF5F5F5),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10)),
                       textStyle: const TextStyle(

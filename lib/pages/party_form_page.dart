@@ -6,16 +6,16 @@ import '../models/party.dart';
 /// DASHBOARD COLOR SYSTEM
 /// =======================
 class AppColors {
-  static const bg = Color(0xFF0D0221);
-  static const card = Color(0xFF120230);
+  static const bg = Color(0xFFF5F5F5);
+  static const card = Color(0xFFFFFFFF);
   static const shadow = Color(0x40000000);
 
-  static const primary = Color(0xFF00F5FF);
-  static const success = Color(0xFF51CF66);
-  static const pink = Color(0xFFFF00E5);
+  static const primary = Color(0xFF1976D2);
+  static const success = Color(0xFF4CAF50);
+  static const pink = Color(0xFFE91E63);
 
-  static const textDark = Color(0xFFF8FAFC);
-  static const textLight = Color(0xFF94A3B8);
+  static const textDark = Color(0xFF212121);
+  static const textLight = Color(0xFF757575);
 }
 
 /// =======================

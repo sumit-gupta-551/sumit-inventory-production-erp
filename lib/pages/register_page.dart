@@ -26,7 +26,7 @@ class _RegisterPageState extends State<RegisterPage> {
   /// Only users who know this code can register.
   static const _validAppCode = '9586551551';
 
-  static const _primary = Color(0xFF00F5FF);
+  static const _primary = Color(0xFF1976D2);
 
   @override
   void dispose() {
@@ -107,7 +107,7 @@ class _RegisterPageState extends State<RegisterPage> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0D0221), Color(0xFF150530)],
+            colors: [Color(0xFFF5F5F5), Color(0xFFE3F2FD)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -147,7 +147,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       const Text(
                         'Register to get started',
                         style:
-                            TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+                            TextStyle(color: Color(0xFF757575), fontSize: 14),
                       ),
                       const SizedBox(height: 28),
 

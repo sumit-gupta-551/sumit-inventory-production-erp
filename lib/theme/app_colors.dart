@@ -1,22 +1,22 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 class AppColors {
-  // � Neon dark theme
-  static const bg = Color(0xFF0D0221);
-  static const surface = Color(0xFF120230);
-  static const card = Color(0xFF1A043D);
-  static const appBar = Color(0xFF130328);
+  // Light theme
+  static const bg = Color(0xFFF5F5F5);
+  static const surface = Color(0xFFFFFFFF);
+  static const card = Color(0xFFFFFFFF);
+  static const appBar = Color(0xFF1976D2);
 
-  // 🎨 Accent
-  static const accent = Color(0xFF00F5FF);
-  static const accentLight = Color(0xFF7DF9FF);
-  static const magenta = Color(0xFFFF00E5);
-  static const violet = Color(0xFF7B61FF);
-  static const success = Color(0xFF51CF66);
-  static const error = Color(0xFFFF6B6B);
+  // Accent
+  static const accent = Color(0xFF1976D2);
+  static const accentLight = Color(0xFF64B5F6);
+  static const magenta = Color(0xFFE91E63);
+  static const violet = Color(0xFF673AB7);
+  static const success = Color(0xFF4CAF50);
+  static const error = Color(0xFFE53935);
 
-  // 📝 Text
-  static const textPrimary = Color(0xFFF8FAFC);
-  static const textMuted = Color(0xFF94A3B8);
-  static const textDark = Color(0xFF212529); // for rare light surfaces
+  // Text
+  static const textPrimary = Color(0xFF212121);
+  static const textMuted = Color(0xFF757575);
+  static const textDark = Color(0xFF212121);
 }

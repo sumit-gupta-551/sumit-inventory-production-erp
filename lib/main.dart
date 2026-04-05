@@ -85,7 +85,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'ERP Inventory',
-      theme: AppTheme.neonDark,
+      theme: AppTheme.light,
       home: home,
     );
   }

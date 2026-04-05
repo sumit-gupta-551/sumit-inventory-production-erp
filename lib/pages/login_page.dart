@@ -226,7 +226,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0D0221), Color(0xFF150530), Color(0xFF0A0118)],
+            colors: [Color(0xFFF5F5F5), Color(0xFFE3F2FD), Color(0xFFF5F5F5)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -244,8 +244,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      const Color(0xFF00F5FF).withValues(alpha: 0.15),
-                      const Color(0xFF00F5FF).withValues(alpha: 0.04),
+                      const Color(0xFF1976D2).withValues(alpha: 0.15),
+                      const Color(0xFF1976D2).withValues(alpha: 0.04),
                       Colors.transparent,
                     ],
                     stops: const [0.0, 0.4, 1.0],
@@ -263,7 +263,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      const Color(0xFFFF00E5).withValues(alpha: 0.12),
+                      const Color(0xFFE91E63).withValues(alpha: 0.12),
                       Colors.transparent,
                     ],
                   ),
@@ -280,7 +280,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      const Color(0xFF7B61FF).withValues(alpha: 0.10),
+                      const Color(0xFF673AB7).withValues(alpha: 0.10),
                       Colors.transparent,
                     ],
                   ),
@@ -316,14 +316,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                     borderRadius: BorderRadius.circular(24),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: const Color(0xFF00F5FF)
+                                        color: const Color(0xFF1976D2)
                                             .withValues(alpha: 0.40),
                                         blurRadius: 32,
                                         spreadRadius: 4,
                                         offset: const Offset(0, 4),
                                       ),
                                       BoxShadow(
-                                        color: const Color(0xFFFF00E5)
+                                        color: const Color(0xFFE91E63)
                                             .withValues(alpha: 0.20),
                                         blurRadius: 24,
                                         spreadRadius: 2,
@@ -350,9 +350,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                     shaderCallback: (rect) =>
                                         const LinearGradient(
                                       colors: [
-                                        Color(0xFF00F5FF),
-                                        Color(0xFFFF00E5),
-                                        Color(0xFF7B61FF),
+                                        Color(0xFF1976D2),
+                                        Color(0xFFE91E63),
+                                        Color(0xFF673AB7),
                                       ],
                                     ).createShader(rect),
                                     child: const Text(
@@ -374,18 +374,18 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 16, vertical: 6),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF00F5FF)
+                                      color: const Color(0xFF1976D2)
                                           .withValues(alpha: 0.06),
                                       borderRadius: BorderRadius.circular(20),
                                       border: Border.all(
-                                        color: const Color(0xFF00F5FF)
+                                        color: const Color(0xFF1976D2)
                                             .withValues(alpha: 0.15),
                                       ),
                                     ),
                                     child: Text(
                                       'Welcome back, $_userName',
                                       style: TextStyle(
-                                        color: const Color(0xFF00F5FF)
+                                        color: const Color(0xFF1976D2)
                                             .withValues(alpha: 0.8),
                                         fontSize: 13,
                                         fontWeight: FontWeight.w500,
@@ -404,11 +404,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                     child: Container(
                                       padding: const EdgeInsets.all(22),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF120230)
+                                        color: const Color(0xFFFFFFFF)
                                             .withValues(alpha: 0.90),
                                         borderRadius: BorderRadius.circular(28),
                                         border: Border.all(
-                                          color: const Color(0xFF00F5FF)
+                                          color: const Color(0xFF1976D2)
                                               .withValues(alpha: 0.12),
                                         ),
                                         boxShadow: [
@@ -419,7 +419,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                             offset: const Offset(0, 10),
                                           ),
                                           BoxShadow(
-                                            color: const Color(0xFF00F5FF)
+                                            color: const Color(0xFF1976D2)
                                                 .withValues(alpha: 0.06),
                                             blurRadius: 60,
                                             offset: const Offset(0, 20),
@@ -436,7 +436,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                               style: TextStyle(
                                                 fontSize: 22,
                                                 fontWeight: FontWeight.w800,
-                                                color: Color(0xFFF8FAFC),
+                                                color: Color(0xFF212121),
                                               ),
                                             ),
                                           ),
@@ -495,8 +495,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                               decoration: BoxDecoration(
                                                 gradient: const LinearGradient(
                                                   colors: [
-                                                    Color(0xFF00F5FF),
-                                                    Color(0xFF7B61FF),
+                                                    Color(0xFF1976D2),
+                                                    Color(0xFF673AB7),
                                                   ],
                                                 ),
                                                 borderRadius:
@@ -504,7 +504,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                                 boxShadow: [
                                                   BoxShadow(
                                                     color:
-                                                        const Color(0xFF00F5FF)
+                                                        const Color(0xFF1976D2)
                                                             .withValues(
                                                                 alpha: 0.40),
                                                     blurRadius: 24,
@@ -535,7 +535,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                                             CircularProgressIndicator(
                                                           strokeWidth: 2.5,
                                                           color:
-                                                              Color(0xFF0D0221),
+                                                              Color(0xFFF5F5F5),
                                                         ),
                                                       )
                                                     : const Text(
@@ -545,7 +545,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                                               FontWeight.w800,
                                                           fontSize: 15,
                                                           color:
-                                                              Color(0xFF0D0221),
+                                                              Color(0xFFF5F5F5),
                                                           letterSpacing: 1.5,
                                                         ),
                                                       ),
@@ -643,10 +643,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                                 onPressed: _loginWithPasscode,
                                                 style: OutlinedButton.styleFrom(
                                                   foregroundColor:
-                                                      const Color(0xFF00F5FF),
+                                                      const Color(0xFF1976D2),
                                                   side: BorderSide(
                                                     color:
-                                                        const Color(0xFF00F5FF)
+                                                        const Color(0xFF1976D2)
                                                             .withValues(
                                                                 alpha: 0.3),
                                                   ),
@@ -714,7 +714,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                         TextSpan(
                                           text: 'Register here',
                                           style: TextStyle(
-                                            color: Color(0xFF00F5FF),
+                                            color: Color(0xFF1976D2),
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -788,25 +788,25 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       keyboardType: keyboard,
       obscureText: obscure,
       maxLength: maxLength,
-      style: const TextStyle(color: Color(0xFFF8FAFC), fontSize: 15),
+      style: const TextStyle(color: Color(0xFF212121), fontSize: 15),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35)),
         prefixText: prefixText,
         prefixStyle:
             TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 15),
-        prefixIcon: Icon(icon, color: const Color(0xFF00F5FF), size: 20),
+        prefixIcon: Icon(icon, color: const Color(0xFF1976D2), size: 20),
         suffixIcon: suffixIcon,
         counterText: '',
         filled: true,
-        fillColor: const Color(0xFF0D0221).withValues(alpha: 0.8),
+        fillColor: const Color(0xFFF5F5F5).withValues(alpha: 0.8),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xFF00F5FF), width: 1.5),
+          borderSide: const BorderSide(color: Color(0xFF1976D2), width: 1.5),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -830,9 +830,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               color: Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                  color: const Color(0xFF00F5FF).withValues(alpha: 0.15)),
+                  color: const Color(0xFF1976D2).withValues(alpha: 0.15)),
             ),
-            child: Icon(icon, size: 22, color: const Color(0xFF00F5FF)),
+            child: Icon(icon, size: 22, color: const Color(0xFF1976D2)),
           ),
           const SizedBox(height: 6),
           Text(

@@ -32,13 +32,13 @@ class MasterControlPage extends StatelessWidget {
             _MasterTile(
               title: 'Firms',
               icon: Icons.business,
-              color: const Color(0xFF00F5FF),
+              color: const Color(0xFF1976D2),
               page: FirmListPage(),
             ),
             _MasterTile(
               title: 'Parties',
               icon: Icons.people,
-              color: const Color(0xFF51CF66),
+              color: const Color(0xFF4CAF50),
               page: PartyMasterPage(),
             ),
             _MasterTile(
@@ -50,7 +50,7 @@ class MasterControlPage extends StatelessWidget {
             _MasterTile(
               title: 'Machines',
               icon: Icons.precision_manufacturing,
-              color: const Color(0xFF7B61FF),
+              color: const Color(0xFF673AB7),
               page: MachineMasterPage(),
             ),
             _MasterTile(
@@ -62,13 +62,13 @@ class MasterControlPage extends StatelessWidget {
             _MasterTile(
               title: 'Thread / Shade',
               icon: Icons.palette,
-              color: const Color(0xFFFF00E5),
+              color: const Color(0xFFE91E63),
               page: ThreadShadeMasterPage(),
             ),
             _MasterTile(
               title: 'Delay Reasons',
               icon: Icons.timer_off,
-              color: const Color(0xFFFF6B6B),
+              color: const Color(0xFFE53935),
               page: DelayReasonMasterPage(),
             ),
           ],
@@ -106,7 +106,7 @@ class _MasterTile extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF120230),
+          color: const Color(0xFFFFFFFF),
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
@@ -134,7 +134,7 @@ class _MasterTile extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFFF8FAFC),
+                color: Color(0xFF212121),
               ),
             ),
           ],

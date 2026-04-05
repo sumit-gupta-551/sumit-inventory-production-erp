@@ -1,50 +1,49 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'app_colors.dart';
 
 class AppTheme {
-  static ThemeData neonDark = ThemeData(
+  static ThemeData light = ThemeData(
     useMaterial3: true,
-    brightness: Brightness.dark,
+    brightness: Brightness.light,
     fontFamily: 'Roboto',
     scaffoldBackgroundColor: AppColors.bg,
     canvasColor: AppColors.surface,
     dialogBackgroundColor: AppColors.card,
     appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.appBar,
-      elevation: 0,
+      elevation: 2,
       centerTitle: true,
-      scrolledUnderElevation: 0,
-      iconTheme: IconThemeData(color: AppColors.accent),
+      iconTheme: IconThemeData(color: Colors.white),
       titleTextStyle: TextStyle(
-        color: AppColors.accent,
+        color: Colors.white,
         fontSize: 18,
         fontWeight: FontWeight.w700,
       ),
     ),
-    colorScheme: const ColorScheme.dark(
+    colorScheme: const ColorScheme.light(
       primary: AppColors.accent,
       secondary: AppColors.magenta,
       tertiary: AppColors.violet,
       surface: AppColors.surface,
       error: AppColors.error,
-      onPrimary: AppColors.bg,
+      onPrimary: Colors.white,
       onSurface: AppColors.textPrimary,
     ),
     cardTheme: CardThemeData(
       color: AppColors.card,
-      elevation: 0,
+      elevation: 2,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
       ),
     ),
     drawerTheme: const DrawerThemeData(
       backgroundColor: AppColors.surface,
     ),
     bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: AppColors.card,
+      backgroundColor: AppColors.surface,
     ),
     dialogTheme: const DialogThemeData(
-      backgroundColor: AppColors.card,
+      backgroundColor: AppColors.surface,
       titleTextStyle: TextStyle(
         color: AppColors.textPrimary,
         fontSize: 18,
@@ -52,20 +51,20 @@ class AppTheme {
       ),
     ),
     popupMenuTheme: const PopupMenuThemeData(
-      color: AppColors.card,
+      color: AppColors.surface,
       textStyle: TextStyle(color: AppColors.textPrimary),
     ),
     floatingActionButtonTheme: const FloatingActionButtonThemeData(
       backgroundColor: AppColors.accent,
-      foregroundColor: AppColors.bg,
+      foregroundColor: Colors.white,
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.accent,
-        foregroundColor: AppColors.bg,
-        elevation: 0,
+        foregroundColor: Colors.white,
+        elevation: 2,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
         ),
         textStyle: const TextStyle(
           fontSize: 15,
@@ -78,7 +77,7 @@ class AppTheme {
         foregroundColor: AppColors.accent,
         side: const BorderSide(color: AppColors.accent, width: 1),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
         ),
       ),
     ),
@@ -87,33 +86,32 @@ class AppTheme {
         foregroundColor: AppColors.accent,
       ),
     ),
-    chipTheme: ChipThemeData(
-      backgroundColor: AppColors.surface,
-      selectedColor: AppColors.accent.withValues(alpha: 0.2),
-      labelStyle: const TextStyle(color: AppColors.textPrimary),
-      side: BorderSide(color: AppColors.accent.withValues(alpha: 0.3)),
+    chipTheme: const ChipThemeData(
+      backgroundColor: AppColors.bg,
+      selectedColor: Color(0xFFBBDEFB),
+      labelStyle: TextStyle(color: AppColors.textPrimary),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: AppColors.bg,
+      fillColor: Colors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: AppColors.accent.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFBDBDBD)),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: AppColors.accent.withValues(alpha: 0.2)),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFBDBDBD)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: AppColors.accent, width: 1.5),
       ),
       labelStyle: const TextStyle(color: AppColors.textMuted),
       hintStyle: const TextStyle(color: AppColors.textMuted),
     ),
-    dividerTheme: DividerThemeData(
-      color: AppColors.accent.withValues(alpha: 0.15),
+    dividerTheme: const DividerThemeData(
+      color: Color(0xFFE0E0E0),
     ),
     listTileTheme: const ListTileThemeData(
       textColor: AppColors.textPrimary,
@@ -121,9 +119,9 @@ class AppTheme {
     ),
     iconTheme: const IconThemeData(color: AppColors.accent),
     tabBarTheme: const TabBarThemeData(
-      labelColor: AppColors.accent,
-      unselectedLabelColor: AppColors.textMuted,
-      indicatorColor: AppColors.accent,
+      labelColor: Colors.white,
+      unselectedLabelColor: Color(0xB3FFFFFF),
+      indicatorColor: Colors.white,
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith((s) =>
@@ -132,16 +130,16 @@ class AppTheme {
               : AppColors.textMuted),
       trackColor: WidgetStateProperty.resolveWith((s) =>
           s.contains(WidgetState.selected)
-              ? AppColors.accent.withValues(alpha: 0.3)
-              : AppColors.surface),
+              ? AppColors.accentLight
+              : const Color(0xFFE0E0E0)),
     ),
     checkboxTheme: CheckboxThemeData(
       fillColor: WidgetStateProperty.resolveWith((s) =>
           s.contains(WidgetState.selected)
               ? AppColors.accent
               : Colors.transparent),
-      checkColor: WidgetStateProperty.all(AppColors.bg),
-      side: BorderSide(color: AppColors.accent.withValues(alpha: 0.5)),
+      checkColor: WidgetStateProperty.all(Colors.white),
+      side: const BorderSide(color: AppColors.textMuted),
     ),
     radioTheme: RadioThemeData(
       fillColor: WidgetStateProperty.resolveWith((s) =>
@@ -153,13 +151,13 @@ class AppTheme {
       color: AppColors.accent,
     ),
     snackBarTheme: const SnackBarThemeData(
-      backgroundColor: AppColors.card,
-      contentTextStyle: TextStyle(color: AppColors.textPrimary),
+      backgroundColor: Color(0xFF323232),
+      contentTextStyle: TextStyle(color: Colors.white),
     ),
     datePickerTheme: DatePickerThemeData(
-      backgroundColor: AppColors.card,
-      headerBackgroundColor: AppColors.surface,
-      headerForegroundColor: AppColors.accent,
+      backgroundColor: AppColors.surface,
+      headerBackgroundColor: AppColors.accent,
+      headerForegroundColor: Colors.white,
       dayForegroundColor: WidgetStateProperty.all(AppColors.textPrimary),
       todayForegroundColor: WidgetStateProperty.all(AppColors.accent),
       todayBackgroundColor: WidgetStateProperty.all(Colors.transparent),

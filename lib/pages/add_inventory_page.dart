@@ -2145,7 +2145,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF130328), Color(0xFF1A043D)],
+              colors: [Color(0xFF1976D2), Color(0xFFFFFFFF)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -2236,7 +2236,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                             'Auto SMS to: $_autoReportMobile',
                             style: const TextStyle(
                               fontSize: 11,
-                              color: Color(0xFF94A3B8),
+                              color: Color(0xFF757575),
                             ),
                           ),
                         ),
@@ -2312,12 +2312,12 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                           height: 40,
                           child: OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF00F5FF),
+                              foregroundColor: const Color(0xFF1976D2),
                               side: const BorderSide(
-                                color: Color(0xFF00F5FF),
+                                color: Color(0xFF1976D2),
                                 width: 1.5,
                               ),
-                              backgroundColor: const Color(0xFF120230),
+                              backgroundColor: const Color(0xFFFFFFFF),
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 8),
                               shape: RoundedRectangleBorder(
@@ -2360,7 +2360,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     filled: true,
-                                    fillColor: const Color(0xFF0D0221),
+                                    fillColor: const Color(0xFFF5F5F5),
                                   ),
                                 ),
                               ),
@@ -2371,8 +2371,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                               width: 100,
                               child: ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF00F5FF),
-                                  foregroundColor: const Color(0xFF0D0221),
+                                  backgroundColor: const Color(0xFF1976D2),
+                                  foregroundColor: const Color(0xFFF5F5F5),
                                   padding:
                                       const EdgeInsets.symmetric(horizontal: 6),
                                   shape: RoundedRectangleBorder(
@@ -2418,7 +2418,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                             final qty = (item['qty'] as num).toDouble();
 
                             return Card(
-                              color: const Color(0xFF120230),
+                              color: const Color(0xFFFFFFFF),
                               margin: const EdgeInsets.only(bottom: 4),
                               child: ListTile(
                                 dense: true,
@@ -2478,7 +2478,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                     InventoryFormCard(
                       title: 'SUMMARY',
                       backgroundColor: const Color(0xFF1A0A2A),
-                      borderColor: const Color(0xFF7B61FF),
+                      borderColor: const Color(0xFF673AB7),
                       padding: const EdgeInsets.all(10),
                       children: [
                         Row(
@@ -2513,7 +2513,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
           : Container(
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF120230),
+                color: const Color(0xFFFFFFFF),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.3),
@@ -2527,8 +2527,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                   height: 44,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00F5FF),
-                      foregroundColor: const Color(0xFF0D0221),
+                      backgroundColor: const Color(0xFF1976D2),
+                      foregroundColor: const Color(0xFFF5F5F5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -2582,7 +2582,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
           borderRadius: BorderRadius.circular(8),
         ),
         filled: true,
-        fillColor: const Color(0xFF0D0221),
+        fillColor: const Color(0xFFF5F5F5),
       ),
     );
   }
@@ -2600,7 +2600,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
           borderRadius: BorderRadius.circular(8),
         ),
         filled: true,
-        fillColor: const Color(0xFF0D0221),
+        fillColor: const Color(0xFFF5F5F5),
       ),
     );
   }
