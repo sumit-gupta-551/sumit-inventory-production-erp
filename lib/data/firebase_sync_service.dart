@@ -103,9 +103,16 @@ class FirebaseSyncService {
       final db = await ErpDatabase.instance.database;
       // 1. Push local data that Firebase doesn't have yet.
       await _pushLocalToFirebase(db);
-      // 2. Pull everything from Firebase into local SQLite.
-      for (final table in _syncTables) {
-        await _pullTable(db, table);
+      // 2. Pull everything from Firebase into local SQLite (batched).
+      const batchSize = 5;
+      for (var i = 0; i < _syncTables.length; i += batchSize) {
+        final batch = _syncTables.sublist(
+          i,
+          (i + batchSize > _syncTables.length)
+              ? _syncTables.length
+              : i + batchSize,
+        );
+        await Future.wait(batch.map((table) => _pullTable(db, table)));
       }
       syncVersion.value++;
     } catch (e) {
@@ -130,14 +137,18 @@ class FirebaseSyncService {
           }
         }
 
-        // Push missing rows
+        // Batch push missing rows using multi-path update
+        final updates = <String, dynamic>{};
         for (final row in localRows) {
           final id = row['id'] as int?;
           if (id == null) continue;
           if (remoteIds.contains(id)) continue;
           final pushData = Map<String, dynamic>.from(row);
           pushData['_ts'] = ServerValue.timestamp;
-          await _ref.child('$table/$id').set(pushData);
+          updates['$table/$id'] = pushData;
+        }
+        if (updates.isNotEmpty) {
+          await _ref.update(updates);
         }
 
         // Update counter so future inserts don't collide

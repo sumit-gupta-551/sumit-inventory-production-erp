@@ -25,6 +25,7 @@ Future<void> main() async {
     sqflite.databaseFactory = databaseFactoryFfi;
   }
 
+  // --- Minimal blocking init (only what's needed to show UI) ---
   try {
     await Firebase.initializeApp();
     FirebaseDatabase.instanceFor(
@@ -42,16 +43,6 @@ Future<void> main() async {
     debugPrint('⚠ Database init failed: $e');
   }
 
-  // Auto-sync: init → full sync → start real-time listeners
-  try {
-    await FirebaseSyncService.instance.init();
-    await FirebaseSyncService.instance.fullSync();
-    FirebaseSyncService.instance.startListening();
-    ErpDatabase.instance.syncEnabled = true;
-  } catch (e) {
-    debugPrint('⚠ Firebase sync failed: $e');
-  }
-
   final prefs = await SharedPreferences.getInstance();
   final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
   final isRegistered = prefs.getBool('is_registered') ?? false;
@@ -61,8 +52,25 @@ Future<void> main() async {
     await PermissionService.instance.loadPermissions(phone);
   }
 
+  // Show app immediately — don't block on sync
   runApp(
       MyApp(showLogin: isRegistered && !isLoggedIn, showDashboard: isLoggedIn));
+
+  // --- Heavy sync runs AFTER UI is visible (non-blocking) ---
+  _initSyncInBackground();
+}
+
+/// Runs Firebase full sync in the background so UI is not blocked.
+Future<void> _initSyncInBackground() async {
+  try {
+    await FirebaseSyncService.instance.init();
+    await FirebaseSyncService.instance.fullSync();
+    FirebaseSyncService.instance.startListening();
+    ErpDatabase.instance.syncEnabled = true;
+    debugPrint('✅ Firebase sync completed in background');
+  } catch (e) {
+    debugPrint('⚠ Firebase sync failed: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {

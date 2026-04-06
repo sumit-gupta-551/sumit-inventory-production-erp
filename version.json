@@ -1,5 +1,5 @@
 {
-    "version": "1.0.7",
-    "apk": "SSSJ-ERP-v1.0.7.apk",
-    "notes": "Light theme with colorful glow orbs, pastel form cards, brighter dashboard, parallel DB loading"
+    "version": "1.0.8",
+    "apk": "SSSJ-ERP-v1.0.8.apk",
+    "notes": "Performance fix: non-blocking startup sync, batched Firebase pull/push"
 }
