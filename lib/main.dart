@@ -47,6 +47,7 @@ Future<void> main() async {
     await FirebaseSyncService.instance.init();
     await FirebaseSyncService.instance.fullSync();
     FirebaseSyncService.instance.startListening();
+    ErpDatabase.instance.syncEnabled = true;
   } catch (e) {
     debugPrint('⚠ Firebase sync failed: $e');
   }
