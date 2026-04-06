@@ -287,24 +287,35 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
     };
 
     if (existing == null) {
-      final empId = await ErpDatabase.instance.insertEmployee(data);
-      // Create initial salary history record
-      await ErpDatabase.instance.insertSalaryHistory({
-        'employee_id': empId,
-        'base_pay': data['base_pay'],
-        'salary_type': data['salary_type'],
-        'salary_base_days': data['salary_base_days'],
-        'effective_from': effectiveSalaryDate.millisecondsSinceEpoch,
-        'created_at': DateTime.now().millisecondsSinceEpoch,
-      });
-      _msg('Employee added');
+      try {
+        final empId = await ErpDatabase.instance.insertEmployee(data);
+        // Create initial salary history record
+        await ErpDatabase.instance.insertSalaryHistory({
+          'employee_id': empId,
+          'base_pay': data['base_pay'],
+          'salary_type': data['salary_type'],
+          'salary_base_days': data['salary_base_days'],
+          'effective_from': effectiveSalaryDate.millisecondsSinceEpoch,
+          'created_at': DateTime.now().millisecondsSinceEpoch,
+        });
+        _msg('Employee added (id: $empId)');
+      } catch (e, st) {
+        debugPrint('Employee save error: $e\n$st');
+        _msg('Error: $e');
+        return;
+      }
     } else {
-      await ErpDatabase.instance.updateEmployee(
-        data,
-        existing['id'] as int,
-        effectiveFrom: effectiveSalaryDate,
-      );
-      _msg('Employee updated');
+      try {
+        await ErpDatabase.instance.updateEmployee(
+          data,
+          existing['id'] as int,
+          effectiveFrom: effectiveSalaryDate,
+        );
+        _msg('Employee updated');
+      } catch (e) {
+        _msg('Error updating employee: $e');
+        return;
+      }
     }
 
     _load();

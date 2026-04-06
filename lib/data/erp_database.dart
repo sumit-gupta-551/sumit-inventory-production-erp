@@ -182,6 +182,19 @@ class ErpDatabase {
         debugPrint('⚠ _ensureAllTables: $e');
       }
     }
+
+    // Ensure missing columns on existing tables
+    const alterSafety = [
+      'ALTER TABLE employees ADD COLUMN salary_base_days INTEGER DEFAULT 30',
+      'ALTER TABLE employees ADD COLUMN unit_name TEXT',
+      'ALTER TABLE machines ADD COLUMN incentive_amount REAL DEFAULT 0',
+      'ALTER TABLE machines ADD COLUMN bonus REAL DEFAULT 0',
+    ];
+    for (final sql in alterSafety) {
+      try {
+        await db.execute(sql);
+      } catch (_) {}
+    }
   }
 
   Future<void> _ensurePurchaseMasterReportingColumns(Database db) async {
