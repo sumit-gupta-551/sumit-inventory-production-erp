@@ -85,7 +85,9 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
         '''),
       ]);
       final p = results[0] as List<Product>;
-      final pa = results[1] as List<Party>;
+      final pa = (results[1] as List<Party>)
+          .where((p) => p.partyType == 'Sales')
+          .toList();
       final s = results[2] as List<Map<String, dynamic>>;
       final links = results[3] as List<Map<String, dynamic>>;
 
@@ -154,11 +156,14 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
     }
 
     final list = merged.values.toList();
-    list.sort(
-      (a, b) => (a['shade_no'] ?? '').toString().compareTo(
-            (b['shade_no'] ?? '').toString(),
-          ),
-    );
+    list.sort((a, b) {
+      final aNo = (a['shade_no'] ?? '').toString();
+      final bNo = (b['shade_no'] ?? '').toString();
+      final aNum = num.tryParse(aNo);
+      final bNum = num.tryParse(bNo);
+      if (aNum != null && bNum != null) return aNum.compareTo(bNum);
+      return aNo.compareTo(bNo);
+    });
     return list;
   }
 
@@ -476,17 +481,16 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
           'qty': rowQty,
         });
       } else if (balance > 0 && balance < rowQty) {
-        // Partial stock â€” split
+        // Insufficient stock - send full qty to requirement, stock untouched
         if (!mounted) return;
-        final shortQty = rowQty - balance;
         final send = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Partial Stock'),
+            title: const Text('Insufficient Stock'),
             content: Text(
-              '${_shadeNo(shadeId)}: Only ${balance.toStringAsFixed(2)} in stock, '
-              'short by ${shortQty.toStringAsFixed(2)}.\n\n'
-              'Send short qty to Requirement?',
+              '${_shadeNo(shadeId)}: Stock is ${balance.toStringAsFixed(2)}, '
+              'but need ${rowQty.toStringAsFixed(2)}.\n\n'
+              'Full qty will go to Requirement (stock untouched).',
             ),
             actions: [
               TextButton(
@@ -501,15 +505,10 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
           ),
         );
         if (send != true) return;
-        toStock.add({
-          'shade_id': shadeId,
-          'shade_no': _shadeNo(shadeId),
-          'qty': balance,
-        });
         toReq.add({
           'shade_id': shadeId,
           'shade_no': _shadeNo(shadeId),
-          'qty': shortQty,
+          'qty': rowQty,
         });
       } else {
         // No stock at all
@@ -1398,7 +1397,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                   final qty = (item['qty'] as num).toDouble();
 
                                   return Card(
-                                    color: const Color(0xFF0A2818),
+                                    color: const Color(0xFFFFFFFF),
                                     margin: const EdgeInsets.only(bottom: 4),
                                     child: ListTile(
                                       dense: true,
@@ -1591,7 +1590,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                   final qty = (item['qty'] as num).toDouble();
 
                                   return Card(
-                                    color: const Color(0xFF2A1A0A),
+                                    color: const Color(0xFFFFFFFF),
                                     margin: const EdgeInsets.only(bottom: 4),
                                     child: ListTile(
                                       dense: true,

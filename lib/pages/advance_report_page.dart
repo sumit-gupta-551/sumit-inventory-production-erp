@@ -172,18 +172,6 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
 
     final pageContent = <pw.Widget>[];
 
-    if (logoImage != null) {
-      pageContent
-          .add(pw.Center(child: pw.Image(logoImage, width: 60, height: 60)));
-    }
-    pageContent.add(pw.SizedBox(height: 6));
-    pageContent.add(pw.Center(
-      child: pw.Text(
-          'Employee Advance Report — $groupByLabel  (${_df.format(_fromDate)} - ${_df.format(_toDate)})',
-          style: pw.TextStyle(font: fontBold, fontSize: 14)),
-    ));
-    pageContent.add(pw.SizedBox(height: 10));
-
     for (final entry in grouped.entries) {
       final groupRows = entry.value;
       final groupTotal = _totalAmt(groupRows);
@@ -275,6 +263,28 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4.landscape,
       margin: const pw.EdgeInsets.all(24),
+      header: (ctx) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          if (ctx.pageNumber == 1 && logoImage != null) ...[
+            pw.Center(child: pw.Image(logoImage, width: 50, height: 50)),
+            pw.SizedBox(height: 4),
+          ],
+          pw.Center(
+            child: pw.Text(
+                'Employee Advance Report — $groupByLabel  (${_df.format(_fromDate)} - ${_df.format(_toDate)})',
+                style: pw.TextStyle(font: fontBold, fontSize: 14)),
+          ),
+          pw.Divider(),
+        ],
+      ),
+      footer: (ctx) => pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        children: [
+          pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey)),
+        ],
+      ),
       build: (ctx) => pageContent,
     ));
 

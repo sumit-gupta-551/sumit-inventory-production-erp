@@ -346,25 +346,43 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(24),
+        header: (ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            if (ctx.pageNumber == 1) ...[
+              pw.Center(child: pw.Image(logoImage, width: 60, height: 60)),
+              pw.SizedBox(height: 6),
+            ],
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Shade Movement Report',
+                    style: pw.TextStyle(
+                        fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                pw.Text('Generated: $now',
+                    style: const pw.TextStyle(fontSize: 9)),
+              ],
+            ),
+            pw.SizedBox(height: 2),
+            pw.Text(
+                'Date: $fromText to $toText  |  Product: $productText  |  Shade: $shadeText',
+                style: const pw.TextStyle(fontSize: 9)),
+            pw.Text(
+              'Total Inward: ${totalIn.toStringAsFixed(2)} $unit  |  Total Outward: ${totalOut.toStringAsFixed(2)} $unit',
+              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.Divider(),
+          ],
+        ),
+        footer: (ctx) => pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.end,
+          children: [
+            pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey)),
+          ],
+        ),
         build: (ctx) {
-          final widgets = <pw.Widget>[
-            pw.Center(child: pw.Image(logoImage, width: 80, height: 80)),
-            pw.SizedBox(height: 8),
-            pw.Text(
-              'Shade Movement Report',
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 6),
-            pw.Text('Generated: $now'),
-            pw.Text('Date range: $fromText to $toText'),
-            pw.Text('Product: $productText  |  Shade: $shadeText'),
-            pw.Text(
-              'Total Inward: ${totalIn.toStringAsFixed(2)} $unit  |  '
-              'Total Outward: ${totalOut.toStringAsFixed(2)} $unit',
-              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 12),
-          ];
+          final widgets = <pw.Widget>[];
 
           for (final g in groups) {
             final shadeNo = g['shade_no'].toString();

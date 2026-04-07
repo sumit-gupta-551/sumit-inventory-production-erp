@@ -360,16 +360,29 @@ class _ProductionReportPageState extends State<ProductionReportPage> {
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4.landscape,
       margin: const pw.EdgeInsets.all(24),
+      header: (ctx) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          if (ctx.pageNumber == 1 && logoImage != null) ...[
+            pw.Center(child: pw.Image(logoImage, width: 50, height: 50)),
+            pw.SizedBox(height: 4),
+          ],
+          pw.Center(
+            child: pw.Text(
+                'Production Report — $groupByLabel  (${_df.format(_fromDate)} - ${_df.format(_toDate)})',
+                style: pw.TextStyle(font: fontBold, fontSize: 14)),
+          ),
+          pw.Divider(),
+        ],
+      ),
+      footer: (ctx) => pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        children: [
+          pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey)),
+        ],
+      ),
       build: (ctx) => [
-        if (logoImage != null)
-          pw.Center(child: pw.Image(logoImage, width: 60, height: 60)),
-        pw.SizedBox(height: 6),
-        pw.Center(
-          child: pw.Text(
-              'Production Report — $groupByLabel  (${_df.format(_fromDate)} - ${_df.format(_toDate)})',
-              style: pw.TextStyle(font: fontBold, fontSize: 14)),
-        ),
-        pw.SizedBox(height: 10),
         pw.Table(
           border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
           columnWidths: {

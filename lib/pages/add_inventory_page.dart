@@ -194,7 +194,9 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
         '''),
       ]);
       final p = results[0] as List<Product>;
-      final pa = results[1] as List<Party>;
+      final pa = (results[1] as List<Party>)
+          .where((p) => p.partyType == 'Purchase')
+          .toList();
       final fs = results[2] as List<Map<String, dynamic>>;
       final links = results[3] as List<Map<String, dynamic>>;
 
@@ -434,11 +436,14 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     }
 
     final list = merged.values.toList();
-    list.sort(
-      (a, b) => (a['shade_no'] ?? '').toString().compareTo(
-            (b['shade_no'] ?? '').toString(),
-          ),
-    );
+    list.sort((a, b) {
+      final aNo = (a['shade_no'] ?? '').toString();
+      final bNo = (b['shade_no'] ?? '').toString();
+      final aNum = num.tryParse(aNo);
+      final bNum = num.tryParse(bNo);
+      if (aNum != null && bNum != null) return aNum.compareTo(bNum);
+      return aNo.compareTo(bNo);
+    });
     return list;
   }
 
@@ -468,11 +473,14 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     }
 
     final list = merged.values.toList();
-    list.sort(
-      (a, b) => (a['shade_no'] ?? '').toString().compareTo(
-            (b['shade_no'] ?? '').toString(),
-          ),
-    );
+    list.sort((a, b) {
+      final aNo = (a['shade_no'] ?? '').toString();
+      final bNo = (b['shade_no'] ?? '').toString();
+      final aNum = num.tryParse(aNo);
+      final bNum = num.tryParse(bNo);
+      if (aNum != null && bNum != null) return aNum.compareTo(bNum);
+      return aNo.compareTo(bNo);
+    });
     return list;
   }
 

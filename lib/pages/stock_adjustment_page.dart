@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/erp_database.dart';
@@ -13,6 +14,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
   // ---------------- MASTER DATA ----------------
   List<Map<String, dynamic>> products = [];
   List<Map<String, dynamic>> shades = [];
+  Map<int, Set<int>> productShadeIds = {};
 
   int? productId;
   int? shadeId;
@@ -34,9 +36,74 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
   Future<void> _load() async {
     final db = await ErpDatabase.instance.database;
-    products = await db.query('products');
-    shades = await db.query('fabric_shades');
+    final results = await Future.wait([
+      db.query('products'),
+      db.query('fabric_shades'),
+      db.rawQuery('''
+        SELECT DISTINCT product_id, shade_id
+        FROM purchase_items
+        WHERE product_id IS NOT NULL AND shade_id IS NOT NULL
+      '''),
+      db.rawQuery('''
+        SELECT DISTINCT product_id, fabric_shade_id AS shade_id
+        FROM stock_ledger
+        WHERE product_id IS NOT NULL AND fabric_shade_id IS NOT NULL
+      '''),
+    ]);
+    products = results[0] as List<Map<String, dynamic>>;
+    shades = results[1] as List<Map<String, dynamic>>;
+
+    final map = <int, Set<int>>{};
+    for (final list in [results[2], results[3]]) {
+      for (final r in list as List<Map<String, dynamic>>) {
+        final pid = r['product_id'] as int?;
+        final sid = r['shade_id'] as int?;
+        if (pid == null || sid == null) continue;
+        map.putIfAbsent(pid, () => <int>{}).add(sid);
+      }
+    }
+    productShadeIds = map;
+
     if (mounted) setState(() {});
+  }
+
+  List<Map<String, dynamic>> _filteredShades() {
+    if (productId == null) return [];
+    final productName = products
+            .cast<Map<String, dynamic>?>()
+            .firstWhere((p) => p?['id'] == productId,
+                orElse: () => null)?['name']
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        '';
+
+    final byName = shades.where((s) {
+      final n = (s['shade_name'] ?? '').toString().trim().toLowerCase();
+      return n == productName;
+    });
+
+    final linkedIds = productShadeIds[productId!] ?? <int>{};
+    final byHistory = shades.where((s) {
+      final id = s['id'] as int?;
+      return id != null && linkedIds.contains(id);
+    });
+
+    final merged = <int, Map<String, dynamic>>{};
+    for (final s in byName) {
+      final id = s['id'] as int?;
+      if (id != null) merged[id] = s;
+    }
+    for (final s in byHistory) {
+      final id = s['id'] as int?;
+      if (id != null) merged[id] = s;
+    }
+
+    final list = merged.values.toList();
+    list.sort((a, b) => (a['shade_no'] ?? '')
+        .toString()
+        .compareTo((b['shade_no'] ?? '').toString()));
+    return list;
   }
 
   int _dateMillis() {
@@ -86,12 +153,14 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
           'shade_id': shadeId,
           'shade_no': _shadeNo(shadeId),
           'qty': qty,
+          'type': type,
         };
       } else {
         items.add({
           'shade_id': shadeId,
           'shade_no': _shadeNo(shadeId),
           'qty': qty,
+          'type': type,
         });
       }
 
@@ -106,6 +175,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     setState(() {
       editingIndex = index;
       shadeId = row['shade_id'] as int?;
+      type = (row['type'] as String?) ?? 'IN';
       qtyCtrl.text = ((row['qty'] as num?)?.toDouble() ?? 0).toString();
     });
   }
@@ -126,53 +196,61 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     }
 
     final warningLines = <String>[];
+    int savedCount = 0;
 
-    for (final row in items) {
-      final rowShadeId = row['shade_id'] as int?;
-      final rowQty = (row['qty'] as num?)?.toDouble() ?? 0;
-      if (rowShadeId == null || rowQty <= 0) continue;
+    try {
+      for (final row in items) {
+        final rowShadeId = row['shade_id'] as int?;
+        final rowQty = (row['qty'] as num?)?.toDouble() ?? 0;
+        final rowType = (row['type'] as String?) ?? 'IN';
+        if (rowShadeId == null || rowQty <= 0) continue;
 
-      if (type == 'OUT') {
-        final current = await ErpDatabase.instance.getCurrentStockBalance(
-          productId: productId!,
-          fabricShadeId: rowShadeId,
-        );
-        final projected = current - rowQty;
-        if (projected < 0) {
-          warningLines.add(
-            '${_shadeNo(rowShadeId)}: ${projected.toStringAsFixed(2)}',
+        if (rowType == 'OUT') {
+          final current = await ErpDatabase.instance.getCurrentStockBalance(
+            productId: productId!,
+            fabricShadeId: rowShadeId,
           );
+          final projected = current - rowQty;
+          if (projected < 0) {
+            warningLines.add(
+              '${_shadeNo(rowShadeId)}: ${projected.toStringAsFixed(2)}',
+            );
+          }
         }
+
+        await ErpDatabase.instance.insertLedger({
+          'product_id': productId,
+          'fabric_shade_id': rowShadeId,
+          'qty': rowQty,
+          'type': rowType, // IN or OUT per row
+          'date': _dateMillis(),
+          'reference': 'ADJUSTMENT',
+          'remarks': reasonCtrl.text.trim(),
+        });
+        savedCount++;
       }
 
-      await ErpDatabase.instance.insertLedger({
-        'product_id': productId,
-        'fabric_shade_id': rowShadeId,
-        'qty': rowQty,
-        'type': type, // IN or OUT
-        'date': _dateMillis(),
-        'reference': 'ADJUSTMENT',
-        'remarks': reasonCtrl.text.trim(),
+      // reset form
+      setState(() {
+        productId = null;
+        shadeId = null;
+        type = 'IN';
+        editingIndex = null;
+        dateCtrl.text = DateFormat('dd-MM-yyyy').format(DateTime.now());
+        qtyCtrl.clear();
+        reasonCtrl.clear();
+        items.clear();
       });
-    }
 
-    // reset form
-    setState(() {
-      productId = null;
-      shadeId = null;
-      type = 'IN';
-      editingIndex = null;
-      dateCtrl.text = DateFormat('dd-MM-yyyy').format(DateTime.now());
-      qtyCtrl.clear();
-      reasonCtrl.clear();
-      items.clear();
-    });
-
-    _msg('Stock adjusted successfully');
-    if (warningLines.isNotEmpty) {
-      _msg(
-        'Warning: Negative balance moved to Fabric Requirement\n${warningLines.join(', ')}',
-      );
+      _msg('$savedCount shade(s) adjusted successfully');
+      if (warningLines.isNotEmpty) {
+        _msg(
+          'Warning: Negative balance\n${warningLines.join(', ')}',
+        );
+      }
+    } catch (e) {
+      debugPrint('Stock adjustment error: $e');
+      _msg('Error saving adjustment: $e');
     }
   }
 
@@ -220,26 +298,57 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
                   child: Text(p['name']),
                 );
               }).toList(),
-              onChanged: (v) => setState(() => productId = v),
+              onChanged: (v) => setState(() {
+                productId = v;
+                shadeId = null; // reset shade when product changes
+              }),
             ),
 
             const SizedBox(height: 12),
 
-            // ---------------- FABRIC SHADE ----------------
+            // ---------------- FABRIC SHADE (filtered by product) ----------------
             DropdownButtonFormField<int>(
+              key: ValueKey('shade_$productId'),
               value: shadeId,
-              decoration: const InputDecoration(
-                labelText: 'Fabric Shade',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText:
+                    productId == null ? 'Select product first' : 'Fabric Shade',
+                border: const OutlineInputBorder(),
               ),
-              items: shades.map<DropdownMenuItem<int>>((s) {
+              items: _filteredShades().map<DropdownMenuItem<int>>((s) {
                 return DropdownMenuItem<int>(
                   value: s['id'] as int,
                   child: Text(s['shade_no']),
                 );
               }).toList(),
-              onChanged: (v) => setState(() => shadeId = v),
+              onChanged:
+                  productId == null ? null : (v) => setState(() => shadeId = v),
             ),
+
+            // Show current stock balance for selected product+shade
+            if (productId != null && shadeId != null)
+              FutureBuilder<double>(
+                future: ErpDatabase.instance.getCurrentStockBalance(
+                  productId: productId!,
+                  fabricShadeId: shadeId!,
+                ),
+                builder: (ctx, snap) {
+                  final bal = snap.data ?? 0;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6, bottom: 2),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Current Stock: ${bal.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: bal <= 0 ? Colors.red : Colors.green.shade700,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
 
             const SizedBox(height: 12),
 
@@ -318,7 +427,15 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     title: Text('Shade: ${item['shade_no']}'),
-                    subtitle: Text('Qty: ${qty.toStringAsFixed(2)}'),
+                    subtitle: Text(
+                      '${item['type'] ?? 'IN'}  |  Qty: ${qty.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: (item['type'] ?? 'IN') == 'OUT'
+                            ? Colors.red
+                            : Colors.green.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

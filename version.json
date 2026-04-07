@@ -1,5 +1,5 @@
 {
-    "version": "1.0.8",
-    "apk": "SSSJ-ERP-v1.0.8.apk",
-    "notes": "Performance fix: non-blocking startup sync, batched Firebase pull/push"
+    "version": "1.0.9",
+    "apk": "SSSJ-ERP-v1.0.9.apk",
+    "notes": "Fix PDF layout, stock adjustment, shade sort, party filter, issue requirement logic"
 }

@@ -371,7 +371,8 @@ class _IssueReportPageState extends State<IssueReportPage> {
     }
 
     final doc = pw.Document(theme: await _pdfTheme());
-    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoBytes =
+        (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
     final grouped = _groupByDate();
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
@@ -388,24 +389,42 @@ class _IssueReportPageState extends State<IssueReportPage> {
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(24),
-        build: (ctx) {
-          final widgets = <pw.Widget>[
-            pw.Center(
-              child: pw.Image(logoImage, width: 80, height: 80),
+        header: (ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            if (ctx.pageNumber == 1) ...[
+              pw.Center(child: pw.Image(logoImage, width: 60, height: 60)),
+              pw.SizedBox(height: 6),
+            ],
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Issue Report',
+                    style: pw.TextStyle(
+                        fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                pw.Text('Generated: $now',
+                    style: const pw.TextStyle(fontSize: 9)),
+              ],
             ),
-            pw.SizedBox(height: 8),
+            pw.SizedBox(height: 2),
+            pw.Text('Date: $fromText to $toText  |  ${_activeFilterSummary()}',
+                style: const pw.TextStyle(fontSize: 9)),
             pw.Text(
-              'Issue Report',
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+              'Total rows: ${filteredRows.length}  |  Total qty: ${totalQty.toStringAsFixed(2)} mtr',
+              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
             ),
-            pw.SizedBox(height: 6),
-            pw.Text('Generated: $now'),
-            pw.Text('Date range: $fromText to $toText'),
-            pw.Text(_activeFilterSummary()),
-            pw.Text('Total rows: ${filteredRows.length}'),
-            pw.Text('Total qty: ${totalQty.toStringAsFixed(2)} mtr'),
-            pw.SizedBox(height: 12),
-          ];
+            pw.Divider(),
+          ],
+        ),
+        footer: (ctx) => pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.end,
+          children: [
+            pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey)),
+          ],
+        ),
+        build: (ctx) {
+          final widgets = <pw.Widget>[];
 
           for (final g in grouped) {
             final dayMs = g['dayMs'] as int;
