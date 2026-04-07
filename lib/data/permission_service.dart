@@ -28,6 +28,7 @@ class PermissionService {
     'requirement': 'Requirement',
     'stock_adjustment': 'Stock Adjustment',
     'history': 'History',
+    'stock_ledger': 'Running Stock',
     'firms': 'Firms',
     'machine_allotment': 'Machine Allotment',
     'operator_live': 'Operator Live',

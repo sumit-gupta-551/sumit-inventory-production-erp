@@ -20,12 +20,19 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
   int? shadeId;
   String type = 'IN';
   int? editingIndex;
+  double? _stockBalance;
 
   final dateCtrl = TextEditingController();
 
   final qtyCtrl = TextEditingController();
   final reasonCtrl = TextEditingController();
   final List<Map<String, dynamic>> items = [];
+
+  // ---- PAST ADJUSTMENTS ----
+  List<Map<String, dynamic>> pastAdjustments = [];
+  bool showPast = false;
+  int? _editingPastId;
+  final _pastQtyCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -128,6 +135,19 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
         dateCtrl.text = DateFormat('dd-MM-yyyy').format(selected);
       });
     }
+  }
+
+  Future<void> _refreshBalance() async {
+    if (productId == null || shadeId == null) {
+      if (_stockBalance != null) setState(() => _stockBalance = null);
+      return;
+    }
+    final bal = await ErpDatabase.instance.getCurrentStockBalance(
+      productId: productId!,
+      fabricShadeId: shadeId!,
+    );
+    if (!mounted) return;
+    setState(() => _stockBalance = bal);
   }
 
   String _shadeNo(int? id) {
@@ -234,6 +254,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
       setState(() {
         productId = null;
         shadeId = null;
+        _stockBalance = null;
         type = 'IN';
         editingIndex = null;
         dateCtrl.text = DateFormat('dd-MM-yyyy').format(DateTime.now());
@@ -255,7 +276,102 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
   }
 
   void _msg(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    if (!mounted) return;
+    try {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(text)));
+    } catch (_) {}
+  }
+
+  // ---- PAST ADJUSTMENTS ----
+  Future<void> _loadPastAdjustments() async {
+    final db = await ErpDatabase.instance.database;
+    final rows = await db.rawQuery('''
+      SELECT sl.id, sl.product_id, sl.fabric_shade_id, sl.qty, sl.type,
+             sl.date, sl.remarks,
+             p.name AS product_name, fs.shade_no
+      FROM stock_ledger sl
+      LEFT JOIN products p ON p.id = sl.product_id
+      LEFT JOIN fabric_shades fs ON fs.id = sl.fabric_shade_id
+      WHERE sl.reference = 'ADJUSTMENT'
+      ORDER BY sl.date DESC, sl.id DESC
+    ''');
+    if (!mounted) return;
+    setState(() => pastAdjustments =
+        rows.map((r) => Map<String, dynamic>.from(r)).toList());
+  }
+
+  Future<void> _toggleType(Map<String, dynamic> entry) async {
+    final id = entry['id'] as int;
+    final currentType = (entry['type'] ?? 'IN').toString();
+    final newType = currentType == 'IN' ? 'OUT' : 'IN';
+
+    await ErpDatabase.instance.updateLedgerFull(
+      id: id,
+      productId: entry['product_id'] as int,
+      fabricShadeId: entry['fabric_shade_id'] as int,
+      type: newType,
+      qty: (entry['qty'] as num?)?.toDouble() ?? 0,
+      remarks: entry['remarks']?.toString(),
+    );
+    if (!mounted) return;
+    await _loadPastAdjustments();
+    _msg('Changed to $newType');
+  }
+
+  void _startEditPast(Map<String, dynamic> entry) {
+    setState(() {
+      _editingPastId = entry['id'] as int;
+      _pastQtyCtrl.text =
+          ((entry['qty'] as num?)?.toDouble() ?? 0).toStringAsFixed(2);
+    });
+  }
+
+  void _cancelEditPast() {
+    setState(() {
+      _editingPastId = null;
+      _pastQtyCtrl.clear();
+    });
+  }
+
+  Future<void> _saveEditPast(Map<String, dynamic> entry) async {
+    final id = entry['id'] as int;
+    final newQty = double.tryParse(_pastQtyCtrl.text.trim());
+    if (newQty == null || newQty <= 0) {
+      _msg('Enter a valid qty');
+      return;
+    }
+
+    await ErpDatabase.instance.updateLedgerFull(
+      id: id,
+      productId: entry['product_id'] as int,
+      fabricShadeId: entry['fabric_shade_id'] as int,
+      type: (entry['type'] ?? 'IN').toString(),
+      qty: newQty,
+      remarks: entry['remarks']?.toString(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _editingPastId = null;
+      _pastQtyCtrl.clear();
+    });
+    await _loadPastAdjustments();
+    _msg('Qty updated');
+  }
+
+  Future<void> _deletePastEntry(Map<String, dynamic> entry) async {
+    final id = entry['id'] as int;
+    await ErpDatabase.instance.deleteLedgerEntry(id);
+    if (!mounted) return;
+    await _loadPastAdjustments();
+    _msg('Entry deleted');
+  }
+
+  String _fmtDate(int? ms) {
+    if (ms == null) return '-';
+    return DateFormat('dd-MM-yyyy')
+        .format(DateTime.fromMillisecondsSinceEpoch(ms));
   }
 
   @override
@@ -300,7 +416,8 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
               }).toList(),
               onChanged: (v) => setState(() {
                 productId = v;
-                shadeId = null; // reset shade when product changes
+                shadeId = null;
+                _stockBalance = null;
               }),
             ),
 
@@ -321,33 +438,30 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
                   child: Text(s['shade_no']),
                 );
               }).toList(),
-              onChanged:
-                  productId == null ? null : (v) => setState(() => shadeId = v),
+              onChanged: productId == null
+                  ? null
+                  : (v) {
+                      setState(() => shadeId = v);
+                      _refreshBalance();
+                    },
             ),
 
             // Show current stock balance for selected product+shade
-            if (productId != null && shadeId != null)
-              FutureBuilder<double>(
-                future: ErpDatabase.instance.getCurrentStockBalance(
-                  productId: productId!,
-                  fabricShadeId: shadeId!,
-                ),
-                builder: (ctx, snap) {
-                  final bal = snap.data ?? 0;
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 6, bottom: 2),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Current Stock: ${bal.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: bal <= 0 ? Colors.red : Colors.green.shade700,
-                        ),
-                      ),
+            if (productId != null && shadeId != null && _stockBalance != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, bottom: 2),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Current Stock: ${_stockBalance!.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: _stockBalance! <= 0
+                          ? Colors.red
+                          : Colors.green.shade700,
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
 
             const SizedBox(height: 12),
@@ -476,6 +590,181 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
                 ),
               ),
             ),
+
+            const SizedBox(height: 24),
+            const Divider(thickness: 2),
+
+            // ---- PAST ADJUSTMENTS SECTION ----
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Past Adjustments',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                TextButton.icon(
+                  onPressed: () {
+                    if (!showPast) _loadPastAdjustments();
+                    setState(() => showPast = !showPast);
+                  },
+                  icon: Icon(showPast ? Icons.expand_less : Icons.expand_more),
+                  label: Text(showPast ? 'Hide' : 'Show'),
+                ),
+              ],
+            ),
+
+            if (showPast) ...[
+              if (pastAdjustments.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text('No past adjustments found'),
+                )
+              else
+                ...pastAdjustments.map((entry) {
+                  final isOut = (entry['type'] ?? 'IN') == 'OUT';
+                  return Card(
+                    key: ValueKey('past_${entry['id']}'),
+                    margin: const EdgeInsets.only(bottom: 6),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isOut
+                                      ? Colors.red.shade50
+                                      : Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  isOut ? 'OUT' : 'IN',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: isOut
+                                        ? Colors.red
+                                        : Colors.green.shade700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '${entry['product_name'] ?? '-'}  ·  Shade ${entry['shade_no'] ?? '-'}',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              Text(
+                                _fmtDate(entry['date'] as int?),
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          if (_editingPastId == entry['id'])
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _pastQtyCtrl,
+                                    keyboardType: TextInputType.number,
+                                    autofocus: true,
+                                    decoration: const InputDecoration(
+                                      labelText: 'New Qty',
+                                      border: OutlineInputBorder(),
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 8),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                ElevatedButton(
+                                  onPressed: () => _saveEditPast(entry),
+                                  style: ElevatedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12)),
+                                  child: const Text('Save',
+                                      style: TextStyle(fontSize: 12)),
+                                ),
+                                const SizedBox(width: 4),
+                                OutlinedButton(
+                                  onPressed: _cancelEditPast,
+                                  style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10)),
+                                  child: const Text('X',
+                                      style: TextStyle(fontSize: 12)),
+                                ),
+                              ],
+                            )
+                          else
+                            Row(
+                              children: [
+                                Text(
+                                  'Qty: ${((entry['qty'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                                if ((entry['remarks'] ?? '')
+                                    .toString()
+                                    .isNotEmpty)
+                                  Expanded(
+                                    child: Text(
+                                      '  ·  ${entry['remarks']}',
+                                      style: const TextStyle(
+                                          fontSize: 12, color: Colors.grey),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () => _toggleType(entry),
+                                icon: const Icon(Icons.swap_horiz, size: 16),
+                                label: Text('Flip to ${isOut ? "IN" : "OUT"}',
+                                    style: const TextStyle(fontSize: 12)),
+                                style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => _startEditPast(entry),
+                                icon: const Icon(Icons.edit, size: 16),
+                                label: const Text('Qty',
+                                    style: TextStyle(fontSize: 12)),
+                                style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => _deletePastEntry(entry),
+                                icon: const Icon(Icons.delete,
+                                    size: 16, color: Colors.red),
+                                label: const Text('Delete',
+                                    style: TextStyle(
+                                        fontSize: 12, color: Colors.red)),
+                                style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+            ],
           ],
         ),
       ),
@@ -487,6 +776,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     dateCtrl.dispose();
     qtyCtrl.dispose();
     reasonCtrl.dispose();
+    _pastQtyCtrl.dispose();
     super.dispose();
   }
 }

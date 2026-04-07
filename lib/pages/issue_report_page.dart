@@ -393,25 +393,18 @@ class _IssueReportPageState extends State<IssueReportPage> {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             if (ctx.pageNumber == 1) ...[
-              pw.Center(child: pw.Image(logoImage, width: 60, height: 60)),
-              pw.SizedBox(height: 6),
+              pw.Center(child: pw.Image(logoImage, width: 50, height: 50)),
+              pw.SizedBox(height: 4),
             ],
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Text('Issue Report',
                     style: pw.TextStyle(
-                        fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                        fontSize: 12, fontWeight: pw.FontWeight.bold)),
                 pw.Text('Generated: $now',
-                    style: const pw.TextStyle(fontSize: 9)),
+                    style: const pw.TextStyle(fontSize: 8)),
               ],
-            ),
-            pw.SizedBox(height: 2),
-            pw.Text('Date: $fromText to $toText  |  ${_activeFilterSummary()}',
-                style: const pw.TextStyle(fontSize: 9)),
-            pw.Text(
-              'Total rows: ${filteredRows.length}  |  Total qty: ${totalQty.toStringAsFixed(2)} mtr',
-              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
             ),
             pw.Divider(),
           ],
@@ -424,7 +417,15 @@ class _IssueReportPageState extends State<IssueReportPage> {
           ],
         ),
         build: (ctx) {
-          final widgets = <pw.Widget>[];
+          final widgets = <pw.Widget>[
+            pw.Text('Date: $fromText to $toText  |  ${_activeFilterSummary()}',
+                style: const pw.TextStyle(fontSize: 9)),
+            pw.Text(
+              'Total rows: ${filteredRows.length}  |  Total qty: ${totalQty.toStringAsFixed(2)} mtr',
+              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 8),
+          ];
 
           for (final g in grouped) {
             final dayMs = g['dayMs'] as int;

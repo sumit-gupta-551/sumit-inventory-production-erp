@@ -356,7 +356,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
     }
 
     final doc = pw.Document(theme: await _pdfTheme());
-    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoBytes =
+        (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
 
@@ -364,25 +365,34 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(24),
+        header: (ctx) => pw.Column(children: [
+          if (ctx.pageNumber == 1)
+            pw.Center(child: pw.Image(logoImage, width: 50, height: 50)),
+          pw.Text(
+            'Stock Summary Purchase Report',
+            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.Divider(thickness: 0.5),
+        ]),
+        footer: (ctx) => pw.Container(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+              style: const pw.TextStyle(fontSize: 8)),
+        ),
         build: (ctx) {
           final widgets = <pw.Widget>[
-            pw.Center(
-              child: pw.Image(logoImage, width: 80, height: 80),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Text(
-              'Stock Summary Purchase Report',
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 6),
-            pw.Text('Generated: $now'),
+            pw.Text('Generated: $now', style: const pw.TextStyle(fontSize: 8)),
             pw.Text(
               'Date filter: ${_fmtDateChip(fromDate)} to ${_fmtDateChip(toDate)}',
+              style: const pw.TextStyle(fontSize: 8),
             ),
-            pw.Text('Party filter: ${_partyNameById(selectedPartyId)}'),
-            pw.Text('Product filter: ${_productNameById(selectedProductId)}'),
-            pw.Text('Shade filter: ${_shadeNoById(selectedShadeId)}'),
-            pw.SizedBox(height: 10),
+            pw.Text('Party filter: ${_partyNameById(selectedPartyId)}',
+                style: const pw.TextStyle(fontSize: 8)),
+            pw.Text('Product filter: ${_productNameById(selectedProductId)}',
+                style: const pw.TextStyle(fontSize: 8)),
+            pw.Text('Shade filter: ${_shadeNoById(selectedShadeId)}',
+                style: const pw.TextStyle(fontSize: 8)),
+            pw.SizedBox(height: 8),
           ];
 
           if (reportMode != StockSummaryReportMode.productWise) {

@@ -105,67 +105,44 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
     final dateRange = '${_fmtDateChip(fromDate)} to ${_fmtDateChip(toDate)}';
 
     final grouped = _groupByProduct(filteredRows);
-    final tableRows = filteredRows.map((r) {
-      final bal = ((r['balance'] as num?)?.toDouble() ?? 0).toStringAsFixed(2);
-      return [
-        (r['product'] ?? '-').toString(),
-        (r['shade'] ?? '-').toString(),
-        bal,
-      ];
-    }).toList();
 
-    // Add total row
     final grandTotal = filteredRows.fold<double>(
       0,
       (sum, r) => sum + ((r['balance'] as num?)?.toDouble() ?? 0),
     );
-    tableRows.add(['', 'TOTAL', grandTotal.toStringAsFixed(2)]);
 
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(24),
-        build: (context) {
-          return [
-            pw.Center(
-              child: pw.Image(logoImage, width: 80, height: 80),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Text(
-              'Stock Ledger Report',
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 6),
-            pw.Text('Generated: $now'),
-            pw.Text('Date range: $dateRange'),
-            pw.Text(
-              'Product filter: ${selectedProductId == null ? 'All Products' : 'Applied'}',
-            ),
-            pw.Text(
-              'Shade filter: ${selectedShadeId == null ? 'All Shades' : 'Applied'}',
-            ),
-            pw.SizedBox(height: 12),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey200,
-                border: pw.Border.all(color: PdfColors.grey400),
-              ),
-              child: pw.Text(
-                'Grand Total Qty: ${grandTotal.toStringAsFixed(2)}',
-                style: pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-                textAlign: pw.TextAlign.center,
-              ),
-            ),
-          ];
-        },
+    // Build all product sections as a flat widget list
+    final List<pw.Widget> bodyWidgets = [];
+
+    // Summary info at the top
+    bodyWidgets.add(
+        pw.Text('Generated: $now', style: const pw.TextStyle(fontSize: 8)));
+    bodyWidgets.add(pw.Text('Date range: $dateRange',
+        style: const pw.TextStyle(fontSize: 8)));
+    bodyWidgets.add(pw.Text(
+      'Product filter: ${selectedProductId == null ? 'All Products' : 'Applied'}',
+      style: const pw.TextStyle(fontSize: 8),
+    ));
+    bodyWidgets.add(pw.Text(
+      'Shade filter: ${selectedShadeId == null ? 'All Shades' : 'Applied'}',
+      style: const pw.TextStyle(fontSize: 8),
+    ));
+    bodyWidgets.add(pw.SizedBox(height: 6));
+    bodyWidgets.add(pw.Container(
+      padding: const pw.EdgeInsets.all(6),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.grey200,
+        border: pw.Border.all(color: PdfColors.grey400),
       ),
-    );
+      child: pw.Text(
+        'Grand Total Qty: ${grandTotal.toStringAsFixed(2)}',
+        style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+        textAlign: pw.TextAlign.center,
+      ),
+    ));
+    bodyWidgets.add(pw.SizedBox(height: 12));
 
-    // Each product on its own page
+    // Each product section
     for (final entry in grouped.entries) {
       final productName = entry.key;
       final rows = entry.value;
@@ -182,59 +159,66 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
               ])
           .toList();
 
-      doc.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(24),
-          build: (context) {
-            return [
-              pw.Center(
-                child: pw.Image(logoImage, width: 60, height: 60),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text(
-                productName,
-                style:
-                    pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
-              ),
-              pw.SizedBox(height: 4),
-              pw.Text('Shades: ${rows.length}   |   Unit: $unit'),
-              pw.SizedBox(height: 10),
-              pw.TableHelper.fromTextArray(
-                headers: ['Shade', 'Balance ($unit)'],
-                data: shadeRows,
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                cellAlignment: pw.Alignment.center,
-                cellAlignments: {
-                  0: pw.Alignment.center,
-                  1: pw.Alignment.center,
-                },
-                columnWidths: {
-                  0: const pw.FlexColumnWidth(2),
-                  1: const pw.FlexColumnWidth(1),
-                },
-              ),
-              pw.SizedBox(height: 12),
-              pw.Container(
-                padding: const pw.EdgeInsets.all(10),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.grey200,
-                  border: pw.Border.all(color: PdfColors.grey400),
-                ),
-                child: pw.Text(
-                  'Total: ${productTotal.toStringAsFixed(2)} $unit',
-                  style: pw.TextStyle(
-                    fontSize: 16,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                  textAlign: pw.TextAlign.center,
-                ),
-              ),
-            ];
-          },
+      bodyWidgets.add(pw.Text(
+        productName,
+        style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+      ));
+      bodyWidgets.add(pw.SizedBox(height: 2));
+      bodyWidgets.add(pw.Text('Shades: ${rows.length}   |   Unit: $unit',
+          style: const pw.TextStyle(fontSize: 9)));
+      bodyWidgets.add(pw.SizedBox(height: 6));
+      bodyWidgets.add(pw.TableHelper.fromTextArray(
+        headers: ['Shade', 'Balance ($unit)'],
+        data: shadeRows,
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle: const pw.TextStyle(fontSize: 9),
+        cellAlignment: pw.Alignment.center,
+        cellAlignments: {
+          0: pw.Alignment.center,
+          1: pw.Alignment.center,
+        },
+        columnWidths: {
+          0: const pw.FlexColumnWidth(2),
+          1: const pw.FlexColumnWidth(1),
+        },
+      ));
+      bodyWidgets.add(pw.SizedBox(height: 4));
+      bodyWidgets.add(pw.Container(
+        padding: const pw.EdgeInsets.all(6),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.grey200,
+          border: pw.Border.all(color: PdfColors.grey400),
         ),
-      );
+        child: pw.Text(
+          'Total: ${productTotal.toStringAsFixed(2)} $unit',
+          style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+          textAlign: pw.TextAlign.center,
+        ),
+      ));
+      bodyWidgets.add(pw.SizedBox(height: 16));
     }
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        header: (ctx) => pw.Column(children: [
+          if (ctx.pageNumber == 1)
+            pw.Center(child: pw.Image(logoImage, width: 50, height: 50)),
+          pw.Text(
+            'Stock Ledger Report',
+            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.Divider(thickness: 0.5),
+        ]),
+        footer: (ctx) => pw.Container(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+              style: const pw.TextStyle(fontSize: 8)),
+        ),
+        build: (context) => bodyWidgets,
+      ),
+    );
 
     await Printing.layoutPdf(
       onLayout: (_) async => doc.save(),

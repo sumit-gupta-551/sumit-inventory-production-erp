@@ -1,5 +1,5 @@
 {
-    "version": "1.0.9",
-    "apk": "SSSJ-ERP-v1.0.9.apk",
-    "notes": "Fix PDF layout, stock adjustment, shade sort, party filter, issue requirement logic"
+    "version": "1.0.10",
+    "apk": "SSSJ-ERP-v1.0.10.apk",
+    "notes": "Fix stock ledger PDF blank page, running stock dashboard tile, compact PDF headers"
 }

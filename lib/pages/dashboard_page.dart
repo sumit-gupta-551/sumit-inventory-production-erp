@@ -1320,6 +1320,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                   Icons.tune_rounded,
                                   const Color(0xFFEC4899),
                                   () => _openPage(const StockAdjustmentPage())),
+                            if (_perm.hasPermission('stock_ledger'))
+                              _moduleCard(
+                                  'Running\nStock',
+                                  Icons.inventory_2_rounded,
+                                  const Color(0xFF0EA5E9),
+                                  () => _openPage(const StockLedgerPage())),
                             if (_perm.hasPermission('history'))
                               _moduleCard(
                                   'History',

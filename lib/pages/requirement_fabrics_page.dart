@@ -259,7 +259,8 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
     }
 
     final pdf = pw.Document();
-    final logoBytes = (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
+    final logoBytes =
+        (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
     final now = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
     final filterLabel =
@@ -291,23 +292,37 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
         header: (ctx) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Center(
-              child: pw.Image(logoImage, width: 80, height: 80),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Text(
-              'Requirement Report',
-              style: pw.TextStyle(
-                fontSize: 20,
-                fontWeight: pw.FontWeight.bold,
+            if (ctx.pageNumber == 1) ...[
+              pw.Center(
+                child: pw.Image(logoImage, width: 50, height: 50),
               ),
+              pw.SizedBox(height: 4),
+            ],
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'Requirement Report',
+                  style: pw.TextStyle(
+                    fontSize: 12,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.Text(
+                  'Party: $filterLabel  |  Generated: $now',
+                  style:
+                      const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                ),
+              ],
             ),
-            pw.SizedBox(height: 4),
-            pw.Text(
-              'Party: $filterLabel  |  Generated: $now',
-              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
-            ),
-            pw.SizedBox(height: 12),
+            pw.Divider(),
+          ],
+        ),
+        footer: (ctx) => pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.end,
+          children: [
+            pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey)),
           ],
         ),
         build: (ctx) => [
@@ -510,7 +525,7 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
                             'Shade No',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w600,
                               fontSize: 14,
                             ),
                           ),
@@ -522,7 +537,7 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
                             'Qty',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w600,
                               fontSize: 14,
                             ),
                           ),
@@ -571,8 +586,10 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
                           Padding(
                             padding: const EdgeInsets.symmetric(
                                 vertical: 6, horizontal: 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                            child: Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 4,
+                              runSpacing: 4,
                               children: [
                                 SizedBox(
                                   height: 28,
@@ -589,7 +606,6 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
                                     child: const Text('EDIT'),
                                   ),
                                 ),
-                                const SizedBox(width: 4),
                                 SizedBox(
                                   height: 28,
                                   child: OutlinedButton(
