@@ -1159,7 +1159,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(height: 20),
 
                           // ---------- STOCK TICKER ----------
-                          if (_stockItems.isNotEmpty)
+                          if (_perm.hasPermission('stock_ledger') &&
+                              _stockItems.isNotEmpty)
                             Container(
                               height: 36,
                               decoration: BoxDecoration(
@@ -1320,12 +1321,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                   Icons.tune_rounded,
                                   const Color(0xFFEC4899),
                                   () => _openPage(const StockAdjustmentPage())),
-                            if (_perm.hasPermission('stock_ledger'))
-                              _moduleCard(
-                                  'Running\nStock',
-                                  Icons.inventory_2_rounded,
-                                  const Color(0xFF0EA5E9),
-                                  () => _openPage(const StockLedgerPage())),
                             if (_perm.hasPermission('history'))
                               _moduleCard(
                                   'History',
