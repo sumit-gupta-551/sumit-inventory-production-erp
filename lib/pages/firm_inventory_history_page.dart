@@ -547,6 +547,63 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
     );
   }
 
+  // ---------- FULL PURCHASE EDIT ----------
+  Future<void> _editFullPurchase(List<Map<String, dynamic>> groupRows) async {
+    if (!await _ensureUnlocked()) return;
+    if (groupRows.isEmpty || !mounted) return;
+
+    final first = groupRows.first;
+    final purchaseNo = first['purchase_no'] as int?;
+    if (purchaseNo == null) return;
+
+    int? partyId = first['party_id'] as int?;
+    String invoiceNo = (first['invoice_no'] ?? '').toString();
+    DateTime purchaseDate = DateTime.fromMillisecondsSinceEpoch(
+      (first['purchase_date'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
+    );
+    int? productId = first['product_id'] as int?;
+
+    // Build editable shade list from existing rows
+    final editItems = <Map<String, dynamic>>[];
+    for (final r in groupRows) {
+      editItems.add({
+        'purchase_item_id': r['purchase_item_id'],
+        'shade_id': r['shade_id'] as int?,
+        'qty': (r['qty'] as num?)?.toDouble() ?? 0,
+        'rate': (r['rate'] as num?)?.toDouble() ?? 0,
+        'is_new': false,
+        'old_product_id': r['product_id'],
+        'old_shade_id': r['shade_id'],
+        'old_qty': (r['qty'] as num?)?.toDouble() ?? 0,
+        'old_date': r['purchase_date'],
+        'old_invoice': (r['invoice_no'] ?? '').toString(),
+      });
+    }
+
+    final deleted = <Map<String, dynamic>>[];
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _FullPurchaseEditPage(
+          purchaseNo: purchaseNo,
+          partyId: partyId,
+          invoiceNo: invoiceNo,
+          purchaseDate: purchaseDate,
+          productId: productId,
+          editItems: editItems,
+          deleted: deleted,
+          parties: parties,
+          products: products,
+          shades: shades,
+          firmId: widget.firmId,
+        ),
+      ),
+    );
+
+    // Reload after returning
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final grouped = _groupByPartyInvoice();
@@ -694,6 +751,24 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                                   const EdgeInsets.fromLTRB(10, 0, 10, 12),
                               children: [
                                 _shadeGrid(groupRows),
+                                if (editUnlocked) ...[
+                                  const SizedBox(height: 8),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            const Color(0xFF1565C0),
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () =>
+                                          _editFullPurchase(groupRows),
+                                      icon: const Icon(Icons.edit_note,
+                                          size: 20),
+                                      label: const Text('Edit Full Purchase'),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           );
@@ -703,5 +778,610 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                   ],
                 ),
     );
+  }
+}
+
+// ==================== FULL PURCHASE EDIT PAGE ====================
+class _FullPurchaseEditPage extends StatefulWidget {
+  final int purchaseNo;
+  final int? partyId;
+  final String invoiceNo;
+  final DateTime purchaseDate;
+  final int? productId;
+  final List<Map<String, dynamic>> editItems;
+  final List<Map<String, dynamic>> deleted;
+  final List<Map<String, dynamic>> parties;
+  final List<Map<String, dynamic>> products;
+  final List<Map<String, dynamic>> shades;
+  final int firmId;
+
+  const _FullPurchaseEditPage({
+    required this.purchaseNo,
+    required this.partyId,
+    required this.invoiceNo,
+    required this.purchaseDate,
+    required this.productId,
+    required this.editItems,
+    required this.deleted,
+    required this.parties,
+    required this.products,
+    required this.shades,
+    required this.firmId,
+  });
+
+  @override
+  State<_FullPurchaseEditPage> createState() => _FullPurchaseEditPageState();
+}
+
+class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
+  late int? partyId;
+  late int? productId;
+  late DateTime purchaseDate;
+  late TextEditingController invoiceCtrl;
+  late List<Map<String, dynamic>> items;
+  final List<Map<String, dynamic>> deleted = [];
+  bool saving = false;
+
+  // Add-row fields
+  int? addShadeId;
+  final addQtyCtrl = TextEditingController();
+  final addRateCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    partyId = widget.partyId;
+    productId = widget.productId;
+    purchaseDate = widget.purchaseDate;
+    invoiceCtrl = TextEditingController(text: widget.invoiceNo);
+    items = widget.editItems
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    invoiceCtrl.dispose();
+    addQtyCtrl.dispose();
+    addRateCtrl.dispose();
+    super.dispose();
+  }
+
+  void _msg(String t) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(t)));
+  }
+
+  String _shadeName(int? id) {
+    if (id == null) return '-';
+    final s = widget.shades.where((s) => s['id'] == id).firstOrNull;
+    return (s?['shade_no'] ?? '-').toString();
+  }
+
+  String _productName(int? id) {
+    if (id == null) return '-';
+    final p = widget.products.where((p) => p['id'] == id).firstOrNull;
+    return (p?['name'] ?? '-').toString();
+  }
+
+  void _addRow() {
+    final qty = double.tryParse(addQtyCtrl.text.trim());
+    final rate = double.tryParse(addRateCtrl.text.trim()) ?? 0;
+    if (addShadeId == null || qty == null || qty <= 0) {
+      _msg('Select shade and enter valid qty');
+      return;
+    }
+    setState(() {
+      items.add({
+        'purchase_item_id': null,
+        'shade_id': addShadeId,
+        'qty': qty,
+        'rate': rate,
+        'is_new': true,
+      });
+      addShadeId = null;
+      addQtyCtrl.clear();
+      addRateCtrl.clear();
+    });
+  }
+
+  void _removeRow(int index) {
+    final item = items[index];
+    setState(() {
+      if (item['is_new'] != true) {
+        deleted.add(item);
+      }
+      items.removeAt(index);
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: purchaseDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (d != null) setState(() => purchaseDate = d);
+  }
+
+  Future<void> _save() async {
+    if (partyId == null || productId == null || items.isEmpty) {
+      _msg('Party, product, and at least one shade required');
+      return;
+    }
+    setState(() => saving = true);
+
+    try {
+      final db = await ErpDatabase.instance.database;
+      final newDateMs = DateTime(
+        purchaseDate.year,
+        purchaseDate.month,
+        purchaseDate.day,
+      ).millisecondsSinceEpoch;
+      final inv = invoiceCtrl.text.trim();
+
+      await db.transaction((txn) async {
+        // 1. Update purchase_master header
+        await txn.update(
+          'purchase_master',
+          {
+            'party_id': partyId,
+            'invoice_no': inv,
+            'purchase_date': newDateMs,
+          },
+          where: 'purchase_no=?',
+          whereArgs: [widget.purchaseNo],
+        );
+
+        // 2. Delete removed rows
+        for (final d in deleted) {
+          final itemId = d['purchase_item_id'] as int?;
+          if (itemId == null) continue;
+
+          // Delete purchase_item
+          await txn.delete('purchase_items',
+              where: 'id=?', whereArgs: [itemId]);
+
+          // Find and delete matching ledger entry
+          final oldPid = d['old_product_id'] as int?;
+          final oldSid = d['old_shade_id'] as int?;
+          final oldQty = (d['old_qty'] as num?)?.toDouble() ?? 0;
+          final oldDate = d['old_date'] as int?;
+          final oldInv = (d['old_invoice'] ?? '').toString();
+
+          if (oldPid != null && oldSid != null && oldDate != null) {
+            final ledger = await txn.rawQuery('''
+              SELECT id FROM stock_ledger
+              WHERE product_id=? AND fabric_shade_id=? AND type='IN'
+                AND date=? AND reference=? AND remarks='Purchase'
+                AND ABS(COALESCE(qty,0) - ?) < 0.001
+              ORDER BY id DESC LIMIT 1
+            ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
+            if (ledger.isNotEmpty) {
+              await txn.delete('stock_ledger',
+                  where: 'id=?', whereArgs: [ledger.first['id']]);
+            }
+          }
+        }
+
+        // 3. Update existing rows
+        for (final item in items) {
+          if (item['is_new'] == true) continue;
+          final itemId = item['purchase_item_id'] as int?;
+          if (itemId == null) continue;
+
+          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+          final newRate = (item['rate'] as num?)?.toDouble() ?? 0;
+          final newShade = item['shade_id'] as int?;
+
+          await txn.update(
+            'purchase_items',
+            {
+              'product_id': productId,
+              'shade_id': newShade,
+              'qty': newQty,
+              'rate': newRate,
+              'amount': newQty * newRate,
+            },
+            where: 'id=?',
+            whereArgs: [itemId],
+          );
+
+          // Update matching ledger
+          final oldPid = item['old_product_id'] as int?;
+          final oldSid = item['old_shade_id'] as int?;
+          final oldQty = (item['old_qty'] as num?)?.toDouble() ?? 0;
+          final oldDate = item['old_date'] as int?;
+          final oldInv = (item['old_invoice'] ?? '').toString();
+
+          if (oldPid != null && oldSid != null && oldDate != null) {
+            final ledger = await txn.rawQuery('''
+              SELECT id FROM stock_ledger
+              WHERE product_id=? AND fabric_shade_id=? AND type='IN'
+                AND date=? AND reference=? AND remarks='Purchase'
+                AND ABS(COALESCE(qty,0) - ?) < 0.001
+              ORDER BY id DESC LIMIT 1
+            ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
+            if (ledger.isNotEmpty) {
+              await txn.update(
+                'stock_ledger',
+                {
+                  'product_id': productId,
+                  'fabric_shade_id': newShade,
+                  'qty': newQty,
+                  'date': newDateMs,
+                  'reference': inv,
+                },
+                where: 'id=?',
+                whereArgs: [ledger.first['id']],
+              );
+            }
+          }
+        }
+
+        // 4. Insert new rows
+        for (final item in items) {
+          if (item['is_new'] != true) continue;
+          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+          final newRate = (item['rate'] as num?)?.toDouble() ?? 0;
+          final newShade = item['shade_id'] as int?;
+
+          await txn.insert('purchase_items', {
+            'purchase_no': widget.purchaseNo,
+            'product_id': productId,
+            'shade_id': newShade,
+            'qty': newQty,
+            'rate': newRate,
+            'amount': newQty * newRate,
+          });
+
+          await txn.insert('stock_ledger', {
+            'product_id': productId,
+            'fabric_shade_id': newShade,
+            'qty': newQty,
+            'type': 'IN',
+            'date': newDateMs,
+            'reference': inv,
+            'remarks': 'Purchase',
+          });
+        }
+      });
+
+      if (!mounted) return;
+      _msg('Purchase updated successfully');
+      Navigator.pop(context);
+    } catch (e) {
+      debugPrint('Error saving purchase edit: $e');
+      _msg('Error: $e');
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalQty =
+        items.fold<double>(0, (s, e) => s + ((e['qty'] as num?)?.toDouble() ?? 0));
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Edit Purchase'),
+        actions: [
+          TextButton.icon(
+            onPressed: saving ? null : _save,
+            icon: saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save, color: Colors.white),
+            label: const Text('SAVE', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // --- Header Fields ---
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    DropdownButtonFormField<int>(
+                      value: partyId,
+                      decoration: const InputDecoration(
+                        labelText: 'Party',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      isExpanded: true,
+                      items: widget.parties
+                          .map((p) => DropdownMenuItem<int>(
+                                value: p['id'] as int,
+                                child: Text((p['name'] ?? '').toString()),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setState(() => partyId = v),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<int>(
+                      value: productId,
+                      decoration: const InputDecoration(
+                        labelText: 'Product',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      isExpanded: true,
+                      items: widget.products
+                          .map((p) => DropdownMenuItem<int>(
+                                value: p['id'] as int,
+                                child: Text((p['name'] ?? '').toString()),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setState(() => productId = v),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: invoiceCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Invoice No',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    InkWell(
+                      onTap: _pickDate,
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Purchase Date',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        child: Text(
+                            DateFormat('dd-MM-yyyy').format(purchaseDate)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // --- Existing Shade Rows ---
+            Text(
+              'Shade Rows (${items.length})  |  Total: ${totalQty.toStringAsFixed(2)}',
+              style:
+                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            ...items.asMap().entries.map((entry) {
+              final i = entry.key;
+              final item = entry.value;
+              final shade = _shadeName(item['shade_id'] as int?);
+              final qty = (item['qty'] as num?)?.toDouble() ?? 0;
+              final rate = (item['rate'] as num?)?.toDouble() ?? 0;
+              final isNew = item['is_new'] == true;
+
+              return Card(
+                color: isNew ? const Color(0xFFE8F5E9) : null,
+                margin: const EdgeInsets.only(bottom: 4),
+                child: ListTile(
+                  dense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 10),
+                  title: Text(
+                    '$shade  |  Qty: ${qty.toStringAsFixed(2)}  |  Rate: ${rate.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: isNew
+                      ? const Text('NEW',
+                          style: TextStyle(
+                              color: Colors.green, fontSize: 11))
+                      : Text('Product: ${_productName(productId)}',
+                          style: const TextStyle(fontSize: 11)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        iconSize: 20,
+                        icon: const Icon(Icons.edit_outlined,
+                            color: Colors.blue),
+                        onPressed: () => _editItemDialog(i),
+                      ),
+                      IconButton(
+                        iconSize: 20,
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.red),
+                        onPressed: () => _removeRow(i),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+
+            const SizedBox(height: 12),
+            const Divider(),
+
+            // --- Add New Row ---
+            const Text('Add Shade Row',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<int>(
+                    value: addShadeId,
+                    decoration: const InputDecoration(
+                      labelText: 'Shade',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                    isExpanded: true,
+                    items: widget.shades
+                        .map((s) => DropdownMenuItem<int>(
+                              value: s['id'] as int,
+                              child:
+                                  Text((s['shade_no'] ?? '').toString()),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() => addShadeId = v),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: addQtyCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Qty',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: addRateCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Rate',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 40,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1565C0),
+                      foregroundColor: Colors.white,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    onPressed: _addRow,
+                    child: const Text('ADD'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editItemDialog(int index) async {
+    final item = items[index];
+    int? dlgShadeId = item['shade_id'] as int?;
+    final dlgQtyCtrl = TextEditingController(
+      text: ((item['qty'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
+    );
+    final dlgRateCtrl = TextEditingController(
+      text: ((item['rate'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
+    );
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDlg) {
+            return AlertDialog(
+              title: const Text('Edit Shade Row'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    value: dlgShadeId,
+                    decoration: const InputDecoration(
+                      labelText: 'Shade',
+                      border: OutlineInputBorder(),
+                    ),
+                    isExpanded: true,
+                    items: widget.shades
+                        .map((s) => DropdownMenuItem<int>(
+                              value: s['id'] as int,
+                              child:
+                                  Text((s['shade_no'] ?? '').toString()),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDlg(() => dlgShadeId = v),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: dlgQtyCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Quantity',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: dlgRateCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Rate',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Update'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (ok != true) return;
+
+    final newQty = double.tryParse(dlgQtyCtrl.text.trim());
+    final newRate = double.tryParse(dlgRateCtrl.text.trim()) ?? 0;
+    if (newQty == null || newQty <= 0) {
+      _msg('Enter valid qty');
+      return;
+    }
+
+    setState(() {
+      items[index]['shade_id'] = dlgShadeId;
+      items[index]['qty'] = newQty;
+      items[index]['rate'] = newRate;
+    });
   }
 }

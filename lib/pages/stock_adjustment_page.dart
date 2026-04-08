@@ -219,6 +219,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     int savedCount = 0;
 
     try {
+      // Pre-check for negative balances
       for (final row in items) {
         final rowShadeId = row['shade_id'] as int?;
         final rowQty = (row['qty'] as num?)?.toDouble() ?? 0;
@@ -237,12 +238,43 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
             );
           }
         }
+      }
+
+      if (warningLines.isNotEmpty) {
+        if (!mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Negative Balance Warning'),
+            content: Text(
+              'These shades will go negative:\n${warningLines.join('\n')}\n\nProceed anyway?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Proceed'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+
+      for (final row in items) {
+        final rowShadeId = row['shade_id'] as int?;
+        final rowQty = (row['qty'] as num?)?.toDouble() ?? 0;
+        final rowType = (row['type'] as String?) ?? 'IN';
+        if (rowShadeId == null || rowQty <= 0) continue;
 
         await ErpDatabase.instance.insertLedger({
           'product_id': productId,
           'fabric_shade_id': rowShadeId,
           'qty': rowQty,
-          'type': rowType, // IN or OUT per row
+          'type': rowType,
           'date': _dateMillis(),
           'reference': 'ADJUSTMENT',
           'remarks': reasonCtrl.text.trim(),
@@ -264,11 +296,6 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
       });
 
       _msg('$savedCount shade(s) adjusted successfully');
-      if (warningLines.isNotEmpty) {
-        _msg(
-          'Warning: Negative balance\n${warningLines.join(', ')}',
-        );
-      }
     } catch (e) {
       debugPrint('Stock adjustment error: $e');
       _msg('Error saving adjustment: $e');
@@ -306,13 +333,49 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     final id = entry['id'] as int;
     final currentType = (entry['type'] ?? 'IN').toString();
     final newType = currentType == 'IN' ? 'OUT' : 'IN';
+    final qty = (entry['qty'] as num?)?.toDouble() ?? 0;
+    final pId = entry['product_id'] as int;
+    final sId = entry['fabric_shade_id'] as int;
+
+    // If changing to OUT (or from IN→OUT which swings by 2x qty), check balance
+    if (newType == 'OUT') {
+      final current = await ErpDatabase.instance.getCurrentStockBalance(
+        productId: pId,
+        fabricShadeId: sId,
+      );
+      // Swing = remove old IN (+qty) and add new OUT (-qty) = -2*qty
+      final projected = current - (2 * qty);
+      if (projected < 0) {
+        if (!mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Negative Balance Warning'),
+            content: Text(
+              'Changing to OUT will make balance ${projected.toStringAsFixed(2)}.\nProceed?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Proceed'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+    }
 
     await ErpDatabase.instance.updateLedgerFull(
       id: id,
-      productId: entry['product_id'] as int,
-      fabricShadeId: entry['fabric_shade_id'] as int,
+      productId: pId,
+      fabricShadeId: sId,
       type: newType,
-      qty: (entry['qty'] as num?)?.toDouble() ?? 0,
+      qty: qty,
       remarks: entry['remarks']?.toString(),
     );
     if (!mounted) return;
@@ -343,11 +406,59 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
       return;
     }
 
+    final entryType = (entry['type'] ?? 'IN').toString();
+    final oldQty = (entry['qty'] as num?)?.toDouble() ?? 0;
+    final pId = entry['product_id'] as int;
+    final sId = entry['fabric_shade_id'] as int;
+
+    // Check if increasing OUT qty or decreasing IN qty causes negative balance
+    if (entryType == 'OUT' && newQty > oldQty) {
+      final current = await ErpDatabase.instance.getCurrentStockBalance(
+        productId: pId, fabricShadeId: sId);
+      final projected = current - (newQty - oldQty);
+      if (projected < 0) {
+        if (!mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Negative Balance Warning'),
+            content: Text(
+              'Increasing OUT qty will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed')),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+    } else if (entryType == 'IN' && newQty < oldQty) {
+      final current = await ErpDatabase.instance.getCurrentStockBalance(
+        productId: pId, fabricShadeId: sId);
+      final projected = current - (oldQty - newQty);
+      if (projected < 0) {
+        if (!mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Negative Balance Warning'),
+            content: Text(
+              'Reducing IN qty will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed')),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+    }
+
     await ErpDatabase.instance.updateLedgerFull(
       id: id,
-      productId: entry['product_id'] as int,
-      fabricShadeId: entry['fabric_shade_id'] as int,
-      type: (entry['type'] ?? 'IN').toString(),
+      productId: pId,
+      fabricShadeId: sId,
+      type: entryType,
       qty: newQty,
       remarks: entry['remarks']?.toString(),
     );
@@ -362,6 +473,34 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
   Future<void> _deletePastEntry(Map<String, dynamic> entry) async {
     final id = entry['id'] as int;
+    final entryType = (entry['type'] ?? 'IN').toString();
+    final qty = (entry['qty'] as num?)?.toDouble() ?? 0;
+    final pId = entry['product_id'] as int;
+    final sId = entry['fabric_shade_id'] as int;
+
+    // Deleting an IN entry reduces balance; check for negative
+    if (entryType == 'IN' && qty > 0) {
+      final current = await ErpDatabase.instance.getCurrentStockBalance(
+        productId: pId, fabricShadeId: sId);
+      final projected = current - qty;
+      if (projected < 0) {
+        if (!mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Negative Balance Warning'),
+            content: Text(
+              'Deleting this IN entry will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed')),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+    }
+
     await ErpDatabase.instance.deleteLedgerEntry(id);
     if (!mounted) return;
     await _loadPastAdjustments();

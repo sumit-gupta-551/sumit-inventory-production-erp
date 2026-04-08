@@ -525,6 +525,7 @@ class _IssueReportPageState extends State<IssueReportPage> {
                               child: OutlinedButton.icon(
                                 onPressed: () async {
                                   await _pickFromDate();
+                                  if (!mounted) return;
                                   setState(() => reportGenerated = false);
                                 },
                                 icon: const Icon(Icons.date_range),
@@ -536,6 +537,7 @@ class _IssueReportPageState extends State<IssueReportPage> {
                               child: OutlinedButton.icon(
                                 onPressed: () async {
                                   await _pickToDate();
+                                  if (!mounted) return;
                                   setState(() => reportGenerated = false);
                                 },
                                 icon: const Icon(Icons.date_range),

@@ -481,6 +481,7 @@ class _DailyConsumptionReportPageState
                               child: OutlinedButton.icon(
                                 onPressed: () async {
                                   await _pickFromDate();
+                                  if (!mounted) return;
                                   setState(() => reportGenerated = false);
                                 },
                                 icon: const Icon(Icons.date_range),
@@ -492,6 +493,7 @@ class _DailyConsumptionReportPageState
                               child: OutlinedButton.icon(
                                 onPressed: () async {
                                   await _pickToDate();
+                                  if (!mounted) return;
                                   setState(() => reportGenerated = false);
                                 },
                                 icon: const Icon(Icons.date_range),

@@ -110,7 +110,8 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
           ..addAll(map);
         loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error loading masters: $e');
       if (!mounted) return;
       setState(() {
         loading = false;
@@ -968,6 +969,36 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
           warningLines.add(
             '${_shadeNo(e.key)} -> ${projected.toStringAsFixed(2)}',
           );
+        }
+      }
+
+      if (warningLines.isNotEmpty) {
+        if (!mounted) {
+          setState(() => _syncing = false);
+          return;
+        }
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Negative Balance Warning'),
+            content: Text(
+              'These shades will go negative:\n${warningLines.join('\n')}\n\nProceed anyway?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Proceed'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) {
+          setState(() => _syncing = false);
+          return;
         }
       }
 

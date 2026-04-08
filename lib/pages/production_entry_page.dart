@@ -372,13 +372,13 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: isExpanded
-                  ? const Color(0xFF2A1A0A)
-                  : const Color(0xFF1F150A),
+                  ? const Color(0xFFFFF3E0)
+                  : const Color(0xFFFFF8E1),
               borderRadius: BorderRadius.circular(6),
               border: Border.all(
                 color: isExpanded
-                    ? Colors.orange.shade800
-                    : Colors.orange.shade900,
+                    ? Colors.orange.shade400
+                    : Colors.orange.shade300,
               ),
             ),
             child: Row(
@@ -386,14 +386,14 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                 Icon(
                   isExpanded ? Icons.expand_less : Icons.expand_more,
                   size: 20,
-                  color: Colors.orange.shade700,
+                  color: Colors.orange.shade800,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     unitName,
                     style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w700),
+                        fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF4E342E)),
                   ),
                 ),
                 Text(
@@ -404,7 +404,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                 Text(
                   'St: $unitStitch',
                   style: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w600),
+                      fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF424242)),
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -425,7 +425,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
           final totalB = (e['total_bonus'] as num?)?.toDouble() ?? 0;
           widgets.add(
             Card(
-              color: const Color(0xFF2A1A0A),
+              color: const Color(0xFFFFF3E0),
               margin: const EdgeInsets.only(bottom: 4, left: 8),
               child: ListTile(
                 dense: true,
@@ -434,12 +434,12 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                 title: Text(
                   '${_empName(e['employee_id'] as int?)}  |  ${_machineName(e['machine_id'] as int?)}',
                   style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600),
+                      fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF4E342E)),
                 ),
                 subtitle: Text(
                   'St: ${e['stitch']}  |  Bonus: ${totalB.toStringAsFixed(0)}'
                   '${(e['remarks'] ?? '').toString().isNotEmpty ? '  |  ${e['remarks']}' : ''}',
-                  style: const TextStyle(fontSize: 11),
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF616161)),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -864,7 +864,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                                 (item['incentive'] as num?)?.toDouble() ?? 0;
                             final total = bonus + incentive;
                             return Card(
-                              color: const Color(0xFF0A2818),
+                              color: const Color(0xFFE8F5E9),
                               margin: const EdgeInsets.only(bottom: 4),
                               child: ListTile(
                                 dense: true,
@@ -876,12 +876,13 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                                   '${_empName(item['employee_id'] as int?)}  |  ${_machineName(item['machine_id'] as int?)}',
                                   style: const TextStyle(
                                       fontSize: 13,
-                                      fontWeight: FontWeight.w600),
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF1B5E20)),
                                 ),
                                 subtitle: Text(
                                   'St: $stitch  |  B: ${bonus.toStringAsFixed(0)}  |  I: ${incentive.toStringAsFixed(0)}  |  T: ${total.toStringAsFixed(0)}'
                                   '${(item['remarks'] ?? '').toString().isNotEmpty ? '  |  ${item['remarks']}' : ''}',
-                                  style: const TextStyle(fontSize: 11),
+                                  style: const TextStyle(fontSize: 11, color: Color(0xFF424242)),
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -962,13 +963,13 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF2A1A0A),
+                              color: const Color(0xFFFFE0B2),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               'Stitch: $savedTotalStitch  |  Bonus: ${savedTotalBonus.toStringAsFixed(0)}',
                               style: const TextStyle(
-                                  fontWeight: FontWeight.w600, fontSize: 12),
+                                  fontWeight: FontWeight.w600, fontSize: 12, color: Color(0xFF4E342E)),
                             ),
                           ),
                           ..._buildGroupedSaved(),

@@ -5,6 +5,7 @@ import 'package:path/path.dart';
 import '../models/product.dart';
 import '../models/party.dart';
 import 'firebase_sync_service.dart';
+import 'permission_service.dart';
 
 class ErpDatabase {
   static final ErpDatabase instance = ErpDatabase._init();
@@ -30,7 +31,7 @@ class ErpDatabase {
 
     final db = await openDatabase(
       path,
-      version: 20,
+      version: 21,
       onCreate: (db, version) async {
         await _createDB(db, version);
         await _seedGstCategories(db);
@@ -174,6 +175,14 @@ class ErpDatabase {
         total_advance REAL DEFAULT 0,
         net_salary REAL DEFAULT 0,
         created_at INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        table_name TEXT,
+        record_id INTEGER,
+        details TEXT,
+        user_name TEXT,
+        timestamp INTEGER NOT NULL)''',
     ];
     for (final sql in ddl) {
       try {
@@ -184,15 +193,26 @@ class ErpDatabase {
     }
 
     // Ensure missing columns on existing tables
-    const alterSafety = [
-      'ALTER TABLE employees ADD COLUMN salary_base_days INTEGER DEFAULT 30',
-      'ALTER TABLE employees ADD COLUMN unit_name TEXT',
-      'ALTER TABLE machines ADD COLUMN incentive_amount REAL DEFAULT 0',
-      'ALTER TABLE machines ADD COLUMN bonus REAL DEFAULT 0',
-    ];
-    for (final sql in alterSafety) {
+    const alterMap = {
+      'employees': ['salary_base_days', 'unit_name'],
+      'machines': ['incentive_amount', 'bonus'],
+    };
+    for (final entry in alterMap.entries) {
       try {
-        await db.execute(sql);
+        final cols = await db.rawQuery('PRAGMA table_info(${entry.key})');
+        final existing =
+            cols.map((c) => (c['name'] ?? '').toString().toLowerCase()).toSet();
+        for (final col in entry.value) {
+          if (!existing.contains(col.toLowerCase())) {
+            final type = col.contains('amount') || col == 'bonus'
+                ? 'REAL DEFAULT 0'
+                : col.contains('days')
+                    ? 'INTEGER DEFAULT 30'
+                    : 'TEXT';
+            await db.execute(
+                'ALTER TABLE ${entry.key} ADD COLUMN $col $type');
+          }
+        }
       } catch (_) {}
     }
   }
@@ -766,11 +786,61 @@ class ErpDatabase {
           created_at INTEGER)''');
       } catch (_) {}
     }
+
+    if (oldVersion < 21) {
+      // Fix: REQ-CLOSE entries were wrongly inserted as 'IN', should be 'OUT'
+      try {
+        await db.rawUpdate(
+          "UPDATE stock_ledger SET type = 'OUT' WHERE reference = 'REQ-CLOSE' AND UPPER(type) = 'IN'",
+        );
+      } catch (_) {}
+    }
   }
 
   // ================= SYNC HELPERS =================
   /// Set to false to disable Firebase sync (e.g. for adding sample data)
   bool syncEnabled = false;
+
+  // ================= ACTIVITY LOG =================
+  Future<void> logActivity({
+    required String action,
+    String? tableName,
+    int? recordId,
+    String? details,
+  }) async {
+    try {
+      final db = await database;
+      final userName = PermissionService.instance.currentName;
+      await db.insert('activity_log', {
+        'action': action,
+        'table_name': tableName,
+        'record_id': recordId,
+        'details': details,
+        'user_name': userName,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+    } catch (e) {
+      debugPrint('⚠ logActivity: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getActivityLogs({
+    int limit = 200,
+    int offset = 0,
+  }) async {
+    try {
+      final db = await database;
+      return await db.query(
+        'activity_log',
+        orderBy: 'timestamp DESC',
+        limit: limit,
+        offset: offset,
+      );
+    } catch (e) {
+      debugPrint('⚠ getActivityLogs: $e');
+      return [];
+    }
+  }
 
   Future<int> _syncInsert(String table, Map<String, dynamic> data) async {
     final db = await database;
@@ -784,6 +854,9 @@ class ErpDatabase {
             conflictAlgorithm: ConflictAlgorithm.replace);
         await sync.pushRecord(table, id, data);
         dataVersion.value++;
+        if (table != 'activity_log') {
+          logActivity(action: 'INSERT', tableName: table, recordId: id, details: data.toString());
+        }
         return id;
       } catch (e) {
         debugPrint('⚠ _syncInsert ($table): $e');
@@ -792,6 +865,9 @@ class ErpDatabase {
     data.remove('id');
     id = await db.insert(table, data);
     dataVersion.value++;
+    if (table != 'activity_log') {
+      logActivity(action: 'INSERT', tableName: table, recordId: id, details: data.toString());
+    }
     return id;
   }
 
@@ -805,6 +881,9 @@ class ErpDatabase {
       await sync.pushRecord(table, id, data);
     }
     dataVersion.value++;
+    if (table != 'activity_log') {
+      logActivity(action: 'UPDATE', tableName: table, recordId: id, details: data.toString());
+    }
   }
 
   Future<void> _syncDelete(String table, int id) async {
@@ -815,6 +894,9 @@ class ErpDatabase {
       await sync.deleteRecord(table, id);
     }
     dataVersion.value++;
+    if (table != 'activity_log') {
+      logActivity(action: 'DELETE', tableName: table, recordId: id);
+    }
   }
 
   // ================= PRODUCTS =================

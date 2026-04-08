@@ -61,6 +61,7 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final list = await _db.getSalaryAdvances(fromMs: _fromMs, toMs: _toMs);
+    if (!mounted) return;
     setState(() {
       _advances = list;
       _loading = false;

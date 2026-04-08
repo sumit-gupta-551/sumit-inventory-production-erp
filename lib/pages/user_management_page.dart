@@ -25,6 +25,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final users = await _perm.getAllUsers();
+    if (!mounted) return;
     setState(() {
       _users = users;
       _loading = false;
@@ -502,6 +503,8 @@ class _PermissionEditorPageState extends State<_PermissionEditorPage> {
       'payroll_advance_report',
     ],
     'Admin': [
+      'activity_log',
+      'stock_ticker',
       'sync_data',
       'update_app',
       'clear_firebase',

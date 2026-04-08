@@ -153,10 +153,18 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         (sum, r) => sum + ((r['balance'] as num?)?.toDouble() ?? 0),
       );
       final shadeRows = rows
-          .map((r) => [
-                (r['shade'] ?? '-').toString(),
-                ((r['balance'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
-              ])
+          .asMap()
+          .entries
+          .map((e) {
+            final bal = ((e.value['balance'] as num?)?.toDouble() ?? 0).toStringAsFixed(2);
+            return [
+                (e.key + 1).toString(),
+                productName,
+                (e.value['shade'] ?? '-').toString(),
+                bal,
+                unit,
+              ];
+          })
           .toList();
 
       bodyWidgets.add(pw.Text(
@@ -168,7 +176,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
           style: const pw.TextStyle(fontSize: 9)));
       bodyWidgets.add(pw.SizedBox(height: 6));
       bodyWidgets.add(pw.TableHelper.fromTextArray(
-        headers: ['Shade', 'Balance ($unit)'],
+        headers: ['Sr', 'Quality', 'Shade', 'Qty', 'Unit'],
         data: shadeRows,
         headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
         cellStyle: const pw.TextStyle(fontSize: 9),
@@ -176,10 +184,16 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         cellAlignments: {
           0: pw.Alignment.center,
           1: pw.Alignment.center,
+          2: pw.Alignment.center,
+          3: pw.Alignment.center,
+          4: pw.Alignment.center,
         },
         columnWidths: {
-          0: const pw.FlexColumnWidth(2),
-          1: const pw.FlexColumnWidth(1),
+          0: const pw.FlexColumnWidth(0.6),
+          1: const pw.FlexColumnWidth(2),
+          2: const pw.FlexColumnWidth(1.5),
+          3: const pw.FlexColumnWidth(1.2),
+          4: const pw.FlexColumnWidth(0.8),
         },
       ));
       bodyWidgets.add(pw.SizedBox(height: 4));
@@ -206,7 +220,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
           if (ctx.pageNumber == 1)
             pw.Center(child: pw.Image(logoImage, width: 50, height: 50)),
           pw.Text(
-            'Stock Ledger Report',
+            'Fabrics Stock Ledger Report',
             style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
           ),
           pw.Divider(thickness: 0.5),

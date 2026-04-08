@@ -23,6 +23,7 @@ class _DelayReasonMasterPageState extends State<DelayReasonMasterPage> {
 
   Future<void> _load() async {
     reasons = await ErpDatabase.instance.getDelayReasons();
+    if (!mounted) return;
     setState(() {});
   }
 

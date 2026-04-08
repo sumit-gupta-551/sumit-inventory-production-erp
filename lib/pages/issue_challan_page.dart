@@ -1031,7 +1031,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFF1A0A2A),
+                color: const Color(0xFFE8EAF6),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Row(
@@ -1041,7 +1041,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                     style: const TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
-                      color: Colors.green,
+                      color: Color(0xFF2E7D32),
                     ),
                   ),
                   const SizedBox(width: 16),

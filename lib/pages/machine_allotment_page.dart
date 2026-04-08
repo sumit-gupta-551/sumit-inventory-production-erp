@@ -25,6 +25,7 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
   Future<void> _load() async {
     programs = await ErpDatabase.instance.getPlannedPrograms();
     machines = await ErpDatabase.instance.getMachines();
+    if (!mounted) return;
     setState(() {});
   }
 

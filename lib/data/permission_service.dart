@@ -58,6 +58,8 @@ class PermissionService {
     'payroll_production_report': 'Production Report',
     'payroll_advance_report': 'Advance Report',
     // Admin actions
+    'activity_log': 'Activity Log',
+    'stock_ticker': 'Stock Ticker',
     'sync_data': 'Sync Data',
     'update_app': 'Update App',
     'clear_firebase': 'Clear Firebase Data',

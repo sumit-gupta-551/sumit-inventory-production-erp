@@ -28,6 +28,7 @@ class _StockInPageState extends State<StockInPage> {
 
   Future<void> _loadProducts() async {
     products = await ErpDatabase.instance.getProducts();
+    if (!mounted) return;
     setState(() {});
   }
 

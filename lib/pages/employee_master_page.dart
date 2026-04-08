@@ -33,6 +33,7 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
       if (!mounted) return;
       // Collect distinct designations from employees
       final allEmps = await ErpDatabase.instance.getEmployees();
+      if (!mounted) return;
       final desigSet = <String>{};
       for (final e in allEmps) {
         final d = (e['designation'] ?? '').toString().trim();

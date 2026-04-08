@@ -1,5 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -14,6 +16,7 @@ class OperatorLivePage extends StatefulWidget {
 
 class _OperatorLivePageState extends State<OperatorLivePage> {
   List<Map<String, dynamic>> allotments = [];
+  StreamSubscription? _allotmentsSub;
 
   @override
   void initState() {
@@ -21,8 +24,14 @@ class _OperatorLivePageState extends State<OperatorLivePage> {
     _listenToAllotments();
   }
 
+  @override
+  void dispose() {
+    _allotmentsSub?.cancel();
+    super.dispose();
+  }
+
   void _listenToAllotments() {
-    FirebaseFirestore.instance
+    _allotmentsSub = FirebaseFirestore.instance
         .collection('program_allotment')
         .where('status', isNotEqualTo: 'COMPLETED')
         .snapshots()

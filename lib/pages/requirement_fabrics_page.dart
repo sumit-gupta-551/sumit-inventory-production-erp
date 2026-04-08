@@ -99,7 +99,24 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
     }
   }
 
-  Future<void> _closeItem(int id) async {
+  Future<void> _closeItem(Map<String, dynamic> row) async {
+    final id = row['id'] as int;
+    final productId = row['product_id'] as int?;
+    final shadeId = row['fabric_shade_id'] as int?;
+    final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+    final challanNo = (row['challan_no'] ?? '').toString();
+
+    if (productId != null && qty > 0) {
+      await ErpDatabase.instance.insertLedger({
+        'product_id': productId,
+        'fabric_shade_id': shadeId,
+        'qty': qty,
+        'type': 'OUT',
+        'date': DateTime.now().millisecondsSinceEpoch,
+        'reference': 'REQ-CLOSE',
+        'remarks': 'Requirement closed | Ch: $challanNo',
+      });
+    }
     await ErpDatabase.instance.closeChallanRequirement(id);
     setState(() => loading = true);
     _load();
@@ -126,6 +143,30 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
       ),
     );
     if (confirm != true) return;
+
+    // Insert stock IN ledger for each pending requirement before closing
+    final pendingRows = challanRows
+        .where((r) =>
+            (r['challan_no'] ?? '').toString() == challanNo &&
+            (r['status'] ?? '') == 'pending')
+        .toList();
+    for (final row in pendingRows) {
+      final productId = row['product_id'] as int?;
+      final shadeId = row['fabric_shade_id'] as int?;
+      final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+      if (productId != null && qty > 0) {
+        await ErpDatabase.instance.insertLedger({
+          'product_id': productId,
+          'fabric_shade_id': shadeId,
+          'qty': qty,
+          'type': 'OUT',
+          'date': DateTime.now().millisecondsSinceEpoch,
+          'reference': 'REQ-CLOSE',
+          'remarks': 'Requirement closed | Ch: $challanNo',
+        });
+      }
+    }
+
     await ErpDatabase.instance.closeChallanRequirementsByChallan(challanNo);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -641,7 +682,7 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
                                         ),
                                       );
                                       if (ok == true) {
-                                        _closeItem(r['id'] as int);
+                                        _closeItem(r);
                                       }
                                     },
                                     child: const Text('CLOSE'),

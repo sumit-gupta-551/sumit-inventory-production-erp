@@ -44,6 +44,7 @@ import 'advance_report_page.dart';
 import 'attendance_report_page.dart';
 import 'unit_master_page.dart';
 import 'user_management_page.dart';
+import 'activity_log_page.dart';
 import '../data/permission_service.dart';
 import '../data/firebase_backup_service.dart';
 
@@ -1159,7 +1160,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           const SizedBox(height: 20),
 
                           // ---------- STOCK TICKER ----------
-                          if (_perm.hasPermission('stock_ledger') &&
+                          if (_perm.hasPermission('stock_ticker') &&
                               _stockItems.isNotEmpty)
                             Container(
                               height: 36,
@@ -1431,6 +1432,8 @@ class _DashboardPageState extends State<DashboardPage> {
             _runCloudBackup();
           case 'clear_firebase':
             _clearFirebaseData();
+          case 'activity_log':
+            _openPage(const ActivityLogPage());
           case 'logout':
             _logout();
         }
@@ -1486,6 +1489,10 @@ class _DashboardPageState extends State<DashboardPage> {
               value: 'clear_firebase',
               child: _MenuRow(
                   Icons.delete_forever_rounded, 'Clear Firebase Data')),
+        if (_perm.hasPermission('activity_log'))
+          const PopupMenuItem(
+              value: 'activity_log',
+              child: _MenuRow(Icons.history_rounded, 'Activity Log')),
         const PopupMenuDivider(),
         const PopupMenuItem(
             value: 'logout', child: _MenuRow(Icons.logout_rounded, 'Logout')),

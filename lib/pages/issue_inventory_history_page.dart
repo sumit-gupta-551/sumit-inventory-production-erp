@@ -97,7 +97,9 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
         LEFT JOIN fabric_shades fs ON fs.id = cr.fabric_shade_id
         ORDER BY cr.date DESC, cr.id DESC
       ''');
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error loading requirements: $e');
+    }
 
     if (!mounted) return;
     setState(() {
@@ -359,6 +361,54 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
 
                           setDialogState(() => saving = true);
 
+                          // Check if new qty/shade causes negative balance
+                          final oldQty = (row['qty'] as num?)?.toDouble() ?? 0;
+                          final oldShadeId = row['fabric_shade_id'] as int?;
+                          final oldProductId = row['product_id'] as int?;
+
+                          // If shade or product changed, check both old (removing OUT) and new (adding OUT)
+                          if (productId != oldProductId || shadeId != oldShadeId || qty > oldQty) {
+                            final current = await ErpDatabase.instance.getCurrentStockBalance(
+                              productId: productId!,
+                              fabricShadeId: shadeId!,
+                            );
+                            // If same shade: projected = current - (qty - oldQty)
+                            // If different shade: projected = current - qty (full new OUT)
+                            final diff = (productId == oldProductId && shadeId == oldShadeId)
+                                ? qty - oldQty
+                                : qty;
+                            final projected = current - diff;
+                            if (projected < 0) {
+                              if (!mounted) {
+                                setDialogState(() => saving = false);
+                                return;
+                              }
+                              final proceed = await showDialog<bool>(
+                                context: context,
+                                builder: (dlgCtx) => AlertDialog(
+                                  title: const Text('Negative Balance Warning'),
+                                  content: Text(
+                                    'This change will make balance ${projected.toStringAsFixed(2)}.\nProceed?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(dlgCtx, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () => Navigator.pop(dlgCtx, true),
+                                      child: const Text('Proceed'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (proceed != true) {
+                                setDialogState(() => saving = false);
+                                return;
+                              }
+                            }
+                          }
+
                           await ErpDatabase.instance.updateLedgerFull(
                             id: row['id'] as int,
                             productId: productId!,
@@ -605,6 +655,20 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                                   TextButton(
                                     onPressed: () async {
                                       Navigator.pop(ctx);
+                                      await _editFullIssueBill(
+                                        groupStockRows,
+                                        g['party'] as String,
+                                        g['chNo'] as String,
+                                        g['product'] as String,
+                                        dayMs,
+                                      );
+                                    },
+                                    child: const Text('Edit Full Bill'),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  TextButton(
+                                    onPressed: () async {
+                                      Navigator.pop(ctx);
                                       await _openGroupEntries(
                                         groupStockRows,
                                         groupReqRows,
@@ -807,6 +871,54 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
         );
       },
     );
+  }
+
+  Future<void> _editFullIssueBill(
+    List<Map<String, dynamic>> groupRows,
+    String partyName,
+    String chNo,
+    String productName,
+    int dayMs,
+  ) async {
+    if (!await _ensureUnlocked()) return;
+    if (!mounted) return;
+
+    // Determine current party, product, chNo from group
+    final firstRow = groupRows.isNotEmpty ? groupRows.first : null;
+    int? productId = firstRow?['product_id'] as int?;
+    int? partyId = _partyIdByName(partyName);
+    final currentChNo = (chNo == '-') ? '' : chNo;
+
+    // Build edit items
+    final editItems = groupRows.map((row) {
+      return {
+        'ledger_id': row['id'] as int?,
+        'shade_id': row['fabric_shade_id'] as int?,
+        'qty': (row['qty'] as num?)?.toDouble() ?? 0,
+        'old_shade_id': row['fabric_shade_id'] as int?,
+        'old_qty': (row['qty'] as num?)?.toDouble() ?? 0,
+        'is_new': false,
+      };
+    }).toList();
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _FullIssueEditPage(
+          editItems: editItems,
+          partyId: partyId,
+          productId: productId,
+          chNo: currentChNo,
+          issueDate: DateTime.fromMillisecondsSinceEpoch(dayMs),
+          parties: parties,
+          products: products,
+          shades: shades,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    await _load();
   }
 
   Future<void> _editRequirementEntry(Map<String, dynamic> row) async {
@@ -1031,5 +1143,496 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                   },
                 ),
     );
+  }
+}
+
+// ==================== FULL ISSUE EDIT PAGE ====================
+class _FullIssueEditPage extends StatefulWidget {
+  final List<Map<String, dynamic>> editItems;
+  final int? partyId;
+  final int? productId;
+  final String chNo;
+  final DateTime issueDate;
+  final List<Map<String, dynamic>> parties;
+  final List<Map<String, dynamic>> products;
+  final List<Map<String, dynamic>> shades;
+
+  const _FullIssueEditPage({
+    required this.editItems,
+    required this.partyId,
+    required this.productId,
+    required this.chNo,
+    required this.issueDate,
+    required this.parties,
+    required this.products,
+    required this.shades,
+  });
+
+  @override
+  State<_FullIssueEditPage> createState() => _FullIssueEditPageState();
+}
+
+class _FullIssueEditPageState extends State<_FullIssueEditPage> {
+  late int? partyId;
+  late int? productId;
+  late DateTime issueDate;
+  late TextEditingController chNoCtrl;
+  late List<Map<String, dynamic>> items;
+  final List<Map<String, dynamic>> deleted = [];
+  bool saving = false;
+
+  // Add-row fields
+  int? addShadeId;
+  final addQtyCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    partyId = widget.partyId;
+    productId = widget.productId;
+    issueDate = widget.issueDate;
+    chNoCtrl = TextEditingController(text: widget.chNo);
+    items = widget.editItems
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    chNoCtrl.dispose();
+    addQtyCtrl.dispose();
+    super.dispose();
+  }
+
+  void _msg(String t) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(t)));
+  }
+
+  String _shadeName(int? id) {
+    if (id == null) return '-';
+    final s = widget.shades.where((s) => s['id'] == id).firstOrNull;
+    final no = (s?['shade_no'] ?? '-').toString();
+    final name = (s?['shade_name'] ?? '').toString();
+    if (name.isEmpty) return no;
+    return '$no - $name';
+  }
+
+  String _partyNameById(int? pid) {
+    if (pid == null) return '';
+    final p = widget.parties.where((p) => p['id'] == pid).firstOrNull;
+    return (p?['name'] ?? '').toString();
+  }
+
+  void _addRow() {
+    final qty = double.tryParse(addQtyCtrl.text.trim());
+    if (addShadeId == null || qty == null || qty <= 0) {
+      _msg('Select shade and enter valid qty');
+      return;
+    }
+    setState(() {
+      items.add({
+        'ledger_id': null,
+        'shade_id': addShadeId,
+        'qty': qty,
+        'is_new': true,
+      });
+      addShadeId = null;
+      addQtyCtrl.clear();
+    });
+  }
+
+  void _removeRow(int index) {
+    final item = items[index];
+    setState(() {
+      if (item['is_new'] != true) {
+        deleted.add(item);
+      }
+      items.removeAt(index);
+    });
+  }
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: issueDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (d != null) setState(() => issueDate = d);
+  }
+
+  Future<void> _save() async {
+    if (partyId == null || productId == null || items.isEmpty) {
+      _msg('Party, product, and at least one shade required');
+      return;
+    }
+    setState(() => saving = true);
+
+    try {
+      final db = await ErpDatabase.instance.database;
+      final newDateMs = DateTime(
+        issueDate.year,
+        issueDate.month,
+        issueDate.day,
+      ).millisecondsSinceEpoch;
+      final chNo = chNoCtrl.text.trim();
+      final partyName = _partyNameById(partyId);
+      final remarks = 'Party: $partyName | ChNo: $chNo';
+
+      await db.transaction((txn) async {
+        // 1. Delete removed rows
+        for (final d in deleted) {
+          final ledgerId = d['ledger_id'] as int?;
+          if (ledgerId == null) continue;
+          await txn.delete('stock_ledger',
+              where: 'id=?', whereArgs: [ledgerId]);
+        }
+
+        // 2. Update existing rows
+        for (final item in items) {
+          if (item['is_new'] == true) continue;
+          final ledgerId = item['ledger_id'] as int?;
+          if (ledgerId == null) continue;
+
+          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+          final newShade = item['shade_id'] as int?;
+
+          await txn.update(
+            'stock_ledger',
+            {
+              'product_id': productId,
+              'fabric_shade_id': newShade,
+              'qty': newQty,
+              'date': newDateMs,
+              'remarks': remarks,
+            },
+            where: 'id=?',
+            whereArgs: [ledgerId],
+          );
+        }
+
+        // 3. Insert new rows
+        for (final item in items) {
+          if (item['is_new'] != true) continue;
+          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+          final newShade = item['shade_id'] as int?;
+
+          await txn.insert('stock_ledger', {
+            'product_id': productId,
+            'fabric_shade_id': newShade,
+            'qty': newQty,
+            'type': 'OUT',
+            'date': newDateMs,
+            'reference': '',
+            'remarks': remarks,
+          });
+        }
+      });
+
+      if (!mounted) return;
+      _msg('Issue bill updated successfully');
+      Navigator.pop(context);
+    } catch (e) {
+      debugPrint('Error saving issue edit: $e');
+      _msg('Error: $e');
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalQty = items.fold<double>(
+        0, (s, e) => s + ((e['qty'] as num?)?.toDouble() ?? 0));
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Edit Issue Bill'),
+        actions: [
+          TextButton.icon(
+            onPressed: saving ? null : _save,
+            icon: saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save, color: Colors.white),
+            label: const Text('SAVE', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // --- Header Fields ---
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    DropdownButtonFormField<int>(
+                      value: partyId,
+                      decoration: const InputDecoration(
+                        labelText: 'Party',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      isExpanded: true,
+                      items: widget.parties
+                          .map((p) => DropdownMenuItem<int>(
+                                value: p['id'] as int,
+                                child: Text((p['name'] ?? '').toString()),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setState(() => partyId = v),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<int>(
+                      value: productId,
+                      decoration: const InputDecoration(
+                        labelText: 'Product',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      isExpanded: true,
+                      items: widget.products
+                          .map((p) => DropdownMenuItem<int>(
+                                value: p['id'] as int,
+                                child: Text((p['name'] ?? '').toString()),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setState(() => productId = v),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: chNoCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Challan No',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    InkWell(
+                      onTap: _pickDate,
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Issue Date',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        child: Text(
+                            DateFormat('dd-MM-yyyy').format(issueDate)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // --- Existing Shade Rows ---
+            Text(
+              'Shade Rows (${items.length})  |  Total: ${totalQty.toStringAsFixed(2)} mtr',
+              style:
+                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            ...items.asMap().entries.map((entry) {
+              final i = entry.key;
+              final item = entry.value;
+              final shade = _shadeName(item['shade_id'] as int?);
+              final qty = (item['qty'] as num?)?.toDouble() ?? 0;
+              final isNew = item['is_new'] == true;
+
+              return Card(
+                color: isNew ? const Color(0xFFE8F5E9) : null,
+                margin: const EdgeInsets.only(bottom: 4),
+                child: ListTile(
+                  dense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 10),
+                  title: Text(
+                    '$shade  |  Qty: ${qty.toStringAsFixed(2)} mtr',
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: isNew
+                      ? const Text('NEW',
+                          style: TextStyle(
+                              color: Colors.green, fontSize: 11))
+                      : null,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        iconSize: 20,
+                        icon: const Icon(Icons.edit_outlined,
+                            color: Colors.blue),
+                        onPressed: () => _editItemDialog(i),
+                      ),
+                      IconButton(
+                        iconSize: 20,
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.red),
+                        onPressed: () => _removeRow(i),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+
+            const SizedBox(height: 12),
+            const Divider(),
+
+            // --- Add New Row ---
+            const Text('Add Shade Row',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  flex: 4,
+                  child: DropdownButtonFormField<int>(
+                    value: addShadeId,
+                    decoration: const InputDecoration(
+                      labelText: 'Shade',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                    isExpanded: true,
+                    items: widget.shades
+                        .map((s) => DropdownMenuItem<int>(
+                              value: s['id'] as int,
+                              child: Text(
+                                _shadeName(s['id'] as int),
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() => addShadeId = v),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: addQtyCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Qty',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 40,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1565C0),
+                      foregroundColor: Colors.white,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    onPressed: _addRow,
+                    child: const Text('ADD'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editItemDialog(int index) async {
+    final item = items[index];
+    int? dlgShadeId = item['shade_id'] as int?;
+    final dlgQtyCtrl = TextEditingController(
+      text: ((item['qty'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
+    );
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDlg) {
+            return AlertDialog(
+              title: const Text('Edit Shade Row'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    value: dlgShadeId,
+                    decoration: const InputDecoration(
+                      labelText: 'Shade',
+                      border: OutlineInputBorder(),
+                    ),
+                    isExpanded: true,
+                    items: widget.shades
+                        .map((s) => DropdownMenuItem<int>(
+                              value: s['id'] as int,
+                              child: Text(
+                                _shadeName(s['id'] as int),
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDlg(() => dlgShadeId = v),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: dlgQtyCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Quantity',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Update'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (ok != true) return;
+
+    final newQty = double.tryParse(dlgQtyCtrl.text.trim());
+    if (newQty == null || newQty <= 0) {
+      _msg('Enter valid qty');
+      return;
+    }
+
+    setState(() {
+      items[index]['shade_id'] = dlgShadeId;
+      items[index]['qty'] = newQty;
+    });
   }
 }

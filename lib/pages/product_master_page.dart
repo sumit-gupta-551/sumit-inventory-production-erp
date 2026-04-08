@@ -109,7 +109,6 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
     if (ok != true) return;
 
     await ErpDatabase.instance.deleteProduct(p.id!);
-    BuildContext;
     if (!mounted) return;
     _loadAll();
   }

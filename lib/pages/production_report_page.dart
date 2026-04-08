@@ -47,6 +47,7 @@ class _ProductionReportPageState extends State<ProductionReportPage> {
     setState(() => _loading = true);
     final entries =
         await _db.getProductionEntries(fromMs: _fromMs, toMs: _toMs);
+    if (!mounted) return;
     setState(() {
       _entries = entries;
       _loading = false;
