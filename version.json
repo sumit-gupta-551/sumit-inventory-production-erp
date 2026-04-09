@@ -1,5 +1,5 @@
 {
-    "version": "1.0.11",
-    "apk": "SSSJ-ERP-v1.0.11.apk",
-    "notes": "Full purchase/issue bill edit with add shade, activity log, stock ticker permission, PDF report improvements, REQ-CLOSE stock fix, duplicate column fix"
+    "version": "1.0.12",
+    "apk": "SSSJ-ERP-v1.0.12.apk",
+    "notes": "Firebase sync fix: delete/update now always sync, machine CRUD sync, issue/purchase edit transaction sync"
 }

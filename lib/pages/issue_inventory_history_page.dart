@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
+import '../data/firebase_sync_service.dart';
 
 class IssueInventoryHistoryPage extends StatefulWidget {
   const IssueInventoryHistoryPage({super.key});
@@ -367,14 +368,18 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                           final oldProductId = row['product_id'] as int?;
 
                           // If shade or product changed, check both old (removing OUT) and new (adding OUT)
-                          if (productId != oldProductId || shadeId != oldShadeId || qty > oldQty) {
-                            final current = await ErpDatabase.instance.getCurrentStockBalance(
+                          if (productId != oldProductId ||
+                              shadeId != oldShadeId ||
+                              qty > oldQty) {
+                            final current = await ErpDatabase.instance
+                                .getCurrentStockBalance(
                               productId: productId!,
                               fabricShadeId: shadeId!,
                             );
                             // If same shade: projected = current - (qty - oldQty)
                             // If different shade: projected = current - qty (full new OUT)
-                            final diff = (productId == oldProductId && shadeId == oldShadeId)
+                            final diff = (productId == oldProductId &&
+                                    shadeId == oldShadeId)
                                 ? qty - oldQty
                                 : qty;
                             final projected = current - diff;
@@ -392,11 +397,13 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                                   ),
                                   actions: [
                                     TextButton(
-                                      onPressed: () => Navigator.pop(dlgCtx, false),
+                                      onPressed: () =>
+                                          Navigator.pop(dlgCtx, false),
                                       child: const Text('Cancel'),
                                     ),
                                     ElevatedButton(
-                                      onPressed: () => Navigator.pop(dlgCtx, true),
+                                      onPressed: () =>
+                                          Navigator.pop(dlgCtx, true),
                                       child: const Text('Proceed'),
                                     ),
                                   ],
@@ -1192,9 +1199,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
     productId = widget.productId;
     issueDate = widget.issueDate;
     chNoCtrl = TextEditingController(text: widget.chNo);
-    items = widget.editItems
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
+    items = widget.editItems.map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
   @override
@@ -1287,8 +1292,8 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
         for (final d in deleted) {
           final ledgerId = d['ledger_id'] as int?;
           if (ledgerId == null) continue;
-          await txn.delete('stock_ledger',
-              where: 'id=?', whereArgs: [ledgerId]);
+          await txn
+              .delete('stock_ledger', where: 'id=?', whereArgs: [ledgerId]);
         }
 
         // 2. Update existing rows
@@ -1320,7 +1325,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
           final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
           final newShade = item['shade_id'] as int?;
 
-          await txn.insert('stock_ledger', {
+          final newId = await txn.insert('stock_ledger', {
             'product_id': productId,
             'fabric_shade_id': newShade,
             'qty': newQty,
@@ -1329,8 +1334,36 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
             'reference': '',
             'remarks': remarks,
           });
+          item['ledger_id'] = newId;
         }
       });
+
+      // Push changes to Firebase after transaction succeeds
+      final sync = FirebaseSyncService.instance;
+      if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
+        for (final d in deleted) {
+          final ledgerId = d['ledger_id'] as int?;
+          if (ledgerId != null)
+            await sync.deleteRecord('stock_ledger', ledgerId);
+        }
+        for (final item in items) {
+          final ledgerId = item['ledger_id'] as int?;
+          if (ledgerId == null) continue;
+          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+          final newShade = item['shade_id'] as int?;
+          final data = {
+            'id': ledgerId,
+            'product_id': productId,
+            'fabric_shade_id': newShade,
+            'qty': newQty,
+            'type': 'OUT',
+            'date': newDateMs,
+            'reference': '',
+            'remarks': remarks,
+          };
+          await sync.pushRecord('stock_ledger', ledgerId, data);
+        }
+      }
 
       if (!mounted) return;
       _msg('Issue bill updated successfully');
@@ -1427,8 +1460,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                           border: OutlineInputBorder(),
                           isDense: true,
                         ),
-                        child: Text(
-                            DateFormat('dd-MM-yyyy').format(issueDate)),
+                        child: Text(DateFormat('dd-MM-yyyy').format(issueDate)),
                       ),
                     ),
                   ],
@@ -1441,8 +1473,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
             // --- Existing Shade Rows ---
             Text(
               'Shade Rows (${items.length})  |  Total: ${totalQty.toStringAsFixed(2)} mtr',
-              style:
-                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
             ),
             const SizedBox(height: 6),
             ...items.asMap().entries.map((entry) {
@@ -1457,8 +1488,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                 margin: const EdgeInsets.only(bottom: 4),
                 child: ListTile(
                   dense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 10),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                   title: Text(
                     '$shade  |  Qty: ${qty.toStringAsFixed(2)} mtr',
                     style: const TextStyle(
@@ -1466,22 +1496,21 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                   ),
                   subtitle: isNew
                       ? const Text('NEW',
-                          style: TextStyle(
-                              color: Colors.green, fontSize: 11))
+                          style: TextStyle(color: Colors.green, fontSize: 11))
                       : null,
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
                         iconSize: 20,
-                        icon: const Icon(Icons.edit_outlined,
-                            color: Colors.blue),
+                        icon:
+                            const Icon(Icons.edit_outlined, color: Colors.blue),
                         onPressed: () => _editItemDialog(i),
                       ),
                       IconButton(
                         iconSize: 20,
-                        icon: const Icon(Icons.delete_outline,
-                            color: Colors.red),
+                        icon:
+                            const Icon(Icons.delete_outline, color: Colors.red),
                         onPressed: () => _removeRow(i),
                       ),
                     ],
@@ -1527,8 +1556,8 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                   flex: 2,
                   child: TextField(
                     controller: addQtyCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
                       labelText: 'Qty',
                       border: OutlineInputBorder(),
@@ -1545,8 +1574,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1565C0),
                       foregroundColor: Colors.white,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
                     onPressed: _addRow,
                     child: const Text('ADD'),
@@ -1597,8 +1625,8 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: dlgQtyCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
                       labelText: 'Quantity',
                       border: OutlineInputBorder(),

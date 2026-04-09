@@ -73,8 +73,7 @@ class _MachineMasterPageState extends State<MachineMasterPage> {
     );
     if (ok != true) return;
 
-    final db = await ErpDatabase.instance.database;
-    await db.delete('machines', where: 'id = ?', whereArgs: [id]);
+    await ErpDatabase.instance.deleteMachine(id);
     _msg('Deleted');
     _loadMachines();
   }
@@ -188,7 +187,6 @@ class _MachineFormPageState extends State<_MachineFormPage> {
 
     setState(() => _saving = true);
     try {
-      final db = await ErpDatabase.instance.database;
       final data = {
         'code': code,
         'name': _nameCtrl.text.trim(),
@@ -197,10 +195,10 @@ class _MachineFormPageState extends State<_MachineFormPage> {
       };
 
       if (widget.existing == null) {
-        await db.insert('machines', data);
+        await ErpDatabase.instance.insertMachine(data);
       } else {
-        await db.update('machines', data,
-            where: 'id = ?', whereArgs: [widget.existing!['id']]);
+        await ErpDatabase.instance
+            .updateMachine(data, widget.existing!['id'] as int);
       }
 
       if (mounted) Navigator.pop(context, true);

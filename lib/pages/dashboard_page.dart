@@ -855,11 +855,14 @@ class _DashboardPageState extends State<DashboardPage> {
   // ================= UI =================
 
   // Premium dark palette
+  // ignore: unused_field
   static const _bgDark = Color(0xFFF5F5F5);
   static const _bgCard = Color(0xFFFFFFFF);
   static const _accent = Color(0xFF1565C0);
+  // ignore: unused_field
   static const _accentLight = Color(0xFF00BAF2);
   static const _textLight = Color(0xFF212121);
+  // ignore: unused_field
   static const _textMuted = Color(0xFF757575);
 
   String get _greeting => 'Welcome Back';
@@ -1502,6 +1505,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // ================= WIDGETS =================
 
+  // ignore: unused_element
   Widget _premiumStatCard(
       String label, String value, IconData icon, Color color, Color bgTint) {
     return Expanded(

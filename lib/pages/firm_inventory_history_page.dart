@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
+import '../data/firebase_sync_service.dart';
 
 class FirmInventoryHistoryPage extends StatefulWidget {
   final int firmId;
@@ -763,8 +764,8 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                                       ),
                                       onPressed: () =>
                                           _editFullPurchase(groupRows),
-                                      icon: const Icon(Icons.edit_note,
-                                          size: 20),
+                                      icon:
+                                          const Icon(Icons.edit_note, size: 20),
                                       label: const Text('Edit Full Purchase'),
                                     ),
                                   ),
@@ -834,9 +835,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
     productId = widget.productId;
     purchaseDate = widget.purchaseDate;
     invoiceCtrl = TextEditingController(text: widget.invoiceNo);
-    items = widget.editItems
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
+    items = widget.editItems.map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
   @override
@@ -923,18 +922,31 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
       ).millisecondsSinceEpoch;
       final inv = invoiceCtrl.text.trim();
 
+      // Track IDs for Firebase sync after transaction
+      final deletedPurchaseItemIds = <int>[];
+      final deletedLedgerIds = <int>[];
+      final updatedPurchaseItems = <int, Map<String, dynamic>>{};
+      final updatedLedgerItems = <int, Map<String, dynamic>>{};
+      final insertedPurchaseItems = <int, Map<String, dynamic>>{};
+      final insertedLedgerItems = <int, Map<String, dynamic>>{};
+
       await db.transaction((txn) async {
         // 1. Update purchase_master header
+        final headerData = {
+          'party_id': partyId,
+          'invoice_no': inv,
+          'purchase_date': newDateMs,
+        };
         await txn.update(
           'purchase_master',
-          {
-            'party_id': partyId,
-            'invoice_no': inv,
-            'purchase_date': newDateMs,
-          },
+          headerData,
           where: 'purchase_no=?',
           whereArgs: [widget.purchaseNo],
         );
+        updatedPurchaseItems[-1] = {
+          ...headerData,
+          'purchase_no': widget.purchaseNo
+        };
 
         // 2. Delete removed rows
         for (final d in deleted) {
@@ -942,8 +954,9 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
           if (itemId == null) continue;
 
           // Delete purchase_item
-          await txn.delete('purchase_items',
-              where: 'id=?', whereArgs: [itemId]);
+          await txn
+              .delete('purchase_items', where: 'id=?', whereArgs: [itemId]);
+          deletedPurchaseItemIds.add(itemId);
 
           // Find and delete matching ledger entry
           final oldPid = d['old_product_id'] as int?;
@@ -961,8 +974,10 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
               ORDER BY id DESC LIMIT 1
             ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
             if (ledger.isNotEmpty) {
-              await txn.delete('stock_ledger',
-                  where: 'id=?', whereArgs: [ledger.first['id']]);
+              final ledgerId = ledger.first['id'] as int;
+              await txn
+                  .delete('stock_ledger', where: 'id=?', whereArgs: [ledgerId]);
+              deletedLedgerIds.add(ledgerId);
             }
           }
         }
@@ -977,18 +992,20 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
           final newRate = (item['rate'] as num?)?.toDouble() ?? 0;
           final newShade = item['shade_id'] as int?;
 
-          await txn.update(
-            'purchase_items',
-            {
-              'product_id': productId,
-              'shade_id': newShade,
-              'qty': newQty,
-              'rate': newRate,
-              'amount': newQty * newRate,
-            },
-            where: 'id=?',
-            whereArgs: [itemId],
-          );
+          final piData = {
+            'product_id': productId,
+            'shade_id': newShade,
+            'qty': newQty,
+            'rate': newRate,
+            'amount': newQty * newRate,
+          };
+          await txn.update('purchase_items', piData,
+              where: 'id=?', whereArgs: [itemId]);
+          updatedPurchaseItems[itemId] = {
+            ...piData,
+            'id': itemId,
+            'purchase_no': widget.purchaseNo
+          };
 
           // Update matching ledger
           final oldPid = item['old_product_id'] as int?;
@@ -1006,18 +1023,22 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
               ORDER BY id DESC LIMIT 1
             ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
             if (ledger.isNotEmpty) {
-              await txn.update(
-                'stock_ledger',
-                {
-                  'product_id': productId,
-                  'fabric_shade_id': newShade,
-                  'qty': newQty,
-                  'date': newDateMs,
-                  'reference': inv,
-                },
-                where: 'id=?',
-                whereArgs: [ledger.first['id']],
-              );
+              final ledgerId = ledger.first['id'] as int;
+              final slData = {
+                'product_id': productId,
+                'fabric_shade_id': newShade,
+                'qty': newQty,
+                'date': newDateMs,
+                'reference': inv,
+              };
+              await txn.update('stock_ledger', slData,
+                  where: 'id=?', whereArgs: [ledgerId]);
+              updatedLedgerItems[ledgerId] = {
+                ...slData,
+                'id': ledgerId,
+                'type': 'IN',
+                'remarks': 'Purchase'
+              };
             }
           }
         }
@@ -1029,16 +1050,18 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
           final newRate = (item['rate'] as num?)?.toDouble() ?? 0;
           final newShade = item['shade_id'] as int?;
 
-          await txn.insert('purchase_items', {
+          final piData = {
             'purchase_no': widget.purchaseNo,
             'product_id': productId,
             'shade_id': newShade,
             'qty': newQty,
             'rate': newRate,
             'amount': newQty * newRate,
-          });
+          };
+          final piId = await txn.insert('purchase_items', piData);
+          insertedPurchaseItems[piId] = {...piData, 'id': piId};
 
-          await txn.insert('stock_ledger', {
+          final slData = {
             'product_id': productId,
             'fabric_shade_id': newShade,
             'qty': newQty,
@@ -1046,9 +1069,40 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
             'date': newDateMs,
             'reference': inv,
             'remarks': 'Purchase',
-          });
+          };
+          final slId = await txn.insert('stock_ledger', slData);
+          insertedLedgerItems[slId] = {...slData, 'id': slId};
         }
       });
+
+      // Push changes to Firebase after transaction succeeds
+      final sync = FirebaseSyncService.instance;
+      if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
+        for (final id in deletedPurchaseItemIds) {
+          await sync.deleteRecord('purchase_items', id);
+        }
+        for (final id in deletedLedgerIds) {
+          await sync.deleteRecord('stock_ledger', id);
+        }
+        // Push purchase_master update
+        if (updatedPurchaseItems.containsKey(-1)) {
+          await sync.pushRecord(
+              'purchase_master', widget.purchaseNo, updatedPurchaseItems[-1]!);
+        }
+        for (final e in updatedPurchaseItems.entries) {
+          if (e.key == -1) continue;
+          await sync.pushRecord('purchase_items', e.key, e.value);
+        }
+        for (final e in updatedLedgerItems.entries) {
+          await sync.pushRecord('stock_ledger', e.key, e.value);
+        }
+        for (final e in insertedPurchaseItems.entries) {
+          await sync.pushRecord('purchase_items', e.key, e.value);
+        }
+        for (final e in insertedLedgerItems.entries) {
+          await sync.pushRecord('stock_ledger', e.key, e.value);
+        }
+      }
 
       if (!mounted) return;
       _msg('Purchase updated successfully');
@@ -1063,8 +1117,8 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
 
   @override
   Widget build(BuildContext context) {
-    final totalQty =
-        items.fold<double>(0, (s, e) => s + ((e['qty'] as num?)?.toDouble() ?? 0));
+    final totalQty = items.fold<double>(
+        0, (s, e) => s + ((e['qty'] as num?)?.toDouble() ?? 0));
 
     return Scaffold(
       appBar: AppBar(
@@ -1145,8 +1199,8 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                           border: OutlineInputBorder(),
                           isDense: true,
                         ),
-                        child: Text(
-                            DateFormat('dd-MM-yyyy').format(purchaseDate)),
+                        child:
+                            Text(DateFormat('dd-MM-yyyy').format(purchaseDate)),
                       ),
                     ),
                   ],
@@ -1159,8 +1213,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
             // --- Existing Shade Rows ---
             Text(
               'Shade Rows (${items.length})  |  Total: ${totalQty.toStringAsFixed(2)}',
-              style:
-                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
             ),
             const SizedBox(height: 6),
             ...items.asMap().entries.map((entry) {
@@ -1176,8 +1229,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                 margin: const EdgeInsets.only(bottom: 4),
                 child: ListTile(
                   dense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 10),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                   title: Text(
                     '$shade  |  Qty: ${qty.toStringAsFixed(2)}  |  Rate: ${rate.toStringAsFixed(2)}',
                     style: const TextStyle(
@@ -1185,8 +1237,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                   ),
                   subtitle: isNew
                       ? const Text('NEW',
-                          style: TextStyle(
-                              color: Colors.green, fontSize: 11))
+                          style: TextStyle(color: Colors.green, fontSize: 11))
                       : Text('Product: ${_productName(productId)}',
                           style: const TextStyle(fontSize: 11)),
                   trailing: Row(
@@ -1194,14 +1245,14 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                     children: [
                       IconButton(
                         iconSize: 20,
-                        icon: const Icon(Icons.edit_outlined,
-                            color: Colors.blue),
+                        icon:
+                            const Icon(Icons.edit_outlined, color: Colors.blue),
                         onPressed: () => _editItemDialog(i),
                       ),
                       IconButton(
                         iconSize: 20,
-                        icon: const Icon(Icons.delete_outline,
-                            color: Colors.red),
+                        icon:
+                            const Icon(Icons.delete_outline, color: Colors.red),
                         onPressed: () => _removeRow(i),
                       ),
                     ],
@@ -1234,8 +1285,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                     items: widget.shades
                         .map((s) => DropdownMenuItem<int>(
                               value: s['id'] as int,
-                              child:
-                                  Text((s['shade_no'] ?? '').toString()),
+                              child: Text((s['shade_no'] ?? '').toString()),
                             ))
                         .toList(),
                     onChanged: (v) => setState(() => addShadeId = v),
@@ -1246,8 +1296,8 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                   flex: 2,
                   child: TextField(
                     controller: addQtyCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
                       labelText: 'Qty',
                       border: OutlineInputBorder(),
@@ -1262,8 +1312,8 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                   flex: 2,
                   child: TextField(
                     controller: addRateCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
                       labelText: 'Rate',
                       border: OutlineInputBorder(),
@@ -1280,8 +1330,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1565C0),
                       foregroundColor: Colors.white,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
                     onPressed: _addRow,
                     child: const Text('ADD'),
@@ -1325,8 +1374,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                     items: widget.shades
                         .map((s) => DropdownMenuItem<int>(
                               value: s['id'] as int,
-                              child:
-                                  Text((s['shade_no'] ?? '').toString()),
+                              child: Text((s['shade_no'] ?? '').toString()),
                             ))
                         .toList(),
                     onChanged: (v) => setDlg(() => dlgShadeId = v),
@@ -1334,8 +1382,8 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: dlgQtyCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
                       labelText: 'Quantity',
                       border: OutlineInputBorder(),
@@ -1344,8 +1392,8 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: dlgRateCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
                       labelText: 'Rate',
                       border: OutlineInputBorder(),

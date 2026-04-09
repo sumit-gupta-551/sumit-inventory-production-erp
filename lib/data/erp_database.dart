@@ -209,8 +209,7 @@ class ErpDatabase {
                 : col.contains('days')
                     ? 'INTEGER DEFAULT 30'
                     : 'TEXT';
-            await db.execute(
-                'ALTER TABLE ${entry.key} ADD COLUMN $col $type');
+            await db.execute('ALTER TABLE ${entry.key} ADD COLUMN $col $type');
           }
         }
       } catch (_) {}
@@ -855,7 +854,11 @@ class ErpDatabase {
         await sync.pushRecord(table, id, data);
         dataVersion.value++;
         if (table != 'activity_log') {
-          logActivity(action: 'INSERT', tableName: table, recordId: id, details: data.toString());
+          logActivity(
+              action: 'INSERT',
+              tableName: table,
+              recordId: id,
+              details: data.toString());
         }
         return id;
       } catch (e) {
@@ -866,7 +869,11 @@ class ErpDatabase {
     id = await db.insert(table, data);
     dataVersion.value++;
     if (table != 'activity_log') {
-      logActivity(action: 'INSERT', tableName: table, recordId: id, details: data.toString());
+      logActivity(
+          action: 'INSERT',
+          tableName: table,
+          recordId: id,
+          details: data.toString());
     }
     return id;
   }
@@ -874,25 +881,31 @@ class ErpDatabase {
   Future<void> _syncUpdate(
       String table, Map<String, dynamic> data, int id) async {
     final db = await database;
-    await db.update(table, data, where: 'id=?', whereArgs: [id]);
+    // Push to Firebase FIRST so remote is updated
     final sync = FirebaseSyncService.instance;
-    if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
+    if (syncEnabled && sync.isInitialized) {
       data['id'] = id;
       await sync.pushRecord(table, id, data);
     }
+    await db.update(table, data, where: 'id=?', whereArgs: [id]);
     dataVersion.value++;
     if (table != 'activity_log') {
-      logActivity(action: 'UPDATE', tableName: table, recordId: id, details: data.toString());
+      logActivity(
+          action: 'UPDATE',
+          tableName: table,
+          recordId: id,
+          details: data.toString());
     }
   }
 
   Future<void> _syncDelete(String table, int id) async {
     final db = await database;
-    await db.delete(table, where: 'id=?', whereArgs: [id]);
+    // Delete from Firebase FIRST so the record is removed remotely
     final sync = FirebaseSyncService.instance;
-    if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
+    if (syncEnabled && sync.isInitialized) {
       await sync.deleteRecord(table, id);
     }
+    await db.delete(table, where: 'id=?', whereArgs: [id]);
     dataVersion.value++;
     if (table != 'activity_log') {
       logActivity(action: 'DELETE', tableName: table, recordId: id);
@@ -1243,6 +1256,14 @@ class ErpDatabase {
     final db = await database;
     return await db.query('machines');
   }
+
+  Future<int> insertMachine(Map<String, dynamic> data) async =>
+      _syncInsert('machines', data);
+
+  Future<void> updateMachine(Map<String, dynamic> data, int id) async =>
+      _syncUpdate('machines', data, id);
+
+  Future<void> deleteMachine(int id) async => _syncDelete('machines', id);
 
 // ================= PARTIES (MODEL-BASED) =================
   Future<void> insertParty(Party party) async {

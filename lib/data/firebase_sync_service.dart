@@ -87,9 +87,9 @@ class FirebaseSyncService {
   }
 
   Future<void> deleteRecord(String table, int id) async {
-    if (_syncing) return;
     try {
       await _ref.child('$table/$id').remove();
+      debugPrint('✅ sync delete ($table/$id) success');
     } catch (e) {
       debugPrint('⚠ sync delete ($table/$id): $e');
     }
