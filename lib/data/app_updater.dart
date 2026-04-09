@@ -21,7 +21,7 @@ class AppUpdater {
   static const _repo = 'sumit-inventory-production-erp';
 
   /// Current app version (must match pubspec.yaml version)
-  static const currentVersion = '1.0.11';
+  static const currentVersion = '1.0.12';
 
   /// Check GitHub Releases for a newer release. Returns release info or null.
   static Future<Map<String, dynamic>?> checkForUpdate() async {
