@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 class InventoryFormCard extends StatelessWidget {
   final String title;
+  final Widget? titleTrailing;
   final List<Widget> children;
   final Widget? footer;
   final EdgeInsetsGeometry padding;
@@ -11,6 +12,7 @@ class InventoryFormCard extends StatelessWidget {
   const InventoryFormCard({
     super.key,
     required this.title,
+    this.titleTrailing,
     required this.children,
     this.footer,
     this.padding = const EdgeInsets.all(14),
@@ -35,13 +37,20 @@ class InventoryFormCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: theme.textTheme.labelLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-              color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                    color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
+                  ),
+                ),
+              ),
+              if (titleTrailing != null) titleTrailing!,
+            ],
           ),
           const SizedBox(height: 12),
           ...children,

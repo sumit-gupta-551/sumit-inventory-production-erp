@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
+import '../data/firebase_sync_service.dart';
 import '../widgets/inventory_form_card.dart';
 
 class ProductionEntryPage extends StatefulWidget {
@@ -42,10 +43,19 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
   void initState() {
     super.initState();
     _loadMasters();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+    FirebaseSyncService.instance.syncVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadSavedEntries();
   }
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    FirebaseSyncService.instance.syncVersion.removeListener(_onDataChanged);
     _machineFocusNode.dispose();
     _stitchCtrl.dispose();
     _bonusCtrl.dispose();
@@ -289,8 +299,105 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
     );
     if (ok != true) return;
     await ErpDatabase.instance.deleteProductionEntry(id);
+    if (!mounted) return;
     _msg('Deleted');
-    _loadSavedEntries();
+    await _loadSavedEntries();
+  }
+
+  static const _deletePasscode = '0056';
+
+  Future<bool> _verifyPasscode() async {
+    final passCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Enter Passcode'),
+        content: TextField(
+          controller: passCtrl,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Passcode',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Verify'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || passCtrl.text.trim() != _deletePasscode) {
+      if (ok == true) _msg('Invalid passcode');
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _deleteAllSaved() async {
+    if (savedEntries.isEmpty) return;
+    if (!await _verifyPasscode()) return;
+    final dateStr = DateFormat('dd MMM yyyy').format(_selectedDate);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete All Entries?'),
+        content: Text(
+            'Delete all ${savedEntries.length} production entries for $dateStr?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child:
+                const Text('Delete All', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await ErpDatabase.instance.deleteProductionEntriesByDate(_dateMs);
+    if (!mounted) return;
+    _msg('All entries for $dateStr deleted');
+    await _loadSavedEntries();
+  }
+
+  Future<void> _deleteUnitSaved(String unitName, int count) async {
+    if (!await _verifyPasscode()) return;
+    final dateStr = DateFormat('dd MMM yyyy').format(_selectedDate);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Unit Entries?'),
+        content: Text(
+            'Delete all $count entries for "$unitName" on $dateStr?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child:
+                const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final dbUnit = unitName == 'No Unit' ? '' : unitName;
+    await ErpDatabase.instance.deleteProductionEntriesByDateAndUnit(_dateMs, dbUnit);
+    if (!mounted) return;
+    _msg('$count entries for "$unitName" deleted');
+    await _loadSavedEntries();
   }
 
   Future<void> _pickDate() async {
@@ -413,6 +520,12 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       color: Colors.green),
+                ),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () => _deleteUnitSaved(unitName, items.length),
+                  child: const Icon(Icons.delete_sweep,
+                      color: Colors.red, size: 18),
                 ),
               ],
             ),
@@ -954,6 +1067,14 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                       InventoryFormCard(
                         title:
                             'SAVED  ${DateFormat('dd MMM').format(_selectedDate)} ($savedCount)',
+                        titleTrailing: IconButton(
+                          icon: const Icon(Icons.delete_sweep,
+                              color: Colors.red, size: 20),
+                          tooltip: 'Delete all entries for this date',
+                          onPressed: _deleteAllSaved,
+                          constraints: const BoxConstraints(),
+                          padding: EdgeInsets.zero,
+                        ),
                         backgroundColor: const Color(0xFFFFF3E0),
                         borderColor: const Color(0xFFFFCC80),
                         padding: const EdgeInsets.all(10),

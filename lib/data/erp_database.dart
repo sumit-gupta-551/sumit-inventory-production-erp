@@ -903,7 +903,14 @@ class ErpDatabase {
     // Delete from Firebase FIRST so the record is removed remotely
     final sync = FirebaseSyncService.instance;
     if (syncEnabled && sync.isInitialized) {
-      await sync.deleteRecord(table, id);
+      // Mark as pending delete so real-time listeners
+      // won't re-insert the record. Cleared by _onRemoteRemove.
+      sync.addPendingDelete(table, id);
+      try {
+        await sync.deleteRecord(table, id);
+      } catch (e) {
+        debugPrint('⚠ _syncDelete Firebase failed ($table/$id): $e');
+      }
     }
     await db.delete(table, where: 'id=?', whereArgs: [id]);
     dataVersion.value++;
@@ -1511,6 +1518,80 @@ class ErpDatabase {
     await _syncDelete('production_entries', id);
   }
 
+  Future<void> deleteProductionEntriesByDate(int dateMs) async {
+    final db = await database;
+    final rows = await db.query('production_entries',
+        columns: ['id'], where: 'date = ?', whereArgs: [dateMs]);
+    final ids = rows.map((r) => r['id'] as int).toList();
+    if (ids.isEmpty) return;
+
+    final sync = FirebaseSyncService.instance;
+    // Mark all as pending delete first to block listeners
+    if (syncEnabled && sync.isInitialized) {
+      for (final id in ids) {
+        sync.addPendingDelete('production_entries', id);
+      }
+    }
+    // Delete from Firebase
+    if (syncEnabled && sync.isInitialized) {
+      for (final id in ids) {
+        try {
+          await sync.deleteRecord('production_entries', id);
+        } catch (e) {
+          debugPrint('⚠ bulk delete Firebase (production_entries/$id): $e');
+        }
+      }
+    }
+    // Delete all from SQLite in one batch
+    final placeholders = ids.map((_) => '?').join(',');
+    await db.delete('production_entries',
+        where: 'id IN ($placeholders)', whereArgs: ids);
+    dataVersion.value++;
+    logActivity(
+        action: 'DELETE',
+        tableName: 'production_entries',
+        recordId: ids.first,
+        details: 'Bulk delete ${ids.length} entries for date $dateMs');
+  }
+
+  Future<void> deleteProductionEntriesByDateAndUnit(int dateMs, String unitName) async {
+    final db = await database;
+    final rows = await db.query('production_entries',
+        columns: ['id'],
+        where: 'date = ? AND unit_name = ?',
+        whereArgs: [dateMs, unitName]);
+    final ids = rows.map((r) => r['id'] as int).toList();
+    if (ids.isEmpty) return;
+
+    final sync = FirebaseSyncService.instance;
+    // Mark all as pending delete first to block listeners
+    if (syncEnabled && sync.isInitialized) {
+      for (final id in ids) {
+        sync.addPendingDelete('production_entries', id);
+      }
+    }
+    // Delete from Firebase
+    if (syncEnabled && sync.isInitialized) {
+      for (final id in ids) {
+        try {
+          await sync.deleteRecord('production_entries', id);
+        } catch (e) {
+          debugPrint('⚠ bulk delete Firebase (production_entries/$id): $e');
+        }
+      }
+    }
+    // Delete all from SQLite in one batch
+    final placeholders = ids.map((_) => '?').join(',');
+    await db.delete('production_entries',
+        where: 'id IN ($placeholders)', whereArgs: ids);
+    dataVersion.value++;
+    logActivity(
+        action: 'DELETE',
+        tableName: 'production_entries',
+        recordId: ids.first,
+        details: 'Bulk delete ${ids.length} entries for unit $unitName date $dateMs');
+  }
+
   /// Get distinct employee IDs that have production entries in a date range
   Future<List<int>> getProductionEmployeeIds({
     required int fromMs,
@@ -1629,7 +1710,32 @@ class ErpDatabase {
       histMap[(h['employee_id'] as int)] = h;
     }
 
-    // 3. Attendance counts grouped by employee
+    // 3. Auto-generate attendance for production employees who have no attendance
+    //    This ensures payroll counts them even if attendance page was never opened.
+    final prodDates = await db.rawQuery('''
+      SELECT DISTINCT employee_id, date FROM production_entries
+      WHERE date >= ? AND date <= ? AND employee_id IS NOT NULL
+    ''', [fromMs, toMs]);
+    for (final row in prodDates) {
+      final empId = row['employee_id'] as int;
+      final date = row['date'] as int;
+      final existing = await db.query('attendance',
+          columns: ['id'],
+          where: 'employee_id = ? AND date = ?',
+          whereArgs: [empId, date],
+          limit: 1);
+      if (existing.isEmpty) {
+        await _syncInsert('attendance', {
+          'employee_id': empId,
+          'date': date,
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production',
+        });
+      }
+    }
+
+    // 4. Attendance counts grouped by employee
     final attRows = await db.rawQuery('''
       SELECT employee_id, status, shift, COUNT(*) as cnt
       FROM attendance

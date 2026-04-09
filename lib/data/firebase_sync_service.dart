@@ -54,6 +54,24 @@ class FirebaseSyncService {
   /// Pages can listen to this to refresh their UI.
   final syncVersion = ValueNotifier<int>(0);
 
+  // ---------- PENDING DELETES ----------
+  // Tracks (table, id) pairs whose Firebase delete failed.
+  // Prevents _pullTable from resurrecting them on the next sync.
+  final _pendingDeletes = <String, Set<int>>{};
+
+  void addPendingDelete(String table, int id) {
+    _pendingDeletes.putIfAbsent(table, () => <int>{}).add(id);
+  }
+
+  void removePendingDelete(String table, int id) {
+    _pendingDeletes[table]?.remove(id);
+    if (_pendingDeletes[table]?.isEmpty ?? false) _pendingDeletes.remove(table);
+  }
+
+  bool _isPendingDelete(String table, int id) {
+    return _pendingDeletes[table]?.contains(id) ?? false;
+  }
+
   // ---------- INIT ----------
   Future<void> init() async {
     if (_initialized) return;
@@ -87,12 +105,8 @@ class FirebaseSyncService {
   }
 
   Future<void> deleteRecord(String table, int id) async {
-    try {
-      await _ref.child('$table/$id').remove();
-      debugPrint('✅ sync delete ($table/$id) success');
-    } catch (e) {
-      debugPrint('⚠ sync delete ($table/$id): $e');
-    }
+    await _ref.child('$table/$id').remove();
+    debugPrint('✅ sync delete ($table/$id) success');
   }
 
   // ---------- FULL SYNC (startup) ----------
@@ -101,6 +115,8 @@ class FirebaseSyncService {
     _syncing = true;
     try {
       final db = await ErpDatabase.instance.database;
+      // 0. Retry any pending deletes from failed earlier attempts.
+      await _retryPendingDeletes(db);
       // 1. Push local data that Firebase doesn't have yet.
       await _pushLocalToFirebase(db);
       // 2. Pull everything from Firebase into local SQLite (batched).
@@ -188,6 +204,8 @@ class FirebaseSyncService {
         for (final entry in map.entries) {
           final id = int.tryParse(entry.key.toString());
           if (id == null) continue;
+          // Skip records that are pending delete locally
+          if (_isPendingDelete(table, id)) continue;
           remoteIds.add(id);
 
           final data = Map<String, dynamic>.from(entry.value as Map);
@@ -213,8 +231,28 @@ class FirebaseSyncService {
     }
   }
 
+  Future<void> _retryPendingDeletes(sql.Database db) async {
+    for (final entry in _pendingDeletes.entries.toList()) {
+      final table = entry.key;
+      for (final id in entry.value.toList()) {
+        try {
+          await _ref.child('$table/$id').remove();
+          entry.value.remove(id);
+          debugPrint('✅ pending delete retry ($table/$id) success');
+        } catch (e) {
+          debugPrint('⚠ pending delete retry ($table/$id): $e');
+        }
+      }
+      if (entry.value.isEmpty) _pendingDeletes.remove(table);
+    }
+  }
+
   // ---------- REAL-TIME LISTENERS ----------
+  bool _listening = false;
+
   void startListening() {
+    if (_listening) return;
+    _listening = true;
     for (final table in _syncTables) {
       _ref.child(table).onChildAdded.listen(
             (e) => _onRemoteChange(table, e),
@@ -236,6 +274,8 @@ class FirebaseSyncService {
     final id = int.tryParse(event.snapshot.key ?? '');
     if (id == null) return;
     if (event.snapshot.value is! Map) return;
+    // Don't re-insert records that are pending local delete
+    if (_isPendingDelete(table, id)) return;
 
     final data = Map<String, dynamic>.from(event.snapshot.value as Map);
     data.remove('_ts');
