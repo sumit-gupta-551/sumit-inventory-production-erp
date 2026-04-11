@@ -16,6 +16,18 @@ class _UnitMasterPageState extends State<UnitMasterPage> {
   void initState() {
     super.initState();
     _load();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _load();
   }
 
   Future<void> _load() async {

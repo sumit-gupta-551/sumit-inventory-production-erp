@@ -1,4 +1,6 @@
-﻿import 'package:flutter/foundation.dart';
+﻿import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -7,13 +9,39 @@ import '../models/party.dart';
 import 'firebase_sync_service.dart';
 import 'permission_service.dart';
 
+/// A ValueNotifier that coalesces rapid value changes and only
+/// notifies listeners after a short debounce period.
+class _DebouncedNotifier extends ValueNotifier<int> {
+  Timer? _timer;
+  int _pending = 0;
+  final Duration delay;
+
+  _DebouncedNotifier(this.delay) : super(0);
+
+  @override
+  set value(int newValue) {
+    _pending = newValue;
+    _timer?.cancel();
+    _timer = Timer(delay, () {
+      super.value = _pending;
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+}
+
 class ErpDatabase {
   static final ErpDatabase instance = ErpDatabase._init();
   static Database? _db;
 
   /// Incremented after every insert/update/delete.
   /// Pages listen to this to auto-refresh their data.
-  final dataVersion = ValueNotifier<int>(0);
+  /// Debounced so rapid-fire changes don't cause continuous reloads.
+  final dataVersion = _DebouncedNotifier(const Duration(milliseconds: 300));
 
   ErpDatabase._init();
 
@@ -183,6 +211,13 @@ class ErpDatabase {
         details TEXT,
         user_name TEXT,
         timestamp INTEGER NOT NULL)''',
+      '''CREATE TABLE IF NOT EXISTS _pending_sync (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        table_name TEXT NOT NULL,
+        record_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        data TEXT,
+        created_at INTEGER)''',
     ];
     for (final sql in ddl) {
       try {
@@ -808,9 +843,8 @@ class ErpDatabase {
     String? details,
   }) async {
     try {
-      final db = await database;
       final userName = PermissionService.instance.currentName;
-      await db.insert('activity_log', {
+      await _syncInsert('activity_log', {
         'action': action,
         'table_name': tableName,
         'record_id': recordId,
@@ -826,11 +860,47 @@ class ErpDatabase {
   Future<List<Map<String, dynamic>>> getActivityLogs({
     int limit = 200,
     int offset = 0,
+    String? action,
+    String? tableName,
+    String? userName,
+    int? fromMs,
+    int? toMs,
+    String? search,
   }) async {
     try {
       final db = await database;
+      final where = <String>[];
+      final args = <dynamic>[];
+      if (action != null && action.isNotEmpty) {
+        where.add('action = ?');
+        args.add(action);
+      }
+      if (tableName != null && tableName.isNotEmpty) {
+        where.add('table_name = ?');
+        args.add(tableName);
+      }
+      if (userName != null && userName.isNotEmpty) {
+        where.add('user_name = ?');
+        args.add(userName);
+      }
+      if (fromMs != null) {
+        where.add('timestamp >= ?');
+        args.add(fromMs);
+      }
+      if (toMs != null) {
+        where.add('timestamp < ?');
+        args.add(toMs);
+      }
+      if (search != null && search.isNotEmpty) {
+        where.add('(details LIKE ? OR table_name LIKE ? OR action LIKE ?)');
+        final pattern = '%$search%';
+        args.addAll([pattern, pattern, pattern]);
+      }
+      final whereClause = where.isEmpty ? null : where.join(' AND ');
       return await db.query(
         'activity_log',
+        where: whereClause,
+        whereArgs: args.isEmpty ? null : args,
         orderBy: 'timestamp DESC',
         limit: limit,
         offset: offset,
@@ -841,16 +911,58 @@ class ErpDatabase {
     }
   }
 
+  /// Get distinct user names from activity log (for filter dropdown)
+  Future<List<String>> getActivityLogUsers() async {
+    try {
+      final db = await database;
+      final rows = await db.rawQuery(
+        "SELECT DISTINCT user_name FROM activity_log WHERE user_name IS NOT NULL AND user_name != '' ORDER BY user_name",
+      );
+      return rows.map((r) => r['user_name'].toString()).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Get distinct table names from activity log (for filter dropdown)
+  Future<List<String>> getActivityLogTables() async {
+    try {
+      final db = await database;
+      final rows = await db.rawQuery(
+        "SELECT DISTINCT table_name FROM activity_log WHERE table_name IS NOT NULL AND table_name != '' ORDER BY table_name",
+      );
+      return rows.map((r) => r['table_name'].toString()).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<int> _syncInsert(String table, Map<String, dynamic> data) async {
     final db = await database;
     final sync = FirebaseSyncService.instance;
     int id;
     if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
+      int? firebaseId;
       try {
-        id = await sync.getNextId(table);
+        firebaseId = await sync.getNextId(table);
+      } catch (e) {
+        debugPrint('⚠ _syncInsert getNextId ($table): $e');
+        // No network — fall through to local-only insert
+      }
+      if (firebaseId != null) {
+        id = firebaseId;
         data['id'] = id;
-        await db.insert(table, data,
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        try {
+          await db.insert(table, data,
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        } catch (e) {
+          debugPrint('⚠ _syncInsert local insert ($table/$id): $e');
+          // Local failed but we have a Firebase ID — still push to Firebase
+          // so the data is at least saved remotely
+          await sync.pushRecord(table, id, data);
+          rethrow;
+        }
+        // pushRecord queues for retry internally if it fails
         await sync.pushRecord(table, id, data);
         dataVersion.value++;
         if (table != 'activity_log') {
@@ -861,8 +973,6 @@ class ErpDatabase {
               details: data.toString());
         }
         return id;
-      } catch (e) {
-        debugPrint('⚠ _syncInsert ($table): $e');
       }
     }
     data.remove('id');
@@ -881,14 +991,14 @@ class ErpDatabase {
   Future<void> _syncUpdate(
       String table, Map<String, dynamic> data, int id) async {
     final db = await database;
-    // Push to Firebase FIRST so remote is updated
-    final sync = FirebaseSyncService.instance;
-    if (syncEnabled && sync.isInitialized) {
-      data['id'] = id;
-      await sync.pushRecord(table, id, data);
-    }
+    // Local FIRST, then push to Firebase (if local fails, don't push stale data)
+    data['id'] = id;
     await db.update(table, data, where: 'id=?', whereArgs: [id]);
     dataVersion.value++;
+    final sync = FirebaseSyncService.instance;
+    if (syncEnabled && sync.isInitialized) {
+      await sync.pushRecord(table, id, data);
+    }
     if (table != 'activity_log') {
       logActivity(
           action: 'UPDATE',
@@ -900,20 +1010,23 @@ class ErpDatabase {
 
   Future<void> _syncDelete(String table, int id) async {
     final db = await database;
-    // Delete from Firebase FIRST so the record is removed remotely
     final sync = FirebaseSyncService.instance;
     if (syncEnabled && sync.isInitialized) {
       // Mark as pending delete so real-time listeners
       // won't re-insert the record. Cleared by _onRemoteRemove.
       sync.addPendingDelete(table, id);
+    }
+    // Delete locally FIRST (ensures data is removed even if Firebase call fails)
+    await db.delete(table, where: 'id=?', whereArgs: [id]);
+    dataVersion.value++;
+    // Then remove from Firebase
+    if (syncEnabled && sync.isInitialized) {
       try {
         await sync.deleteRecord(table, id);
       } catch (e) {
         debugPrint('⚠ _syncDelete Firebase failed ($table/$id): $e');
       }
     }
-    await db.delete(table, where: 'id=?', whereArgs: [id]);
-    dataVersion.value++;
     if (table != 'activity_log') {
       logActivity(action: 'DELETE', tableName: table, recordId: id);
     }
@@ -970,25 +1083,36 @@ class ErpDatabase {
   }
 
   Future<void> insertProgram(Map<String, dynamic> data) async =>
-      (await database).insert('program_master', data);
+      _syncInsert('program_master', data);
 
   Future<void> deleteProgram(int programNo) async {
     final db = await database;
-    await db.delete('program_master',
-        where: 'program_no=?', whereArgs: [programNo]);
-    await db.delete('program_fabrics',
-        where: 'program_no=?', whereArgs: [programNo]);
-    await db.delete('program_thread_shades',
-        where: 'program_no=?', whereArgs: [programNo]);
+    // Delete child records individually for Firebase sync
+    final fabrics = await db.query('program_fabrics',
+        columns: ['id'], where: 'program_no=?', whereArgs: [programNo]);
+    for (final row in fabrics) {
+      await _syncDelete('program_fabrics', row['id'] as int);
+    }
+    final threads = await db.query('program_thread_shades',
+        columns: ['id'], where: 'program_no=?', whereArgs: [programNo]);
+    for (final row in threads) {
+      await _syncDelete('program_thread_shades', row['id'] as int);
+    }
+    // Delete master record
+    final masters = await db.query('program_master',
+        columns: ['id'], where: 'program_no=?', whereArgs: [programNo]);
+    for (final row in masters) {
+      await _syncDelete('program_master', row['id'] as int);
+    }
   }
 
   Future<void> insertProgramFabric(
           int programNo, int shadeId, double qty) async =>
-      (await database).insert('program_fabrics',
+      _syncInsert('program_fabrics',
           {'program_no': programNo, 'fabric_shade_id': shadeId, 'qty': qty});
 
   Future<void> insertProgramThreadShade(int programNo, int shadeId) async =>
-      (await database).insert('program_thread_shades',
+      _syncInsert('program_thread_shades',
           {'program_no': programNo, 'thread_shade_id': shadeId});
 
   Future<Map<String, dynamic>> getProgramByNo(int programNo) async =>
@@ -1145,17 +1269,18 @@ class ErpDatabase {
         ORDER BY pm.program_no DESC
       ''');
 
-  Future<void> updateProgramStatus(int programNo, String status) async =>
-      (await database).update(
-        'program_master',
-        {'status': status},
-        where: 'program_no=?',
-        whereArgs: [programNo],
-      );
+  Future<void> updateProgramStatus(int programNo, String status) async {
+    final db = await database;
+    final rows = await db.query('program_master',
+        columns: ['id'], where: 'program_no=?', whereArgs: [programNo]);
+    for (final row in rows) {
+      await _syncUpdate('program_master', {'status': status}, row['id'] as int);
+    }
+  }
 
   Future<void> allotMachine(
           {required int programNo, required int machineId}) async =>
-      (await database).insert('program_allotment', {
+      _syncInsert('program_allotment', {
         'program_no': programNo,
         'machine_id': machineId,
         'status': 'ALLOTTED'
@@ -1169,12 +1294,17 @@ class ErpDatabase {
         WHERE pa.status != 'COMPLETED'
       ''');
 
-  Future<void> updateAllotmentStatus(int programNo, String status) async =>
-      (await database).update('program_allotment', {'status': status},
-          where: 'program_no=?', whereArgs: [programNo]);
+  Future<void> updateAllotmentStatus(int programNo, String status) async {
+    final db = await database;
+    final rows = await db.query('program_allotment',
+        columns: ['id'], where: 'program_no=?', whereArgs: [programNo]);
+    for (final row in rows) {
+      await _syncUpdate('program_allotment', {'status': status}, row['id'] as int);
+    }
+  }
 
   Future<void> logProgramActivity(Map<String, dynamic> log) async =>
-      (await database).insert('program_logs', {
+      _syncInsert('program_logs', {
         'program_no': log['program_no'],
         'message': log['message'],
         'date': log['date']
@@ -1378,6 +1508,8 @@ class ErpDatabase {
       whereArgs: [challanNo],
     );
 
+    if (affected.isEmpty) return;
+
     await db.update(
       'challan_requirements',
       updateData,
@@ -1385,9 +1517,11 @@ class ErpDatabase {
       whereArgs: [challanNo],
     );
 
+    dataVersion.value++;
+
     // Push each affected row to Firebase
     final sync = FirebaseSyncService.instance;
-    if (sync.isInitialized && !sync.isSyncing) {
+    if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
       for (final row in affected) {
         final id = row['id'] as int?;
         if (id == null) continue;
@@ -1396,6 +1530,11 @@ class ErpDatabase {
         await sync.pushRecord('challan_requirements', id, fullRow);
       }
     }
+
+    logActivity(
+        action: 'UPDATE',
+        tableName: 'challan_requirements',
+        details: 'Batch close challan $challanNo (${affected.length} rows)');
   }
 
   // ================= EMPLOYEES =================
@@ -1479,7 +1618,7 @@ class ErpDatabase {
       args.add(fromMs);
     }
     if (toMs != null) {
-      where.add('pe.date <= ?');
+      where.add('pe.date < ?');
       args.add(toMs);
     }
     if (employeeId != null) {
@@ -1600,7 +1739,7 @@ class ErpDatabase {
     final db = await database;
     final rows = await db.rawQuery('''
       SELECT DISTINCT employee_id FROM production_entries
-      WHERE date >= ? AND date <= ? AND employee_id IS NOT NULL
+      WHERE date >= ? AND date < ? AND employee_id IS NOT NULL
     ''', [fromMs, toMs]);
     return rows.map((r) => (r['employee_id'] as num).toInt()).toList();
   }
@@ -1625,7 +1764,7 @@ class ErpDatabase {
       args.add(fromMs);
     }
     if (toMs != null) {
-      where.add('a.date <= ?');
+      where.add('a.date < ?');
       args.add(toMs);
     }
     if (employeeId != null) {
@@ -1675,7 +1814,7 @@ class ErpDatabase {
       FROM employees e
       LEFT JOIN attendance a
         ON a.employee_id = e.id
-        AND a.date >= ? AND a.date <= ?
+        AND a.date >= ? AND a.date < ?
       WHERE e.status = 'active'
       GROUP BY e.id
       ORDER BY e.unit_name, e.designation, e.name
@@ -1714,8 +1853,9 @@ class ErpDatabase {
     //    This ensures payroll counts them even if attendance page was never opened.
     final prodDates = await db.rawQuery('''
       SELECT DISTINCT employee_id, date FROM production_entries
-      WHERE date >= ? AND date <= ? AND employee_id IS NOT NULL
+      WHERE date >= ? AND date < ? AND employee_id IS NOT NULL
     ''', [fromMs, toMs]);
+    bool autoInserted = false;
     for (final row in prodDates) {
       final empId = row['employee_id'] as int;
       final date = row['date'] as int;
@@ -1732,14 +1872,16 @@ class ErpDatabase {
           'shift': 'day',
           'remarks': 'Auto: Production',
         });
+        autoInserted = true;
       }
     }
+    // dataVersion already bumped by _syncInsert for each record
 
     // 4. Attendance counts grouped by employee
     final attRows = await db.rawQuery('''
       SELECT employee_id, status, shift, COUNT(*) as cnt
       FROM attendance
-      WHERE date >= ? AND date <= ?
+      WHERE date >= ? AND date < ?
       GROUP BY employee_id, status, shift
     ''', [fromMs, toMs]);
     final attMap = <int, Map<String, int>>{};
@@ -1779,7 +1921,7 @@ class ErpDatabase {
         COALESCE(SUM(incentive_bonus), 0) as total_incentive,
         COALESCE(SUM(total_bonus), 0) as total_all_bonus
       FROM production_entries
-      WHERE date >= ? AND date <= ?
+      WHERE date >= ? AND date < ?
       GROUP BY employee_id
     ''', [fromMs, toMs]);
     final prodMap = <int, Map<String, dynamic>>{};
@@ -1910,7 +2052,7 @@ class ErpDatabase {
     final attRows = await db.rawQuery('''
       SELECT status, shift, COUNT(*) as cnt
       FROM attendance
-      WHERE employee_id = ? AND date >= ? AND date <= ?
+      WHERE employee_id = ? AND date >= ? AND date < ?
       GROUP BY status, shift
     ''', [employeeId, fromMs, toMs]);
 
@@ -1945,7 +2087,7 @@ class ErpDatabase {
         COALESCE(SUM(incentive_bonus), 0) as total_incentive,
         COALESCE(SUM(total_bonus), 0) as total_all_bonus
       FROM production_entries
-      WHERE employee_id = ? AND date >= ? AND date <= ?
+      WHERE employee_id = ? AND date >= ? AND date < ?
     ''', [employeeId, fromMs, toMs]);
 
     final prod = prodRows.isNotEmpty ? prodRows.first : <String, dynamic>{};
@@ -2038,7 +2180,7 @@ class ErpDatabase {
       args.add(fromMs);
     }
     if (toMs != null) {
-      where.add('sa.date <= ?');
+      where.add('sa.date < ?');
       args.add(toMs);
     }
     final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
@@ -2081,7 +2223,7 @@ class ErpDatabase {
       args.add(fromMs);
     }
     if (toMs != null) {
-      where.add('sp.date <= ?');
+      where.add('sp.date < ?');
       args.add(toMs);
     }
     final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
@@ -2118,8 +2260,13 @@ class ErpDatabase {
   /// Delete all saved payroll for a given period
   Future<void> deleteSavedPayrollForPeriod(int fromMs, int toMs) async {
     final db = await database;
-    await db.delete('saved_payroll',
-        where: 'from_date = ? AND to_date = ?', whereArgs: [fromMs, toMs]);
+    final rows = await db.query('saved_payroll',
+        columns: ['id'],
+        where: 'from_date = ? AND to_date = ?',
+        whereArgs: [fromMs, toMs]);
+    for (final row in rows) {
+      await _syncDelete('saved_payroll', row['id'] as int);
+    }
   }
 
   /// Get saved payroll rows for a period, optionally for one employee

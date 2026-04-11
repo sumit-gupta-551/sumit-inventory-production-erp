@@ -17,6 +17,12 @@ class _MachineMasterPageState extends State<MachineMasterPage> {
   void initState() {
     super.initState();
     _loadMachines();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadMachines();
   }
 
   Future<void> _loadMachines() async {

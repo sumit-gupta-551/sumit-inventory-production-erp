@@ -79,6 +79,12 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     dateCtrl.text = DateFormat('dd-MM-yyyy').format(DateTime.now());
     _loadAutoReportMobile();
     _loadMasters();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadMasters();
   }
 
   Future<void> _loadAutoReportMobile() async {
@@ -2703,6 +2709,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     dateCtrl.dispose();
     invoiceCtrl.dispose();
     qtyCtrl.dispose();

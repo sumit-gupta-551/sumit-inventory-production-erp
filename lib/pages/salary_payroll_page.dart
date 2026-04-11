@@ -24,15 +24,30 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
   Map<int, Map<String, dynamic>> salaryData = {}; // empId -> salary summary
   bool loading = true;
   bool _payrollSaved = false; // whether payroll is saved for current period
+  bool _loadInProgress = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _load();
   }
 
   Future<void> _load() async {
-    setState(() => loading = true);
+    if (_loadInProgress) return;
+    _loadInProgress = true;
+    if (employees.isEmpty) setState(() => loading = true);
     try {
       final fromMs = DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
           .millisecondsSinceEpoch;
@@ -66,6 +81,8 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
       if (!mounted) return;
       setState(() => loading = false);
       _msg('Error loading payroll: $e');
+    } finally {
+      _loadInProgress = false;
     }
   }
 
@@ -172,73 +189,243 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
     final s = salaryData[empId];
     if (s == null) return;
 
+    final name = (emp['name'] ?? '').toString();
+    final designation = (emp['designation'] as String?) ?? '';
+    final unitName = (emp['unit_name'] as String?) ?? '';
+
+    final basePay = (s['base_pay'] as num?)?.toDouble() ?? 0;
+    final salaryType = (s['salary_type'] ?? 'monthly').toString();
+    final present = (s['present_days'] as num?)?.toInt() ?? 0;
+    final absent = (s['absent_days'] as num?)?.toInt() ?? 0;
+    final half = (s['half_days'] as num?)?.toInt() ?? 0;
+    final double_ = (s['double_days'] as num?)?.toInt() ?? 0;
+    final nightShifts = (s['night_shifts'] as num?)?.toInt() ?? 0;
+    final effectiveDays = (s['effective_days'] as num?)?.toDouble() ?? 0;
+    final totalBonus = (s['total_bonus'] as num?)?.toDouble() ?? 0;
+    final totalIncentive = (s['total_incentive'] as num?)?.toDouble() ?? 0;
+    final baseSalary = (s['base_salary'] as num?)?.toDouble() ?? 0;
+    final totalAdvance = (s['total_advance'] as num?)?.toDouble() ?? 0;
+    final netSalary = (s['net_salary'] as num?)?.toDouble() ?? 0;
+    final totalStitch = (s['total_stitch'] as num?)?.toInt() ?? 0;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
-        final basePay = (s['base_pay'] as num?)?.toDouble() ?? 0;
-        final salaryType = (s['salary_type'] ?? 'monthly').toString();
-        final present = (s['present_days'] as num?)?.toInt() ?? 0;
-        final halfDays = (s['half_days'] as num?)?.toInt() ?? 0;
-        final absent = (s['absent_days'] as num?)?.toInt() ?? 0;
-        final doubleDays = (s['double_days'] as num?)?.toInt() ?? 0;
-        final effectiveDays = (s['effective_days'] as num?)?.toDouble() ?? 0;
-        final totalBonus = (s['total_bonus'] as num?)?.toDouble() ?? 0;
-        final totalIncentive = (s['total_incentive'] as num?)?.toDouble() ?? 0;
-        final totalAllBonus = (s['total_all_bonus'] as num?)?.toDouble() ?? 0;
-        final baseSalary = (s['base_salary'] as num?)?.toDouble() ?? 0;
-        final totalAdvance = (s['total_advance'] as num?)?.toDouble() ?? 0;
-        final netSalary = (s['net_salary'] as num?)?.toDouble() ?? 0;
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Drag handle
+                Container(
+                  margin: const EdgeInsets.only(top: 10, bottom: 6),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
 
-        return Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                (emp['name'] ?? '').toString(),
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              Text(
-                  '${_dateLabel()}  •  ${salaryType == 'monthly' ? 'Monthly' : 'Daily Wage'}',
-                  style: const TextStyle(color: Colors.grey)),
-              const Divider(height: 20),
-              _detRow(
-                  'Base Pay',
-                  salaryType == 'monthly'
-                      ? '₹${basePay.toStringAsFixed(0)}/month'
-                      : '₹${basePay.toStringAsFixed(0)}/day'),
-              _detRow('Base Days',
-                  '${(s['salary_base_days'] as num?)?.toInt() ?? 30}'),
-              _detRow('Present Days', '$present'),
-              _detRow('Half Days', '$halfDays'),
-              _detRow('Double Days', '$doubleDays'),
-              _detRow('Absent Days', '$absent'),
-              _detRow('Effective Days', effectiveDays.toStringAsFixed(1)),
-              const Divider(),
-              _detRow('Base Salary', '₹${baseSalary.toStringAsFixed(2)}'),
-              _detRow('Bonus', '₹${totalBonus.toStringAsFixed(2)}'),
-              _detRow(
-                  'Incentive Bonus', '₹${totalIncentive.toStringAsFixed(2)}'),
-              _detRow('Total (Salary + Bonus)',
-                  '₹${(baseSalary + totalAllBonus).toStringAsFixed(2)}'),
-              const Divider(),
-              _detRow('Advance Amount', '₹${totalAdvance.toStringAsFixed(2)}',
-                  bold: totalAdvance > 0, fontSize: totalAdvance > 0 ? 15 : 14),
-              const Divider(),
-              _detRow(
-                'Net Payable',
-                '₹${netSalary.toStringAsFixed(2)}',
-                bold: true,
-                fontSize: 16,
-              ),
-              const SizedBox(height: 16),
-            ],
+                // Employee header card
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1565C0), Color(0xFF1976D2)],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1565C0).withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.2),
+                            radius: 22,
+                            child: Text(
+                              name.isNotEmpty ? name[0].toUpperCase() : '?',
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(name,
+                                    style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white)),
+                                if (designation.isNotEmpty ||
+                                    unitName.isNotEmpty)
+                                  Text(
+                                    [designation, unitName]
+                                        .where((x) => x.isNotEmpty)
+                                        .join(' • '),
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.white
+                                            .withValues(alpha: 0.8)),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        '${_dateLabel()}  •  ${salaryType == 'monthly' ? 'Monthly' : 'Daily'}',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withValues(alpha: 0.7)),
+                      ),
+                      const SizedBox(height: 10),
+                      // Attendance summary badges
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _statBadge('Present', present, const Color(0xFF81C784)),
+                          _statBadge('Absent', absent, const Color(0xFFEF9A9A)),
+                          _statBadge('Half', half, const Color(0xFFFFCC80)),
+                          _statBadge('Double', double_, const Color(0xFFCE93D8)),
+                          _statBadge('Night', nightShifts, const Color(0xFF90CAF9)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Net salary highlight
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color:
+                            const Color(0xFF4CAF50).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Net Payable',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF2E7D32))),
+                      Text('₹${netSalary.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF2E7D32))),
+                    ],
+                  ),
+                ),
+
+                // Salary breakdown
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F5F5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.receipt_long,
+                              size: 16, color: Color(0xFF757575)),
+                          SizedBox(width: 6),
+                          Text('Salary Breakdown',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF424242))),
+                        ],
+                      ),
+                      const Divider(height: 16),
+                      _detRow(
+                          'Base Pay',
+                          salaryType == 'monthly'
+                              ? '₹${basePay.toStringAsFixed(0)}/mo'
+                              : '₹${basePay.toStringAsFixed(0)}/day'),
+                      _detRow('Base Days',
+                          '${(s['salary_base_days'] as num?)?.toInt() ?? 30}'),
+                      _detRow('Effective Days',
+                          effectiveDays.toStringAsFixed(1)),
+                      const Divider(height: 12),
+                      _detRow('Base Salary',
+                          '₹${baseSalary.toStringAsFixed(0)}'),
+                      if (totalStitch > 0)
+                        _detRow('Total Stitch', '$totalStitch'),
+                      _detRow('Bonus', '₹${totalBonus.toStringAsFixed(0)}'),
+                      _detRow(
+                          'Incentive', '₹${totalIncentive.toStringAsFixed(0)}'),
+                      if (totalAdvance > 0)
+                        _detRow('Advance (−)',
+                            '₹${totalAdvance.toStringAsFixed(0)}',
+                            bold: true),
+                      const Divider(height: 12),
+                      _detRow('Net Payable',
+                          '₹${netSalary.toStringAsFixed(0)}',
+                          bold: true, fontSize: 15),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
+    );
+  }
+
+  Widget _statBadge(String label, int count, Color color) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text('$count',
+              style: TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.w800, color: color)),
+        ),
+        const SizedBox(height: 3),
+        Text(label,
+            style: TextStyle(
+                fontSize: 10, color: Colors.white.withValues(alpha: 0.7))),
+      ],
     );
   }
 

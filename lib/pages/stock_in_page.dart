@@ -24,6 +24,12 @@ class _StockInPageState extends State<StockInPage> {
   void initState() {
     super.initState();
     _loadProducts();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadProducts();
   }
 
   Future<void> _loadProducts() async {
@@ -134,6 +140,7 @@ class _StockInPageState extends State<StockInPage> {
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     qtyCtrl.dispose();
     refCtrl.dispose();
     remarksCtrl.dispose();

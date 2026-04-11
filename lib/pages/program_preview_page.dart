@@ -28,6 +28,18 @@ class _ProgramPreviewPageState extends State<ProgramPreviewPage> {
   void initState() {
     super.initState();
     _loadPreview();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadPreview();
   }
 
   Future<void> _loadPreview() async {

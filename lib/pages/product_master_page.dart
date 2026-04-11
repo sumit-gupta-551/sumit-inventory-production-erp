@@ -27,6 +27,12 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
   void initState() {
     super.initState();
     _loadAll();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadAll();
   }
 
   Future<void> _loadAll() async {
@@ -244,6 +250,7 @@ class _ProductMasterPageState extends State<ProductMasterPage> {
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     nameCtrl.dispose();
     categoryCtrl.dispose();
     minStockCtrl.dispose();

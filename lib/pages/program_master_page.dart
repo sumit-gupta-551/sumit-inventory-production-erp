@@ -46,6 +46,12 @@ class _ProgramMasterPageState extends State<ProgramMasterPage> {
     isEdit = widget.editProgramNo != null;
     dateCtrl.text = DateFormat('dd-MM-yyyy').format(DateTime.now());
     _init();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _init();
   }
 
   Future<void> _init() async {
@@ -115,33 +121,38 @@ class _ProgramMasterPageState extends State<ProgramMasterPage> {
     final db = ErpDatabase.instance;
     final programNo = int.parse(programNoCtrl.text);
 
-    if (isEdit) {
-      await db.deleteProgram(programNo);
-    }
+    try {
+      if (isEdit) {
+        await db.deleteProgram(programNo);
+      }
 
-    await db.insertProgram({
-      'program_no': programNo,
-      'party_id': selectedPartyId,
-      'program_date': _dateMillis(),
-      'card_no': cardCtrl.text,
-      'design_no': designCtrl.text,
-      'designer': designerCtrl.text,
-      'fabric_shade': fabricShades,
-      'planned_qty': double.parse(qtyCtrl.text),
-      'status': 'PLANNED',
-      'created_at': DateTime.now().millisecondsSinceEpoch,
-    });
+      await db.insertProgram({
+        'program_no': programNo,
+        'party_id': selectedPartyId,
+        'program_date': _dateMillis(),
+        'card_no': cardCtrl.text,
+        'design_no': designCtrl.text,
+        'designer': designerCtrl.text,
+        'fabric_shade': fabricShades,
+        'planned_qty': double.parse(qtyCtrl.text),
+        'status': 'PLANNED',
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      });
 
-    for (final f in selectedFabrics) {
-      await db.insertProgramFabric(
-        programNo,
-        f['shade']['id'],
-        f['qty'],
-      );
-    }
+      for (final f in selectedFabrics) {
+        await db.insertProgramFabric(
+          programNo,
+          f['shade']['id'],
+          f['qty'],
+        );
+      }
 
-    for (final t in selectedThreads) {
-      await db.insertProgramThreadShade(programNo, t['id']);
+      for (final t in selectedThreads) {
+        await db.insertProgramThreadShade(programNo, t['id']);
+      }
+    } catch (e) {
+      _msg('Save failed: $e');
+      return;
     }
 
     if (!mounted) return;
@@ -386,6 +397,7 @@ class _ProgramMasterPageState extends State<ProgramMasterPage> {
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     programNoCtrl.dispose();
     dateCtrl.dispose();
     cardCtrl.dispose();

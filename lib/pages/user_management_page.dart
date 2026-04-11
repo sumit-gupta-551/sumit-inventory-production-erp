@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../data/erp_database.dart';
 import '../data/permission_service.dart';
 
 class UserManagementPage extends StatefulWidget {
@@ -20,10 +21,22 @@ class _UserManagementPageState extends State<UserManagementPage> {
   void initState() {
     super.initState();
     _load();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _load();
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    if (_users.isEmpty) setState(() => _loading = true);
     final users = await _perm.getAllUsers();
     if (!mounted) return;
     setState(() {

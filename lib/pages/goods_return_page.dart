@@ -33,6 +33,12 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
     super.initState();
     dateCtrl.text = DateFormat('dd-MM-yyyy').format(DateTime.now());
     _loadMasters();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadMasters();
   }
 
   Future<void> _loadMasters() async {
@@ -330,6 +336,7 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     dateCtrl.dispose();
     invoiceCtrl.dispose();
     qtyCtrl.dispose();

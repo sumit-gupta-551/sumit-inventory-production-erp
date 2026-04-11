@@ -18,6 +18,18 @@ class _FirmListPageState extends State<FirmListPage> {
   void initState() {
     super.initState();
     _loadFirms();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadFirms();
   }
 
   // ================= LOAD FIRMS =================

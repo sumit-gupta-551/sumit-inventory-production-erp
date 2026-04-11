@@ -19,6 +19,12 @@ class _DelayReasonMasterPageState extends State<DelayReasonMasterPage> {
   void initState() {
     super.initState();
     _load();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _load();
   }
 
   Future<void> _load() async {
@@ -111,6 +117,7 @@ class _DelayReasonMasterPageState extends State<DelayReasonMasterPage> {
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     ctrl.dispose();
     focusNode.dispose();
     super.dispose();

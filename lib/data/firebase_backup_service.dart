@@ -44,6 +44,8 @@ class FirebaseBackupService {
     'program_thread_shades',
     'program_allotment',
     'program_logs',
+    // Audit
+    'activity_log',
   ];
 
   late final DatabaseReference _ref;

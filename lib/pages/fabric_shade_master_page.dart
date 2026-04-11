@@ -24,6 +24,18 @@ class _FabricShadeMasterPageState extends State<FabricShadeMasterPage> {
   void initState() {
     super.initState();
     _loadFabricShades();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadFabricShades();
   }
 
   Future<void> _loadFabricShades() async {

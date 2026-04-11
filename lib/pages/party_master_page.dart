@@ -21,6 +21,18 @@ class _PartyMasterPageState extends State<PartyMasterPage> {
   void initState() {
     super.initState();
     _loadParties();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadParties();
   }
 
   Future<void> _loadParties() async {

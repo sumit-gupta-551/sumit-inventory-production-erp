@@ -50,16 +50,29 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
   void initState() {
     super.initState();
     _load();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _load();
   }
 
   int get _fromMs => DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
       .millisecondsSinceEpoch;
   int get _toMs =>
-      DateTime(_toDate.year, _toDate.month, _toDate.day, 23, 59, 59, 999)
+      DateTime(_toDate.year, _toDate.month, _toDate.day)
+          .add(const Duration(days: 1))
           .millisecondsSinceEpoch;
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    if (_advances.isEmpty) setState(() => _loading = true);
     final list = await _db.getSalaryAdvances(fromMs: _fromMs, toMs: _toMs);
     if (!mounted) return;
     setState(() {

@@ -18,6 +18,18 @@ class _ThreadShadeMasterPageState extends State<ThreadShadeMasterPage> {
   void initState() {
     super.initState();
     _loadThreadShades();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadThreadShades();
   }
 
   Future<void> _loadThreadShades() async {

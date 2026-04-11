@@ -39,6 +39,12 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     super.initState();
     dateCtrl.text = DateFormat('dd-MM-yyyy').format(DateTime.now());
     _load();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _load();
   }
 
   Future<void> _load() async {
@@ -912,6 +918,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     dateCtrl.dispose();
     qtyCtrl.dispose();
     reasonCtrl.dispose();

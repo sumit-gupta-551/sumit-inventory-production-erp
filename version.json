@@ -1,5 +1,5 @@
 {
-    "version": "1.0.13",
-    "apk": "SSSJ-ERP-v1.0.13.apk",
-    "notes": "Production delete fix, bulk delete by date/unit with passcode, instant grid refresh, payroll auto-attendance from production"
+    "version": "1.0.14",
+    "apk": "SSSJ-ERP-v1.0.14.apk",
+    "notes": "New update"
 }

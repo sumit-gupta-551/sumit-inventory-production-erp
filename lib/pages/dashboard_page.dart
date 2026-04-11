@@ -539,6 +539,10 @@ class _DashboardPageState extends State<DashboardPage> {
   // ================= NAVIGATION =================
 
   Future<void> _logout() async {
+    ErpDatabase.instance.logActivity(
+      action: 'LOGOUT',
+      details: 'User logged out — ${PermissionService.instance.currentName.isNotEmpty ? PermissionService.instance.currentName : PermissionService.instance.currentPhone}',
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_logged_in', false);
     if (!mounted) return;

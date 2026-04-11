@@ -34,6 +34,12 @@ class _AddShadePageState extends State<AddShadePage> {
   void initState() {
     super.initState();
     _loadProducts();
+    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (!mounted) return;
+    _loadProducts();
   }
 
   Future<void> _loadProducts() async {
@@ -577,6 +583,7 @@ class _AddShadePageState extends State<AddShadePage> {
 
   @override
   void dispose() {
+    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     shadeNoCtrl.dispose();
     companyCtrl.dispose();
     openingStockCtrl.dispose();
