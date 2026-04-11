@@ -970,7 +970,7 @@ class ErpDatabase {
               action: 'INSERT',
               tableName: table,
               recordId: id,
-              details: data.toString());
+              details: _buildRowDetails(table, data));
         }
         return id;
       }
@@ -983,7 +983,7 @@ class ErpDatabase {
           action: 'INSERT',
           tableName: table,
           recordId: id,
-          details: data.toString());
+          details: _buildRowDetails(table, data));
     }
     return id;
   }
@@ -1004,13 +1004,25 @@ class ErpDatabase {
           action: 'UPDATE',
           tableName: table,
           recordId: id,
-          details: data.toString());
+          details: _buildRowDetails(table, data));
     }
   }
 
   Future<void> _syncDelete(String table, int id) async {
     final db = await database;
     final sync = FirebaseSyncService.instance;
+
+    // Capture row details BEFORE deleting so the activity log is meaningful
+    String? deleteDetails;
+    if (table != 'activity_log') {
+      try {
+        final rows = await db.query(table, where: 'id=?', whereArgs: [id]);
+        if (rows.isNotEmpty) {
+          deleteDetails = _buildRowDetails(table, rows.first);
+        }
+      } catch (_) {}
+    }
+
     if (syncEnabled && sync.isInitialized) {
       // Mark as pending delete so real-time listeners
       // won't re-insert the record. Cleared by _onRemoteRemove.
@@ -1028,7 +1040,57 @@ class ErpDatabase {
       }
     }
     if (table != 'activity_log') {
-      logActivity(action: 'DELETE', tableName: table, recordId: id);
+      logActivity(action: 'DELETE', tableName: table, recordId: id, details: deleteDetails);
+    }
+  }
+
+  /// Build a human-readable summary of a row for activity log
+  String _buildRowDetails(String table, Map<String, dynamic> row) {
+    switch (table) {
+      case 'stock_ledger':
+        final type = row['type'] ?? '';
+        final qty = row['qty'] ?? '';
+        final pId = row['product_id'];
+        final sId = row['fabric_shade_id'];
+        final remarks = row['remarks'] ?? '';
+        return 'Type: $type, Qty: $qty, Product ID: $pId, Shade ID: $sId${remarks.toString().isNotEmpty ? ', Remarks: $remarks' : ''}';
+      case 'products':
+        return 'Product: ${row['name'] ?? row['product_name'] ?? ''}';
+      case 'parties':
+        return 'Party: ${row['name'] ?? ''}';
+      case 'fabric_shades':
+        return 'Shade: ${row['shade_name'] ?? row['name'] ?? ''}, Code: ${row['shade_code'] ?? ''}';
+      case 'employees':
+        return 'Employee: ${row['name'] ?? ''}';
+      case 'machines':
+        return 'Machine: ${row['name'] ?? row['machine_name'] ?? ''}';
+      case 'production_entries':
+        return 'Production: Program ${row['program_no'] ?? ''}, Qty: ${row['quantity'] ?? ''}, Machine: ${row['machine_id'] ?? ''}';
+      case 'attendance':
+        return 'Attendance: Employee ID ${row['employee_id'] ?? ''}, Status: ${row['status'] ?? ''}';
+      case 'challan_requirements':
+        return 'Challan Req: Challan ${row['challan_no'] ?? ''}, Product ID: ${row['product_id'] ?? ''}, Qty: ${row['required_qty'] ?? ''}';
+      case 'purchase_items':
+        return 'Purchase: Product ID ${row['product_id'] ?? ''}, Qty: ${row['qty'] ?? ''}, Rate: ${row['rate'] ?? ''}';
+      case 'salary_advances':
+        return 'Advance: Employee ID ${row['employee_id'] ?? ''}, Amount: ${row['amount'] ?? ''}';
+      case 'program_master':
+        return 'Program: No ${row['program_no'] ?? ''}, Party ID: ${row['party_id'] ?? ''}, Status: ${row['status'] ?? ''}';
+      case 'units':
+        return 'Unit: ${row['name'] ?? ''}';
+      default:
+        // Generic: show key fields
+        final buf = StringBuffer();
+        for (final key in row.keys) {
+          if (key == 'id') continue;
+          final v = row[key];
+          if (v != null && v.toString().isNotEmpty) {
+            if (buf.isNotEmpty) buf.write(', ');
+            buf.write('$key: $v');
+            if (buf.length > 200) break;
+          }
+        }
+        return buf.toString();
     }
   }
 
