@@ -454,7 +454,10 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
                 final qty =
                     ((r['qty'] as num?)?.toDouble() ?? 0).toStringAsFixed(2);
                 final date = _fmtDate(r['date'] as int?);
-                return [date, product, party, chNo, qty];
+                final reqInfo = _remarkValue(
+                    parsed, ['Req completed on', 'Requirement closed']);
+                final remarks = reqInfo != '-' ? 'Req done: $reqInfo' : '';
+                return [date, product, party, chNo, qty, remarks];
               }).toList();
 
               widgets.add(
@@ -464,7 +467,8 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
                     'Product',
                     'Party',
                     'Challan No',
-                    'Qty'
+                    'Qty',
+                    'Remarks'
                   ],
                   data: outData,
                   headerStyle:
@@ -475,11 +479,12 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
                   cellPadding:
                       const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
                   columnWidths: {
-                    0: const pw.FlexColumnWidth(1.5),
-                    1: const pw.FlexColumnWidth(1.8),
-                    2: const pw.FlexColumnWidth(2),
-                    3: const pw.FlexColumnWidth(1.2),
-                    4: const pw.FlexColumnWidth(1),
+                    0: const pw.FlexColumnWidth(1.3),
+                    1: const pw.FlexColumnWidth(1.5),
+                    2: const pw.FlexColumnWidth(1.8),
+                    3: const pw.FlexColumnWidth(1),
+                    4: const pw.FlexColumnWidth(0.8),
+                    5: const pw.FlexColumnWidth(1.6),
                   },
                 ),
               );
@@ -758,6 +763,7 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
                       DataColumn(label: Text('Party')),
                       DataColumn(label: Text('Ch No')),
                       DataColumn(label: Text('Qty')),
+                      DataColumn(label: Text('Remarks')),
                     ],
                     rows: outRows.map((r) {
                       final date = _fmtDate(r['date'] as int?);
@@ -766,6 +772,8 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
                       final party = _remarkValue(parsed, ['Party']);
                       final chNo =
                           _remarkValue(parsed, ['ChNo', 'Ch No', 'Ch']);
+                      final reqInfo = _remarkValue(
+                          parsed, ['Req completed on', 'Requirement closed']);
                       final qty = ((r['qty'] as num?)?.toDouble() ?? 0)
                           .toStringAsFixed(2);
                       return DataRow(cells: [
@@ -779,6 +787,9 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
                             Text(chNo, style: const TextStyle(fontSize: 12))),
                         DataCell(
                             Text(qty, style: const TextStyle(fontSize: 12))),
+                        DataCell(Text(
+                            reqInfo != '-' ? 'Req done: $reqInfo' : '',
+                            style: const TextStyle(fontSize: 12))),
                       ]);
                     }).toList(),
                   ),

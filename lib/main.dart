@@ -64,9 +64,9 @@ Future<void> main() async {
 Future<void> _initSyncInBackground() async {
   try {
     await FirebaseSyncService.instance.init();
+    ErpDatabase.instance.syncEnabled = true;
     await FirebaseSyncService.instance.fullSync();
     FirebaseSyncService.instance.startListening();
-    ErpDatabase.instance.syncEnabled = true;
     debugPrint('✅ Firebase sync completed in background');
   } catch (e) {
     debugPrint('⚠ Firebase sync failed: $e');

@@ -504,6 +504,8 @@ class _PermissionEditorPageState extends State<_PermissionEditorPage> {
       'report_challan',
       'report_shade_movement',
       'report_daily_consumption',
+      'report_requirement_history',
+      'report_adjustment_history',
     ],
     'Payroll': [
       'payroll_employee_master',

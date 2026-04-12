@@ -72,6 +72,7 @@ class ErpDatabase {
     await _ensureAllTables(db);
     await _ensurePurchaseMasterReportingColumns(db);
     await _createIndexes(db);
+    await _fixReqCloseRemarks(db);
 
     return db;
   }
@@ -569,6 +570,61 @@ class ErpDatabase {
     }
   }
 
+  /// One-time fix: patch old REQ-CLOSE stock_ledger remarks to include
+  /// party name and completion date from matching challan_requirements.
+  Future<void> _fixReqCloseRemarks(Database db) async {
+    try {
+      // Find REQ-CLOSE entries missing 'Party:' in remarks
+      final rows = await db.rawQuery('''
+        SELECT id, remarks, date FROM stock_ledger
+        WHERE reference = 'REQ-CLOSE'
+          AND (remarks NOT LIKE '%Party:%' OR remarks LIKE '%Requirement closed%')
+      ''');
+      if (rows.isEmpty) return;
+
+      for (final row in rows) {
+        final id = row['id'] as int;
+        final oldRemarks = (row['remarks'] ?? '').toString();
+        final dateMs = row['date'] as int?;
+
+        // Parse challan no from old remarks
+        String challanNo = '';
+        final chMatch = RegExp(r'Ch[No]*[:\s]+([^|]+)').firstMatch(oldRemarks);
+        if (chMatch != null) challanNo = chMatch.group(1)!.trim();
+
+        // Look up party_name from challan_requirements
+        String partyName = '';
+        if (challanNo.isNotEmpty) {
+          final cr = await db.rawQuery('''
+            SELECT party_name FROM challan_requirements
+            WHERE challan_no = ? LIMIT 1
+          ''', [challanNo]);
+          if (cr.isNotEmpty) {
+            partyName = (cr.first['party_name'] ?? '').toString();
+          }
+        }
+
+        // Format completion date from the ledger entry date
+        String dateStr = '';
+        if (dateMs != null) {
+          final d = DateTime.fromMillisecondsSinceEpoch(dateMs);
+          dateStr =
+              '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
+        }
+
+        final newRemarks = partyName.isNotEmpty
+            ? 'Party: $partyName | ChNo: $challanNo | Req completed on: $dateStr'
+            : 'ChNo: $challanNo | Req completed on: $dateStr';
+
+        await db.update('stock_ledger', {'remarks': newRemarks},
+            where: 'id=?', whereArgs: [id]);
+      }
+      debugPrint('✅ Fixed ${rows.length} REQ-CLOSE remarks');
+    } catch (e) {
+      debugPrint('⚠ _fixReqCloseRemarks: $e');
+    }
+  }
+
   // ================= GST SEED =================
   Future<void> _seedGstCategories(Database db) async {
     final count = Sqflite.firstIntValue(
@@ -1040,7 +1096,11 @@ class ErpDatabase {
       }
     }
     if (table != 'activity_log') {
-      logActivity(action: 'DELETE', tableName: table, recordId: id, details: deleteDetails);
+      logActivity(
+          action: 'DELETE',
+          tableName: table,
+          recordId: id,
+          details: deleteDetails);
     }
   }
 
@@ -1361,7 +1421,8 @@ class ErpDatabase {
     final rows = await db.query('program_allotment',
         columns: ['id'], where: 'program_no=?', whereArgs: [programNo]);
     for (final row in rows) {
-      await _syncUpdate('program_allotment', {'status': status}, row['id'] as int);
+      await _syncUpdate(
+          'program_allotment', {'status': status}, row['id'] as int);
     }
   }
 
@@ -1755,7 +1816,8 @@ class ErpDatabase {
         details: 'Bulk delete ${ids.length} entries for date $dateMs');
   }
 
-  Future<void> deleteProductionEntriesByDateAndUnit(int dateMs, String unitName) async {
+  Future<void> deleteProductionEntriesByDateAndUnit(
+      int dateMs, String unitName) async {
     final db = await database;
     final rows = await db.query('production_entries',
         columns: ['id'],
@@ -1790,7 +1852,8 @@ class ErpDatabase {
         action: 'DELETE',
         tableName: 'production_entries',
         recordId: ids.first,
-        details: 'Bulk delete ${ids.length} entries for unit $unitName date $dateMs');
+        details:
+            'Bulk delete ${ids.length} entries for unit $unitName date $dateMs');
   }
 
   /// Get distinct employee IDs that have production entries in a date range

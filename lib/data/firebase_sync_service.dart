@@ -158,8 +158,8 @@ class FirebaseSyncService {
   Future<void> _loadPendingFromDb() async {
     try {
       final db = await ErpDatabase.instance.database;
-      final rows = await db.query('_pending_sync',
-          where: 'action=?', whereArgs: ['delete']);
+      final rows = await db
+          .query('_pending_sync', where: 'action=?', whereArgs: ['delete']);
       for (final row in rows) {
         final table = row['table_name'] as String;
         final id = row['record_id'] as int;
@@ -201,6 +201,7 @@ class FirebaseSyncService {
     try {
       await _ref.child('$table/$id').remove();
       debugPrint('✅ sync delete ($table/$id) success');
+      removePendingDelete(table, id);
       await _removePendingSync(table, id, 'delete');
     } catch (e) {
       debugPrint('⚠ sync delete ($table/$id) failed: $e');
@@ -208,8 +209,7 @@ class FirebaseSyncService {
     }
   }
 
-  Future<void> _removePendingSync(
-      String table, int id, String action) async {
+  Future<void> _removePendingSync(String table, int id, String action) async {
     try {
       final db = await ErpDatabase.instance.database;
       await db.delete(
@@ -286,7 +286,8 @@ class FirebaseSyncService {
             for (final entry in missingRows.entries) {
               await _queueFailedPush(table, entry.key, entry.value);
             }
-            debugPrint('⚠ push batch ($table): $e — queued ${missingRows.length} rows');
+            debugPrint(
+                '⚠ push batch ($table): $e — queued ${missingRows.length} rows');
           }
         }
 
@@ -379,8 +380,8 @@ class FirebaseSyncService {
   Future<void> _retryPendingDeletes(sql.Database db) async {
     // Load from SQLite (persisted across restarts)
     try {
-      final rows = await db.query('_pending_sync',
-          where: 'action=?', whereArgs: ['delete']);
+      final rows = await db
+          .query('_pending_sync', where: 'action=?', whereArgs: ['delete']);
       for (final row in rows) {
         final table = row['table_name'] as String;
         final id = row['record_id'] as int;
@@ -401,8 +402,8 @@ class FirebaseSyncService {
   /// Retry all failed pushes that were queued in _pending_sync.
   Future<void> _retryFailedPushes(sql.Database db) async {
     try {
-      final rows = await db.query('_pending_sync',
-          where: 'action=?', whereArgs: ['push']);
+      final rows = await db
+          .query('_pending_sync', where: 'action=?', whereArgs: ['push']);
       for (final row in rows) {
         final table = row['table_name'] as String;
         final id = row['record_id'] as int;
@@ -432,6 +433,7 @@ class FirebaseSyncService {
   // ---------- REAL-TIME LISTENERS ----------
   bool _listening = false;
   final List<StreamSubscription> _subscriptions = [];
+
   /// After fullSync, initial onChildAdded events are replays.
   /// We absorb them silently (INSERT OR REPLACE without UI bump)
   /// and only start refreshing UI after the initial burst settles.
@@ -510,6 +512,7 @@ class FirebaseSyncService {
     if (_syncing) return;
     final id = int.tryParse(event.snapshot.key ?? '');
     if (id == null) return;
+    removePendingDelete(table, id);
 
     try {
       final db = await ErpDatabase.instance.database;

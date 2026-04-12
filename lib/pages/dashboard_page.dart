@@ -33,6 +33,8 @@ import 'issue_inventory_history_page.dart';
 import 'issue_challan_page.dart';
 import 'shade_movement_report_page.dart';
 import 'daily_consumption_report_page.dart';
+import 'requirement_history_report_page.dart';
+import 'adjustment_history_report_page.dart';
 import 'employee_master_page.dart';
 import 'production_entry_page.dart';
 import 'attendance_page.dart';
@@ -485,8 +487,29 @@ class _DashboardPageState extends State<DashboardPage> {
       ).ref();
 
       final db = await ErpDatabase.instance.database;
+      final sync = FirebaseSyncService.instance;
+
+      // Helper: mark all rows in a table as pending delete so real-time
+      // listeners won't re-insert them before Firebase removal completes.
+      Future<void> markAllPendingDelete(String table) async {
+        if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
+          final rows = await db.query(table, columns: ['id']);
+          for (final r in rows) {
+            final id = r['id'] as int?;
+            if (id != null) sync.addPendingDelete(table, id);
+          }
+        }
+      }
 
       if (choice == 'all') {
+        for (final table in [
+          'stock_ledger',
+          'purchase_master',
+          'purchase_items',
+          'challan_requirements',
+        ]) {
+          await markAllPendingDelete(table);
+        }
         await ref.child('sync').remove();
         await ref.child('issues').remove();
         await ref.child('inventory').remove();
@@ -501,6 +524,8 @@ class _DashboardPageState extends State<DashboardPage> {
           await db.delete(table);
         }
       } else if (choice == 'issue') {
+        await markAllPendingDelete('stock_ledger');
+        await markAllPendingDelete('challan_requirements');
         await ref.child('sync/stock_ledger').remove();
         await ref.child('sync/challan_requirements').remove();
         await ref.child('sync/_counters/stock_ledger').remove();
@@ -510,6 +535,8 @@ class _DashboardPageState extends State<DashboardPage> {
         await db.delete('stock_ledger');
         await db.delete('challan_requirements');
       } else if (choice == 'purchase') {
+        await markAllPendingDelete('purchase_master');
+        await markAllPendingDelete('purchase_items');
         await ref.child('sync/purchase_master').remove();
         await ref.child('sync/purchase_items').remove();
         await ref.child('sync/_counters/purchase_master').remove();
@@ -541,7 +568,8 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _logout() async {
     ErpDatabase.instance.logActivity(
       action: 'LOGOUT',
-      details: 'User logged out — ${PermissionService.instance.currentName.isNotEmpty ? PermissionService.instance.currentName : PermissionService.instance.currentPhone}',
+      details:
+          'User logged out — ${PermissionService.instance.currentName.isNotEmpty ? PermissionService.instance.currentName : PermissionService.instance.currentPhone}',
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_logged_in', false);
@@ -727,6 +755,18 @@ class _DashboardPageState extends State<DashboardPage> {
               const Color(0xFFE11D48),
               const DailyConsumptionReportPage(),
               'report_daily_consumption'),
+          _ReportItem(
+              'Requirement History',
+              Icons.history_rounded,
+              const Color(0xFF7C3AED),
+              const RequirementHistoryReportPage(),
+              'report_requirement_history'),
+          _ReportItem(
+              'Adjustment History',
+              Icons.tune_rounded,
+              const Color(0xFFD97706),
+              const AdjustmentHistoryReportPage(),
+              'report_adjustment_history'),
         ].where((r) => _perm.hasPermission(r.permKey)).toList();
 
         return Padding(
@@ -752,30 +792,37 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               const SizedBox(height: 12),
-              ...reports.map((r) => ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: r.color.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(r.icon, color: r.color, size: 22),
-                    ),
-                    title: Text(r.title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: Color(0xFF212121),
-                        )),
-                    trailing: Icon(Icons.chevron_right_rounded,
-                        color: Colors.grey.shade600),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _openPage(r.page);
-                    },
-                  )),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: reports
+                      .map((r) => ListTile(
+                            leading: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: r.color.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(r.icon, color: r.color, size: 22),
+                            ),
+                            title: Text(r.title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                  color: Color(0xFF212121),
+                                )),
+                            trailing: Icon(Icons.chevron_right_rounded,
+                                color: Colors.grey.shade600),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            onTap: () {
+                              Navigator.pop(context);
+                              _openPage(r.page);
+                            },
+                          ))
+                      .toList(),
+                ),
+              ),
             ],
           ),
         );

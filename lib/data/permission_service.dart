@@ -48,6 +48,8 @@ class PermissionService {
     'report_challan': 'Issue Challan',
     'report_shade_movement': 'Shade Movement',
     'report_daily_consumption': 'Daily Consumption',
+    'report_requirement_history': 'Requirement History',
+    'report_adjustment_history': 'Adjustment History',
     // Payroll
     'payroll_employee_master': 'Employee Master',
     'payroll_production_entry': 'Production Entry',

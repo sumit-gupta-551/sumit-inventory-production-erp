@@ -930,6 +930,16 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
       final insertedPurchaseItems = <int, Map<String, dynamic>>{};
       final insertedLedgerItems = <int, Map<String, dynamic>>{};
 
+      // Mark rows pending delete BEFORE the transaction
+      // so real-time listeners won't re-insert them
+      final sync = FirebaseSyncService.instance;
+      if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
+        for (final d in deleted) {
+          final itemId = d['purchase_item_id'] as int?;
+          if (itemId != null) sync.addPendingDelete('purchase_items', itemId);
+        }
+      }
+
       await db.transaction((txn) async {
         // 1. Update purchase_master header
         final headerData = {
@@ -975,6 +985,9 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
             ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
             if (ledger.isNotEmpty) {
               final ledgerId = ledger.first['id'] as int;
+              if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
+                sync.addPendingDelete('stock_ledger', ledgerId);
+              }
               await txn
                   .delete('stock_ledger', where: 'id=?', whereArgs: [ledgerId]);
               deletedLedgerIds.add(ledgerId);
@@ -1075,8 +1088,9 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
         }
       });
 
+      ErpDatabase.instance.dataVersion.value++;
+
       // Push changes to Firebase after transaction succeeds
-      final sync = FirebaseSyncService.instance;
       if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
         for (final id in deletedPurchaseItemIds) {
           await sync.deleteRecord('purchase_items', id);

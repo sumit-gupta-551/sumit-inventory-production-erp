@@ -105,8 +105,10 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
     final shadeId = row['fabric_shade_id'] as int?;
     final qty = (row['qty'] as num?)?.toDouble() ?? 0;
     final challanNo = (row['challan_no'] ?? '').toString();
+    final partyName = (row['party_name'] ?? '').toString();
 
     if (productId != null && qty > 0) {
+      final today = DateFormat('dd-MM-yyyy').format(DateTime.now());
       await ErpDatabase.instance.insertLedger({
         'product_id': productId,
         'fabric_shade_id': shadeId,
@@ -114,7 +116,8 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
         'type': 'OUT',
         'date': DateTime.now().millisecondsSinceEpoch,
         'reference': 'REQ-CLOSE',
-        'remarks': 'Requirement closed | Ch: $challanNo',
+        'remarks':
+            'Party: $partyName | ChNo: $challanNo | Req completed on: $today',
       });
     }
     await ErpDatabase.instance.closeChallanRequirement(id);
@@ -154,7 +157,9 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
       final productId = row['product_id'] as int?;
       final shadeId = row['fabric_shade_id'] as int?;
       final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+      final partyName = (row['party_name'] ?? '').toString();
       if (productId != null && qty > 0) {
+        final today = DateFormat('dd-MM-yyyy').format(DateTime.now());
         await ErpDatabase.instance.insertLedger({
           'product_id': productId,
           'fabric_shade_id': shadeId,
@@ -162,7 +167,8 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
           'type': 'OUT',
           'date': DateTime.now().millisecondsSinceEpoch,
           'reference': 'REQ-CLOSE',
-          'remarks': 'Requirement closed | Ch: $challanNo',
+          'remarks':
+              'Party: $partyName | ChNo: $challanNo | Req completed on: $today',
         });
       }
     }

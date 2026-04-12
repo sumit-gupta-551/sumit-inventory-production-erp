@@ -1287,6 +1287,16 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
       final partyName = _partyNameById(partyId);
       final remarks = 'Party: $partyName | ChNo: $chNo';
 
+      // Mark deleted rows as pending delete BEFORE the transaction
+      // so real-time listeners won't re-insert them
+      final sync = FirebaseSyncService.instance;
+      if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
+        for (final d in deleted) {
+          final ledgerId = d['ledger_id'] as int?;
+          if (ledgerId != null) sync.addPendingDelete('stock_ledger', ledgerId);
+        }
+      }
+
       await db.transaction((txn) async {
         // 1. Delete removed rows
         for (final d in deleted) {
@@ -1338,8 +1348,9 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
         }
       });
 
+      ErpDatabase.instance.dataVersion.value++;
+
       // Push changes to Firebase after transaction succeeds
-      final sync = FirebaseSyncService.instance;
       if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
         for (final d in deleted) {
           final ledgerId = d['ledger_id'] as int?;
