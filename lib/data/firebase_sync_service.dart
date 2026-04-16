@@ -339,6 +339,10 @@ class FirebaseSyncService {
           final data = Map<String, dynamic>.from(entry.value as Map);
           data.remove('_ts');
           data['id'] = id;
+          // Remove 'pcs' field for thread_shades table
+          if (table == 'thread_shades') {
+            data.remove('pcs');
+          }
 
           if (localIdSet.contains(id)) {
             await txn.update(table, data, where: 'id=?', whereArgs: [id]);

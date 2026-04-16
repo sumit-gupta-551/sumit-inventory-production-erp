@@ -194,10 +194,10 @@ class _MachineFormPageState extends State<_MachineFormPage> {
     setState(() => _saving = true);
     try {
       final data = {
-        'code': code,
-        'name': _nameCtrl.text.trim(),
-        'unit_name': _selectedUnit ?? '',
-        'status': _status,
+        'code': code.toString(),
+        'name': _nameCtrl.text.trim().toString(),
+        'unit_name': (_selectedUnit ?? '').toString(),
+        'status': _status.toString(),
       };
 
       if (widget.existing == null) {
@@ -256,8 +256,8 @@ class _MachineFormPageState extends State<_MachineFormPage> {
               isExpanded: true,
               items: widget.units
                   .map((u) => DropdownMenuItem<String>(
-                        value: u['name'] as String,
-                        child: Text(u['name'] as String),
+                        value: u['name'].toString(),
+                        child: Text(u['name'].toString()),
                       ))
                   .toList(),
               onChanged: (v) => setState(() => _selectedUnit = v),
