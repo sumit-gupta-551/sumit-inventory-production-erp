@@ -29,10 +29,17 @@ class _MachineMasterPageState extends State<MachineMasterPage> {
     try {
       final data = await ErpDatabase.instance.getMachines();
       final u = await ErpDatabase.instance.getUnits();
+      // Ensure all unit names are Strings
+      final unitsString = u
+          .map((unit) => {
+                ...unit,
+                'name': unit['name']?.toString() ?? '',
+              })
+          .toList();
       if (!mounted) return;
       setState(() {
         machines = data;
-        units = u;
+        units = unitsString;
         loading = false;
       });
     } catch (e) {
@@ -172,7 +179,7 @@ class _MachineFormPageState extends State<_MachineFormPage> {
     _nameCtrl = TextEditingController(
         text: (widget.existing?['name'] ?? '').toString());
     _selectedUnit = (widget.existing?['unit_name'] ?? '').toString();
-    if (_selectedUnit!.isEmpty) _selectedUnit = null;
+    if (_selectedUnit != null && _selectedUnit!.isEmpty) _selectedUnit = null;
     _status = (widget.existing?['status'] ?? 'active').toString();
   }
 
@@ -256,11 +263,11 @@ class _MachineFormPageState extends State<_MachineFormPage> {
               isExpanded: true,
               items: widget.units
                   .map((u) => DropdownMenuItem<String>(
-                        value: u['name'] as String,
-                        child: Text(u['name'] as String),
+                        value: u['name'].toString(),
+                        child: Text(u['name'].toString()),
                       ))
                   .toList(),
-              onChanged: (v) => setState(() => _selectedUnit = v),
+              onChanged: (v) => setState(() => _selectedUnit = v?.toString()),
             ),
             if (widget.existing != null) ...[
               const SizedBox(height: 14),
