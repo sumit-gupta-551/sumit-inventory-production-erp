@@ -35,6 +35,78 @@ class _DebouncedNotifier extends ValueNotifier<int> {
 }
 
 class ErpDatabase {
+
+  /// Update attendance for all employees who have production entries.
+  /// For every (employee, date) in production, set attendance to 'present'.
+  Future<void> updateAttendanceFromAllProduction() async {
+    final db = await database;
+    final prodRows = await db.rawQuery('''
+      SELECT DISTINCT employee_id, date FROM production_entries
+      WHERE employee_id IS NOT NULL AND date IS NOT NULL
+    ''');
+    for (final row in prodRows) {
+      final empId = row['employee_id'];
+      final date = row['date'];
+      if (empId == null || date == null) continue;
+      final existing = await db.query('attendance',
+        columns: ['id'],
+        where: 'employee_id = ? AND date = ?',
+        whereArgs: [empId, date],
+        limit: 1);
+      if (existing.isEmpty) {
+        await _syncInsert('attendance', {
+          'employee_id': empId,
+          'date': date,
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production (update all)',
+        });
+      } else {
+        await _syncUpdate('attendance', {
+          'employee_id': empId,
+          'date': date,
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production (update all)',
+        }, existing.first['id'] as int);
+      }
+    }
+  }
+
+    /// Sync all production entries to attendance: for every production entry, ensure attendance is present for that employee/date.
+    Future<void> syncAllProductionToAttendance() async {
+      final db = await database;
+      // Get all unique (employee_id, date) pairs from production_entries
+      final prodRows = await db.rawQuery('''
+        SELECT DISTINCT employee_id, date FROM production_entries
+        WHERE employee_id IS NOT NULL AND date IS NOT NULL
+      ''');
+      for (final row in prodRows) {
+        final empId = row['employee_id'];
+        final date = row['date'];
+        if (empId == null || date == null) continue;
+        final existing = await db.query('attendance',
+          columns: ['id'],
+          where: 'employee_id = ? AND date = ?',
+          whereArgs: [empId, date],
+          limit: 1);
+        if (existing.isEmpty) {
+          await _syncInsert('attendance', {
+            'employee_id': empId,
+            'date': date,
+            'status': 'present',
+            'shift': 'day',
+            'remarks': 'Auto: Production (sync)',
+          });
+        } else {
+          await _syncUpdate('attendance', {
+            'status': 'present',
+            'shift': 'day',
+            'remarks': 'Auto: Production (sync)',
+          }, existing.first['id'] as int);
+        }
+      }
+    }
   static final ErpDatabase instance = ErpDatabase._init();
   static Database? _db;
 
@@ -1768,16 +1840,111 @@ class ErpDatabase {
     ''', args);
   }
 
+
   Future<int> insertProductionEntry(Map<String, dynamic> data) async {
-    return _syncInsert('production_entries', data);
+    final db = await database;
+    final id = await _syncInsert('production_entries', data);
+    // Insert or update attendance for this employee/date
+    final empId = data['employee_id'];
+    final date = data['date'];
+    if (empId != null && date != null) {
+      final existing = await db.query('attendance',
+        columns: ['id'],
+        where: 'employee_id = ? AND date = ?',
+        whereArgs: [empId, date],
+        limit: 1);
+      if (existing.isEmpty) {
+        await _syncInsert('attendance', {
+          'employee_id': empId,
+          'date': date,
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production',
+        });
+      } else {
+        await _syncUpdate('attendance', {
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production',
+        }, existing.first['id'] as int);
+      }
+    }
+    return id;
   }
 
   Future<void> updateProductionEntry(Map<String, dynamic> data, int id) async {
+    final db = await database;
+    // Get the old production entry to check if employee/date changed
+    final oldProd = await db.query('production_entries', where: 'id = ?', whereArgs: [id], limit: 1);
     await _syncUpdate('production_entries', data, id);
+    final newEmpId = data['employee_id'];
+    final newDate = data['date'];
+    if (oldProd.isNotEmpty) {
+      final oldEmpId = oldProd.first['employee_id'];
+      final oldDate = oldProd.first['date'];
+      // If employee or date changed, remove old attendance
+      if ((oldEmpId != newEmpId || oldDate != newDate) && oldEmpId != null && oldDate != null) {
+        await db.delete('attendance', where: 'employee_id = ? AND date = ?', whereArgs: [oldEmpId, oldDate]);
+      }
+    }
+    // Insert or update attendance for new employee/date
+    if (newEmpId != null && newDate != null) {
+      final existing = await db.query('attendance',
+        columns: ['id'],
+        where: 'employee_id = ? AND date = ?',
+        whereArgs: [newEmpId, newDate],
+        limit: 1);
+      if (existing.isEmpty) {
+        await _syncInsert('attendance', {
+          'employee_id': newEmpId,
+          'date': newDate,
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production',
+        });
+      } else {
+        await _syncUpdate('attendance', {
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production',
+        }, existing.first['id'] as int);
+      }
+    }
   }
 
   Future<void> deleteProductionEntry(int id) async {
+    final db = await database;
+    // Get the production entry to find employee_id and date
+    final prod = await db.query('production_entries', where: 'id = ?', whereArgs: [id], limit: 1);
+    int? empId;
+    int? date;
+    if (prod.isNotEmpty) {
+      empId = prod.first['employee_id'] as int?;
+      date = prod.first['date'] as int?;
+    }
     await _syncDelete('production_entries', id);
+    // After deleting, check if any other production exists for this employee/date
+    if (empId != null && date != null) {
+      final otherProd = await db.query('production_entries',
+        where: 'employee_id = ? AND date = ?',
+        whereArgs: [empId, date],
+        limit: 1);
+      if (otherProd.isEmpty) {
+        // Set attendance to absent (if exists)
+        final attRows = await db.query('attendance',
+          columns: ['id'],
+          where: 'employee_id = ? AND date = ?',
+          whereArgs: [empId, date],
+          limit: 1);
+        if (attRows.isNotEmpty) {
+          await _syncUpdate('attendance', {
+            'status': 'absent',
+            'shift': 'day',
+            'remarks': 'Auto: No Production',
+          }, attRows.first['id'] as int);
+        }
+      }
+    }
   }
 
   Future<void> deleteProductionEntriesByDate(int dateMs) async {
@@ -1806,8 +1973,35 @@ class ErpDatabase {
     }
     // Delete all from SQLite in one batch
     final placeholders = ids.map((_) => '?').join(',');
-    await db.delete('production_entries',
-        where: 'id IN ($placeholders)', whereArgs: ids);
+    // Also update attendance for these production entries
+    final prodRows = await db.query('production_entries', columns: ['employee_id', 'date'], where: 'id IN ($placeholders)', whereArgs: ids);
+    await db.delete('production_entries', where: 'id IN ($placeholders)', whereArgs: ids);
+    for (final row in prodRows) {
+      final empId = row['employee_id'];
+      final date = row['date'];
+      if (empId != null && date != null) {
+        // Check if any other production exists for this employee/date
+        final otherProd = await db.query('production_entries',
+          where: 'employee_id = ? AND date = ?',
+          whereArgs: [empId, date],
+          limit: 1);
+        if (otherProd.isEmpty) {
+          // Set attendance to absent (if exists)
+          final attRows = await db.query('attendance',
+            columns: ['id'],
+            where: 'employee_id = ? AND date = ?',
+            whereArgs: [empId, date],
+            limit: 1);
+          if (attRows.isNotEmpty) {
+            await _syncUpdate('attendance', {
+              'status': 'absent',
+              'shift': 'day',
+              'remarks': 'Auto: No Production',
+            }, attRows.first['id'] as int);
+          }
+        }
+      }
+    }
     dataVersion.value++;
     logActivity(
         action: 'DELETE',
@@ -1845,8 +2039,35 @@ class ErpDatabase {
     }
     // Delete all from SQLite in one batch
     final placeholders = ids.map((_) => '?').join(',');
-    await db.delete('production_entries',
-        where: 'id IN ($placeholders)', whereArgs: ids);
+    // Also update attendance for these production entries
+    final prodRows = await db.query('production_entries', columns: ['employee_id', 'date'], where: 'id IN ($placeholders)', whereArgs: ids);
+    await db.delete('production_entries', where: 'id IN ($placeholders)', whereArgs: ids);
+    for (final row in prodRows) {
+      final empId = row['employee_id'];
+      final date = row['date'];
+      if (empId != null && date != null) {
+        // Check if any other production exists for this employee/date
+        final otherProd = await db.query('production_entries',
+          where: 'employee_id = ? AND date = ?',
+          whereArgs: [empId, date],
+          limit: 1);
+        if (otherProd.isEmpty) {
+          // Set attendance to absent (if exists)
+          final attRows = await db.query('attendance',
+            columns: ['id'],
+            where: 'employee_id = ? AND date = ?',
+            whereArgs: [empId, date],
+            limit: 1);
+          if (attRows.isNotEmpty) {
+            await _syncUpdate('attendance', {
+              'status': 'absent',
+              'shift': 'day',
+              'remarks': 'Auto: No Production',
+            }, attRows.first['id'] as int);
+          }
+        }
+      }
+    }
     dataVersion.value++;
     logActivity(
         action: 'DELETE',

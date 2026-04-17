@@ -13,6 +13,7 @@ class AttendancePage extends StatefulWidget {
 }
 
 class _AttendancePageState extends State<AttendancePage> {
+  bool _syncingProductionAttendance = false;
   DateTime _selectedDate = DateTime.now();
   List<Map<String, dynamic>> allEmployees = [];
   List<Map<String, dynamic>> units = [];
@@ -71,7 +72,29 @@ class _AttendancePageState extends State<AttendancePage> {
     _load();
   }
 
+  Future<void> _syncAttendanceFromProduction() async {
+    setState(() {
+      _syncingProductionAttendance = true;
+    });
+    try {
+      await ErpDatabase.instance.updateAttendanceFromAllProduction();
+      _msg('Attendance synced from production!');
+    } catch (e) {
+      if (e.toString().contains('database is locked')) {
+        _msg('Database is busy. Please wait and try again.');
+      } else {
+        _msg('Sync error: $e');
+      }
+    } finally {
+      setState(() {
+        _syncingProductionAttendance = false;
+      });
+      _load();
+    }
+  }
+
   Future<void> _load() async {
+    if (_syncingProductionAttendance) return;
     setState(() => loading = true);
     try {
       final empList = await ErpDatabase.instance.getEmployees(status: 'active');
@@ -90,31 +113,6 @@ class _AttendancePageState extends State<AttendancePage> {
       for (final r in attRows) {
         final empId = r['employee_id'] as int?;
         if (empId != null) attMap[empId] = r;
-      }
-
-      // Auto-mark production employees as present if no attendance exists
-      final prodEmpIds = await ErpDatabase.instance.getProductionEmployeeIds(
-        fromMs: dayStart.millisecondsSinceEpoch,
-        toMs: dayEnd.millisecondsSinceEpoch,
-      );
-      for (final empId in prodEmpIds) {
-        if (!attMap.containsKey(empId)) {
-          final id = await ErpDatabase.instance.insertAttendance({
-            'employee_id': empId,
-            'date': dayStart.millisecondsSinceEpoch,
-            'status': 'present',
-            'shift': 'day',
-            'remarks': 'Auto: Production',
-          });
-          attMap[empId] = {
-            'id': id,
-            'employee_id': empId,
-            'date': dayStart.millisecondsSinceEpoch,
-            'status': 'present',
-            'shift': 'day',
-            'remarks': 'Auto: Production',
-          };
-        }
       }
 
       if (!mounted) return;
@@ -262,6 +260,10 @@ class _AttendancePageState extends State<AttendancePage> {
 
   /// Save all pending changes to DB
   Future<void> _saveAll() async {
+    if (_syncingProductionAttendance) {
+      _msg('Please wait for sync to finish.');
+      return;
+    }
     if (!_hasChanges || _pending.isEmpty) return;
     setState(() => _saving = true);
 
@@ -280,7 +282,13 @@ class _AttendancePageState extends State<AttendancePage> {
 
         if (existing != null && existing['id'] != null) {
           await ErpDatabase.instance.updateAttendance(
-            {'status': status, 'shift': shift, 'remarks': remarks},
+            {
+              'employee_id': empId,
+              'date': _dateMs,
+              'status': status,
+              'shift': shift,
+              'remarks': remarks
+            },
             existing['id'] as int,
           );
         } else {
@@ -338,6 +346,13 @@ class _AttendancePageState extends State<AttendancePage> {
       appBar: AppBar(
         title: const Text('Attendance'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.sync_alt),
+            tooltip: 'Sync from Production',
+            onPressed: _syncingProductionAttendance
+                ? null
+                : _syncAttendanceFromProduction,
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.checklist_rounded),
             tooltip: 'Mark All',
@@ -353,380 +368,406 @@ class _AttendancePageState extends State<AttendancePage> {
           ),
         ],
       ),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: _syncingProductionAttendance
+          ? const Center(
+              child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // ── Date Navigation ──
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.chevron_left),
-                        onPressed: _prevDay,
-                        tooltip: 'Previous Day',
-                      ),
-                      Expanded(
-                        child: InkWell(
-                          onTap: _pickDate,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.calendar_today,
-                                    size: 18, color: Colors.grey),
-                                const SizedBox(width: 8),
-                                Text(
-                                  DateFormat('dd MMM yyyy (EEEE)')
-                                      .format(_selectedDate),
-                                  style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Syncing attendance with production...'),
+              ],
+            ))
+          : loading
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    // ── Date Navigation ──
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 6),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.chevron_left),
+                            onPressed: _prevDay,
+                            tooltip: 'Previous Day',
                           ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.chevron_right),
-                        onPressed: _nextDay,
-                        tooltip: 'Next Day',
-                      ),
-                    ],
-                  ),
-                ),
-
-                // ── Unit Filter ──
-                if (units.isNotEmpty)
-                  Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedUnit,
-                      decoration: const InputDecoration(
-                        labelText: 'Filter by Unit',
-                        border: OutlineInputBorder(),
-                        contentPadding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        isDense: true,
-                      ),
-                      isExpanded: true,
-                      items: [
-                        const DropdownMenuItem<String>(
-                          value: null,
-                          child: Text('All Units'),
-                        ),
-                        ...units.map((u) => DropdownMenuItem<String>(
-                              value: u['name'] as String,
-                              child: Text(u['name'] as String),
-                            )),
-                      ],
-                      onChanged: (v) => setState(() => _selectedUnit = v),
-                    ),
-                  ),
-                const SizedBox(height: 4),
-
-                // ── Summary Bar ──
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 12),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        'Total: ${filtered.length}',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                      const Spacer(),
-                      ...statusOptions.map((s) => Padding(
-                            padding: const EdgeInsets.only(left: 10),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    color: statusColors[s],
-                                    shape: BoxShape.circle,
-                                  ),
+                          Expanded(
+                            child: InkWell(
+                              onTap: _pickDate,
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 10),
+                                decoration: BoxDecoration(
+                                  border:
+                                      Border.all(color: Colors.grey.shade300),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  '${statusLabels[s]}: ${counts[s]}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: statusColors[s],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 6),
-
-                // ── Employee List ──
-                Expanded(
-                  child: filtered.isEmpty
-                      ? const Center(child: Text('No employees found'))
-                      : ListView.builder(
-                          itemCount: filtered.length,
-                          padding: const EdgeInsets.only(bottom: 12),
-                          itemBuilder: (_, i) {
-                            final emp = filtered[i];
-                            final empId = emp['id'] as int;
-                            final status = _getStatus(empId);
-                            final shift = _getShift(empId);
-                            final remarks = _getRemarks(empId);
-                            final unitName =
-                                (emp['unit_name'] ?? '').toString();
-                            final isPending = _pending.containsKey(empId);
-
-                            return Card(
-                              margin: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 3),
-                              elevation: isPending ? 2 : 1,
-                              color: isPending ? Colors.amber.shade50 : null,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                side: BorderSide(
-                                  color: isPending
-                                      ? Colors.amber.shade400
-                                      : (statusColors[status] ?? Colors.grey)
-                                          .withAlpha(60),
-                                  width: isPending ? 1.5 : 1,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.calendar_today,
+                                        size: 18, color: Colors.grey),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      DateFormat('dd MMM yyyy (EEEE)')
+                                          .format(_selectedDate),
+                                      style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 8),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.chevron_right),
+                            onPressed: _nextDay,
+                            tooltip: 'Next Day',
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ── Unit Filter ──
+                    if (units.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 2),
+                        child: DropdownButtonFormField<String>(
+                          value: _selectedUnit,
+                          decoration: const InputDecoration(
+                            labelText: 'Filter by Unit',
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            isDense: true,
+                          ),
+                          isExpanded: true,
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text('All Units'),
+                            ),
+                            ...units.map((u) => DropdownMenuItem<String>(
+                                  value: u['name'] as String,
+                                  child: Text(u['name'] as String),
+                                )),
+                          ],
+                          onChanged: (v) => setState(() => _selectedUnit = v),
+                        ),
+                      ),
+                    const SizedBox(height: 4),
+
+                    // ── Summary Bar ──
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Total: ${filtered.length}',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          const Spacer(),
+                          ...statusOptions.map((s) => Padding(
+                                padding: const EdgeInsets.only(left: 10),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    // ── Row 1: Name, Unit, Shift ──
-                                    Row(
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: statusColors[s],
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      '${statusLabels[s]}: ${counts[s]}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: statusColors[s],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+
+                    // ── Employee List ──
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('No employees found'))
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              padding: const EdgeInsets.only(bottom: 12),
+                              itemBuilder: (_, i) {
+                                final emp = filtered[i];
+                                final empId = emp['id'] as int;
+                                final status = _getStatus(empId);
+                                final shift = _getShift(empId);
+                                final remarks = _getRemarks(empId);
+                                final unitName =
+                                    (emp['unit_name'] ?? '').toString();
+                                final isPending = _pending.containsKey(empId);
+
+                                return Card(
+                                  margin: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 3),
+                                  elevation: isPending ? 2 : 1,
+                                  color:
+                                      isPending ? Colors.amber.shade50 : null,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    side: BorderSide(
+                                      color: isPending
+                                          ? Colors.amber.shade400
+                                          : (statusColors[status] ??
+                                                  Colors.grey)
+                                              .withAlpha(60),
+                                      width: isPending ? 1.5 : 1,
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                '${i + 1}. ${emp['name'] ?? ''}',
-                                                style: const TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 14),
+                                        // ── Row 1: Name, Unit, Shift ──
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    '${i + 1}. ${emp['name'] ?? ''}',
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        fontSize: 14),
+                                                  ),
+                                                  if ((emp['designation'] ?? '')
+                                                          .toString()
+                                                          .isNotEmpty ||
+                                                      unitName.isNotEmpty)
+                                                    Text(
+                                                      [
+                                                        if ((emp['designation'] ??
+                                                                '')
+                                                            .toString()
+                                                            .isNotEmpty)
+                                                          emp['designation'],
+                                                        if (unitName.isNotEmpty)
+                                                          unitName,
+                                                      ].join('  •  '),
+                                                      style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: Colors
+                                                              .grey.shade600),
+                                                    ),
+                                                ],
                                               ),
-                                              if ((emp['designation'] ?? '')
-                                                      .toString()
-                                                      .isNotEmpty ||
-                                                  unitName.isNotEmpty)
-                                                Text(
-                                                  [
-                                                    if ((emp['designation'] ??
-                                                            '')
-                                                        .toString()
-                                                        .isNotEmpty)
-                                                      emp['designation'],
-                                                    if (unitName.isNotEmpty)
-                                                      unitName,
-                                                  ].join('  •  '),
-                                                  style: TextStyle(
-                                                      fontSize: 11,
-                                                      color:
-                                                          Colors.grey.shade600),
-                                                ),
-                                            ],
-                                          ),
-                                        ),
-                                        // Shift toggle
-                                        InkWell(
-                                          onTap: () => _toggleShift(empId),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 8, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: shift == 'night'
-                                                  ? Colors.indigo.shade50
-                                                  : Colors.teal.shade50,
+                                            ),
+                                            // Shift toggle
+                                            InkWell(
+                                              onTap: () => _toggleShift(empId),
                                               borderRadius:
                                                   BorderRadius.circular(6),
-                                              border: Border.all(
-                                                color: shift == 'night'
-                                                    ? Colors.indigo.shade200
-                                                    : Colors.teal.shade200,
-                                              ),
-                                            ),
-                                            child: Text(
-                                              shift == 'night'
-                                                  ? '🌙 Night'
-                                                  : '☀ Day',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: shift == 'night'
-                                                    ? Colors.indigo
-                                                    : Colors.teal,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        // Remarks button
-                                        IconButton(
-                                          icon: Icon(
-                                            remarks.isNotEmpty
-                                                ? Icons.sticky_note_2
-                                                : Icons.sticky_note_2_outlined,
-                                            size: 20,
-                                            color: remarks.isNotEmpty
-                                                ? Colors.amber.shade700
-                                                : Colors.grey,
-                                          ),
-                                          tooltip: 'Remarks',
-                                          onPressed: () => _editRemarks(empId),
-                                          constraints: const BoxConstraints(),
-                                          padding: const EdgeInsets.all(6),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 6),
-
-                                    // ── Row 2: Status Chips ──
-                                    Row(
-                                      children: statusOptions.map((s) {
-                                        final isActive = status == s;
-                                        return Expanded(
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 2),
-                                            child: GestureDetector(
-                                              onDoubleTap: () =>
-                                                  _setStatus(empId, s),
                                               child: Container(
                                                 padding:
                                                     const EdgeInsets.symmetric(
-                                                        vertical: 6),
+                                                        horizontal: 8,
+                                                        vertical: 4),
                                                 decoration: BoxDecoration(
-                                                  color: isActive
-                                                      ? (statusColors[s] ??
-                                                          Colors.grey)
-                                                      : (statusColors[s] ??
-                                                              Colors.grey)
-                                                          .withAlpha(20),
+                                                  color: shift == 'night'
+                                                      ? Colors.indigo.shade50
+                                                      : Colors.teal.shade50,
                                                   borderRadius:
-                                                      BorderRadius.circular(8),
+                                                      BorderRadius.circular(6),
                                                   border: Border.all(
-                                                    color: (statusColors[s] ??
-                                                            Colors.grey)
-                                                        .withAlpha(isActive
-                                                            ? 255
-                                                            : 60),
+                                                    color: shift == 'night'
+                                                        ? Colors.indigo.shade200
+                                                        : Colors.teal.shade200,
                                                   ),
                                                 ),
-                                                child: Center(
-                                                  child: Text(
-                                                    statusLabels[s] ?? s,
-                                                    style: TextStyle(
-                                                      fontSize: 13,
-                                                      fontWeight:
-                                                          FontWeight.bold,
+                                                child: Text(
+                                                  shift == 'night'
+                                                      ? '🌙 Night'
+                                                      : '☀ Day',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: shift == 'night'
+                                                        ? Colors.indigo
+                                                        : Colors.teal,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            // Remarks button
+                                            IconButton(
+                                              icon: Icon(
+                                                remarks.isNotEmpty
+                                                    ? Icons.sticky_note_2
+                                                    : Icons
+                                                        .sticky_note_2_outlined,
+                                                size: 20,
+                                                color: remarks.isNotEmpty
+                                                    ? Colors.amber.shade700
+                                                    : Colors.grey,
+                                              ),
+                                              tooltip: 'Remarks',
+                                              onPressed: () =>
+                                                  _editRemarks(empId),
+                                              constraints:
+                                                  const BoxConstraints(),
+                                              padding: const EdgeInsets.all(6),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+
+                                        // ── Row 2: Status Chips ──
+                                        Row(
+                                          children: statusOptions.map((s) {
+                                            final isActive = status == s;
+                                            return Expanded(
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 2),
+                                                child: GestureDetector(
+                                                  onDoubleTap: () =>
+                                                      _setStatus(empId, s),
+                                                  child: Container(
+                                                    padding: const EdgeInsets
+                                                        .symmetric(vertical: 6),
+                                                    decoration: BoxDecoration(
                                                       color: isActive
-                                                          ? Colors.white
+                                                          ? (statusColors[s] ??
+                                                              Colors.grey)
                                                           : (statusColors[s] ??
-                                                              Colors.grey),
+                                                                  Colors.grey)
+                                                              .withAlpha(20),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              8),
+                                                      border: Border.all(
+                                                        color:
+                                                            (statusColors[s] ??
+                                                                    Colors.grey)
+                                                                .withAlpha(
+                                                                    isActive
+                                                                        ? 255
+                                                                        : 60),
+                                                      ),
+                                                    ),
+                                                    child: Center(
+                                                      child: Text(
+                                                        statusLabels[s] ?? s,
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          color: isActive
+                                                              ? Colors.white
+                                                              : (statusColors[
+                                                                      s] ??
+                                                                  Colors.grey),
+                                                        ),
+                                                      ),
                                                     ),
                                                   ),
                                                 ),
                                               ),
+                                            );
+                                          }).toList(),
+                                        ),
+
+                                        // ── Remarks text ──
+                                        if (remarks.isNotEmpty)
+                                          Padding(
+                                            padding:
+                                                const EdgeInsets.only(top: 4),
+                                            child: Text(
+                                              remarks,
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontStyle: FontStyle.italic,
+                                                  color: Colors.grey.shade600),
                                             ),
                                           ),
-                                        );
-                                      }).toList(),
+                                      ],
                                     ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
 
-                                    // ── Remarks text ──
-                                    if (remarks.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          remarks,
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              fontStyle: FontStyle.italic,
-                                              color: Colors.grey.shade600),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
+                    // ── Save Button ──
+                    if (_hasChanges)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(20),
+                              blurRadius: 8,
+                              offset: const Offset(0, -2),
+                            ),
+                          ],
                         ),
+                        child: ElevatedButton.icon(
+                          onPressed: _saving ? null : _saveAll,
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.save),
+                          label: Text(
+                            _saving
+                                ? 'Saving...'
+                                : 'Save Attendance (${_pending.length} changed)',
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w600),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-
-                // ── Save Button ──
-                if (_hasChanges)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withAlpha(20),
-                          blurRadius: 8,
-                          offset: const Offset(0, -2),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton.icon(
-                      onPressed: _saving ? null : _saveAll,
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Icon(Icons.save),
-                      label: Text(
-                        _saving
-                            ? 'Saving...'
-                            : 'Save Attendance (${_pending.length} changed)',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
     );
   }
 }
