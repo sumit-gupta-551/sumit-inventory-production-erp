@@ -88,8 +88,15 @@ class _AttendancePageState extends State<AttendancePage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _autoCleanupAndLoad();
     ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  /// Automatically cleanup duplicates and load attendance
+  Future<void> _autoCleanupAndLoad() async {
+    await ErpDatabase.instance.cleanupDuplicateAttendance();
+    await ErpDatabase.instance.ensureAttendanceUniqueIndex();
+    _load();
   }
 
   @override
@@ -145,18 +152,8 @@ class _AttendancePageState extends State<AttendancePage> {
         if (empId != null) attMap[empId] = r;
       }
 
-      // Get all employees with production for the selected date
-      final prodEmpIds = await ErpDatabase.instance.getProductionEmployeeIds(
-        fromMs: dayStart.millisecondsSinceEpoch,
-        toMs: dayEnd.millisecondsSinceEpoch,
-      );
-      // Add any production employees to the list if not already present
-      final prodEmps =
-          empList.where((e) => prodEmpIds.contains(e['id'])).toList();
-      final combinedEmployees = {
-        for (var e in empList) e['id']: e,
-        for (var e in prodEmps) e['id']: e,
-      };
+      // Always show all active employees, even if no attendance or production
+      final combinedEmployees = {for (var e in empList) e['id']: e};
 
       if (!mounted) return;
       setState(() {

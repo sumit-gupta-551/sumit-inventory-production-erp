@@ -419,8 +419,8 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
     // Check if increasing OUT qty or decreasing IN qty causes negative balance
     if (entryType == 'OUT' && newQty > oldQty) {
-      final current = await ErpDatabase.instance.getCurrentStockBalance(
-        productId: pId, fabricShadeId: sId);
+      final current = await ErpDatabase.instance
+          .getCurrentStockBalance(productId: pId, fabricShadeId: sId);
       final projected = current - (newQty - oldQty);
       if (projected < 0) {
         if (!mounted) return;
@@ -429,18 +429,22 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
           builder: (ctx) => AlertDialog(
             title: const Text('Negative Balance Warning'),
             content: Text(
-              'Increasing OUT qty will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
+                'Increasing OUT qty will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Proceed')),
             ],
           ),
         );
         if (proceed != true) return;
       }
     } else if (entryType == 'IN' && newQty < oldQty) {
-      final current = await ErpDatabase.instance.getCurrentStockBalance(
-        productId: pId, fabricShadeId: sId);
+      final current = await ErpDatabase.instance
+          .getCurrentStockBalance(productId: pId, fabricShadeId: sId);
       final projected = current - (oldQty - newQty);
       if (projected < 0) {
         if (!mounted) return;
@@ -449,10 +453,14 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
           builder: (ctx) => AlertDialog(
             title: const Text('Negative Balance Warning'),
             content: Text(
-              'Reducing IN qty will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
+                'Reducing IN qty will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Proceed')),
             ],
           ),
         );
@@ -486,8 +494,8 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
     // Deleting an IN entry reduces balance; check for negative
     if (entryType == 'IN' && qty > 0) {
-      final current = await ErpDatabase.instance.getCurrentStockBalance(
-        productId: pId, fabricShadeId: sId);
+      final current = await ErpDatabase.instance
+          .getCurrentStockBalance(productId: pId, fabricShadeId: sId);
       final projected = current - qty;
       if (projected < 0) {
         if (!mounted) return;
@@ -496,10 +504,14 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
           builder: (ctx) => AlertDialog(
             title: const Text('Negative Balance Warning'),
             content: Text(
-              'Deleting this IN entry will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
+                'Deleting this IN entry will make balance ${projected.toStringAsFixed(2)}.\nProceed?'),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Proceed')),
             ],
           ),
         );
@@ -509,8 +521,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
     await ErpDatabase.instance.deleteLedgerEntry(id);
     if (!mounted) return;
-    await _loadPastAdjustments();
-    _msg('Entry deleted');
+    _msg('Entry deleted from app and Firebase');
   }
 
   String _fmtDate(int? ms) {
