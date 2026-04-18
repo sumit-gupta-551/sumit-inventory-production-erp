@@ -1,4 +1,13 @@
 ﻿import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+import '../models/product.dart';
+import '../models/party.dart';
+import 'firebase_sync_service.dart';
+import 'permission_service.dart';
+
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
@@ -39,6 +48,7 @@ class ErpDatabase {
   /// Update attendance for all employees who have production entries.
   /// For every (employee, date) in production, set attendance to 'present'.
   Future<void> updateAttendanceFromAllProduction() async {
+      debugPrint('--- SYNC: updateAttendanceFromAllProduction START ---');
     final db = await database;
     final prodRows = await db.rawQuery('''
       SELECT DISTINCT employee_id, date FROM production_entries
@@ -48,15 +58,19 @@ class ErpDatabase {
       final empId = row['employee_id'];
       final date = row['date'];
       if (empId == null || date == null) continue;
+      // Normalize date to start of day
+      final normDate = DateTime.fromMillisecondsSinceEpoch(date is int ? date : (date as num).toInt());
+      final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
+        debugPrint('SYNC: Employee $empId, Date $dayStart (${normDate.year}-${normDate.month}-${normDate.day})');
       final existing = await db.query('attendance',
         columns: ['id'],
         where: 'employee_id = ? AND date = ?',
-        whereArgs: [empId, date],
+        whereArgs: [empId, dayStart],
         limit: 1);
       if (existing.isEmpty) {
         await _syncInsert('attendance', {
           'employee_id': empId,
-          'date': date,
+          'date': dayStart,
           'status': 'present',
           'shift': 'day',
           'remarks': 'Auto: Production (update all)',
@@ -64,13 +78,14 @@ class ErpDatabase {
       } else {
         await _syncUpdate('attendance', {
           'employee_id': empId,
-          'date': date,
+          'date': dayStart,
           'status': 'present',
           'shift': 'day',
           'remarks': 'Auto: Production (update all)',
         }, existing.first['id'] as int);
       }
     }
+    debugPrint('--- SYNC: updateAttendanceFromAllProduction END ---');
   }
 
     /// Sync all production entries to attendance: for every production entry, ensure attendance is present for that employee/date.
@@ -85,15 +100,18 @@ class ErpDatabase {
         final empId = row['employee_id'];
         final date = row['date'];
         if (empId == null || date == null) continue;
+        // Normalize date to start of day
+        final normDate = DateTime.fromMillisecondsSinceEpoch(date is int ? date : (date as num).toInt());
+        final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
         final existing = await db.query('attendance',
           columns: ['id'],
           where: 'employee_id = ? AND date = ?',
-          whereArgs: [empId, date],
+          whereArgs: [empId, dayStart],
           limit: 1);
         if (existing.isEmpty) {
           await _syncInsert('attendance', {
             'employee_id': empId,
-            'date': date,
+            'date': dayStart,
             'status': 'present',
             'shift': 'day',
             'remarks': 'Auto: Production (sync)',
@@ -1848,15 +1866,18 @@ class ErpDatabase {
     final empId = data['employee_id'];
     final date = data['date'];
     if (empId != null && date != null) {
+      // Normalize date to start of day
+      final normDate = DateTime.fromMillisecondsSinceEpoch(date);
+      final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
       final existing = await db.query('attendance',
         columns: ['id'],
         where: 'employee_id = ? AND date = ?',
-        whereArgs: [empId, date],
+        whereArgs: [empId, dayStart],
         limit: 1);
       if (existing.isEmpty) {
         await _syncInsert('attendance', {
           'employee_id': empId,
-          'date': date,
+          'date': dayStart,
           'status': 'present',
           'shift': 'day',
           'remarks': 'Auto: Production',
@@ -2319,8 +2340,10 @@ class ErpDatabase {
 
       double baseSalary = 0;
       if (salaryType == 'monthly') {
+        // Proportional: (basePay / baseDays) * effectiveDays
         baseSalary = (basePay / baseDays) * effectiveDays;
       } else {
+        // daily: basePay * effectiveDays
         baseSalary = basePay * effectiveDays;
       }
 
@@ -2645,5 +2668,46 @@ class ErpDatabase {
       [fromMs, toMs],
     );
     return (rows.first['cnt'] as int? ?? 0) > 0;
+  }
+}
+
+/// Cleanup duplicate attendance records: keep only the latest per employee per day.
+extension AttendanceCleanup on ErpDatabase {
+  Future<void> cleanupDuplicateAttendance() async {
+    final db = await database;
+    // Find duplicates (employee_id, date) with more than one record
+    final dups = await db.rawQuery('''
+      SELECT employee_id, date, COUNT(*) as cnt
+      FROM attendance
+      GROUP BY employee_id, date
+      HAVING cnt > 1
+    ''');
+    for (final dup in dups) {
+      final empId = dup['employee_id'];
+      final date = dup['date'];
+      // Get all ids for this employee/date, order by id DESC (keep latest)
+      final rows = await db.query('attendance',
+        columns: ['id'],
+        where: 'employee_id = ? AND date = ?',
+        whereArgs: [empId, date],
+        orderBy: 'id DESC',
+      );
+      if (rows.length > 1) {
+        // Keep the first (latest), delete the rest
+        final idsToDelete = rows.skip(1).map((r) => r['id']).toList();
+        for (final id in idsToDelete) {
+          await db.delete('attendance', where: 'id = ?', whereArgs: [id]);
+        }
+      }
+    }
+  }
+
+  /// Add a unique index to enforce one attendance per employee per day.
+  Future<void> ensureAttendanceUniqueIndex() async {
+    final db = await database;
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_employee_date
+      ON attendance(employee_id, date)
+    ''');
   }
 }

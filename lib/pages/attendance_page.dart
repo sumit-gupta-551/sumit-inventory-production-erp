@@ -1,8 +1,6 @@
 // ignore_for_file: use_build_context_synchronously
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-
 import '../data/erp_database.dart';
 
 class AttendancePage extends StatefulWidget {
@@ -13,6 +11,39 @@ class AttendancePage extends StatefulWidget {
 }
 
 class _AttendancePageState extends State<AttendancePage> {
+  /// Debug: Cleanup duplicate attendance and enforce unique index
+  Future<void> _cleanupAttendanceDuplicates() async {
+    await ErpDatabase.instance.cleanupDuplicateAttendance();
+    await ErpDatabase.instance.ensureAttendanceUniqueIndex();
+    _msg(
+        'Attendance cleanup done. Duplicates removed and unique index enforced.');
+    _load();
+  }
+
+  /// Debug: Print all production entries for the selected date and employees
+  Future<void> _debugPrintProductionEntries() async {
+    final dayStart =
+        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    final dayEnd = dayStart.add(const Duration(days: 1));
+    final fromMs = dayStart.millisecondsSinceEpoch;
+    final toMs = dayEnd.millisecondsSinceEpoch;
+    final empIds = allEmployees.map((e) => e['id'] as int).toList();
+    final db = await ErpDatabase.instance.database;
+    final prodRows = await db.rawQuery(
+      'SELECT * FROM production_entries WHERE employee_id IN (${empIds.join(',')}) AND date >= ? AND date < ? ORDER BY employee_id, date',
+      [fromMs, toMs],
+    );
+    debugPrint('--- DEBUG: Production entries for selected date ---');
+    for (final row in prodRows) {
+      debugPrint(row.toString());
+    }
+    if (prodRows.isEmpty) {
+      _msg('No production entries found for selected date.');
+    } else {
+      _msg('Printed production entries to debug console.');
+    }
+  }
+
   bool _syncingProductionAttendance = false;
   DateTime _selectedDate = DateTime.now();
   List<Map<String, dynamic>> allEmployees = [];
@@ -108,16 +139,28 @@ class _AttendancePageState extends State<AttendancePage> {
         fromMs: dayStart.millisecondsSinceEpoch,
         toMs: dayEnd.millisecondsSinceEpoch,
       );
-
       final attMap = <int, Map<String, dynamic>>{};
       for (final r in attRows) {
         final empId = r['employee_id'] as int?;
         if (empId != null) attMap[empId] = r;
       }
 
+      // Get all employees with production for the selected date
+      final prodEmpIds = await ErpDatabase.instance.getProductionEmployeeIds(
+        fromMs: dayStart.millisecondsSinceEpoch,
+        toMs: dayEnd.millisecondsSinceEpoch,
+      );
+      // Add any production employees to the list if not already present
+      final prodEmps =
+          empList.where((e) => prodEmpIds.contains(e['id'])).toList();
+      final combinedEmployees = {
+        for (var e in empList) e['id']: e,
+        for (var e in prodEmps) e['id']: e,
+      };
+
       if (!mounted) return;
       setState(() {
-        allEmployees = empList;
+        allEmployees = combinedEmployees.values.toList();
         units = unitList;
         attendance = attMap;
         _pending = {};
@@ -365,6 +408,18 @@ class _AttendancePageState extends State<AttendancePage> {
               const PopupMenuItem(
                   value: 'half_day', child: Text('Mark All Half Day')),
             ],
+          ),
+          // Debug: Print Production
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            tooltip: 'Debug: Print Production',
+            onPressed: _debugPrintProductionEntries,
+          ),
+          // Debug: Cleanup Attendance
+          IconButton(
+            icon: const Icon(Icons.cleaning_services),
+            tooltip: 'Cleanup Attendance Duplicates',
+            onPressed: _cleanupAttendanceDuplicates,
           ),
         ],
       ),
