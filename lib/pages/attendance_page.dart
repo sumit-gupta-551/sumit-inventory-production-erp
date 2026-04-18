@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/erp_database.dart';
+import 'package:month_picker_dialog/month_picker_dialog.dart';
+import '../data/sync_helper.dart';
 
 class AttendancePage extends StatefulWidget {
   const AttendancePage({super.key});
@@ -20,29 +22,6 @@ class _AttendancePageState extends State<AttendancePage> {
     _load();
   }
 
-  /// Debug: Print all production entries for the selected date and employees
-  Future<void> _debugPrintProductionEntries() async {
-    final dayStart =
-        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-    final dayEnd = dayStart.add(const Duration(days: 1));
-    final fromMs = dayStart.millisecondsSinceEpoch;
-    final toMs = dayEnd.millisecondsSinceEpoch;
-    final empIds = allEmployees.map((e) => e['id'] as int).toList();
-    final db = await ErpDatabase.instance.database;
-    final prodRows = await db.rawQuery(
-      'SELECT * FROM production_entries WHERE employee_id IN (${empIds.join(',')}) AND date >= ? AND date < ? ORDER BY employee_id, date',
-      [fromMs, toMs],
-    );
-    debugPrint('--- DEBUG: Production entries for selected date ---');
-    for (final row in prodRows) {
-      debugPrint(row.toString());
-    }
-    if (prodRows.isEmpty) {
-      _msg('No production entries found for selected date.');
-    } else {
-      _msg('Printed production entries to debug console.');
-    }
-  }
 
   bool _syncingProductionAttendance = false;
   DateTime _selectedDate = DateTime.now();
@@ -96,7 +75,36 @@ class _AttendancePageState extends State<AttendancePage> {
   Future<void> _autoCleanupAndLoad() async {
     await ErpDatabase.instance.cleanupDuplicateAttendance();
     await ErpDatabase.instance.ensureAttendanceUniqueIndex();
+    // Only sync new entries since last sync
+    final lastSync = await SyncHelper.getLastAttendanceSync();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await ErpDatabase.instance.updateAttendanceFromProductionSince(lastSync);
+    await SyncHelper.setLastAttendanceSync(now);
     _load();
+  }
+
+  Future<void> _fullMonthSync() async {
+    debugPrint('FullMonthSync: Button pressed');
+    try {
+      final picked = await showMonthPicker(context: context, initialDate: DateTime.now());
+      debugPrint('FullMonthSync: Picked month: \\${picked?.year}-\\${picked?.month}');
+      if (picked == null) return;
+      final from = DateTime(picked.year, picked.month, 1);
+      final to = DateTime(picked.year, picked.month + 1, 1).subtract(const Duration(milliseconds: 1));
+      if (!mounted) return;
+      setState(() => loading = true);
+      await ErpDatabase.instance.updateAttendanceFromProductionSince(null, from: from, to: to);
+      await SyncHelper.setLastAttendanceSync(DateTime.now().millisecondsSinceEpoch);
+      if (!mounted) return;
+      setState(() => loading = false);
+      _msg('Full sync for ${picked.year}-${picked.month.toString().padLeft(2, '0')} complete!');
+      _load();
+    } catch (e, st) {
+      debugPrint('FullMonthSync: ERROR: $e\n$st');
+      if (!mounted) return;
+      setState(() => loading = false);
+      _msg('Error during month sync: $e');
+    }
   }
 
   @override
@@ -110,26 +118,6 @@ class _AttendancePageState extends State<AttendancePage> {
     _load();
   }
 
-  Future<void> _syncAttendanceFromProduction() async {
-    setState(() {
-      _syncingProductionAttendance = true;
-    });
-    try {
-      await ErpDatabase.instance.updateAttendanceFromAllProduction();
-      _msg('Attendance synced from production!');
-    } catch (e) {
-      if (e.toString().contains('database is locked')) {
-        _msg('Database is busy. Please wait and try again.');
-      } else {
-        _msg('Sync error: $e');
-      }
-    } finally {
-      setState(() {
-        _syncingProductionAttendance = false;
-      });
-      _load();
-    }
-  }
 
   Future<void> _load() async {
     if (_syncingProductionAttendance) return;
@@ -387,11 +375,9 @@ class _AttendancePageState extends State<AttendancePage> {
         title: const Text('Attendance'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.sync_alt),
-            tooltip: 'Sync from Production',
-            onPressed: _syncingProductionAttendance
-                ? null
-                : _syncAttendanceFromProduction,
+            icon: const Icon(Icons.sync),
+            tooltip: 'Full Sync by Month',
+            onPressed: _fullMonthSync,
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.checklist_rounded),
@@ -405,12 +391,6 @@ class _AttendancePageState extends State<AttendancePage> {
               const PopupMenuItem(
                   value: 'half_day', child: Text('Mark All Half Day')),
             ],
-          ),
-          // Debug: Print Production
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            tooltip: 'Debug: Print Production',
-            onPressed: _debugPrintProductionEntries,
           ),
           // Debug: Cleanup Attendance
           IconButton(

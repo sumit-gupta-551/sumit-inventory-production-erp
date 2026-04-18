@@ -1097,7 +1097,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                     ),
                                     const SizedBox(height: 3),
                                     Text(
-                                      'ERP System  •  v${AppUpdater.currentVersion}',
+                                      'ERP System  •  v1.0.17',
                                       style: TextStyle(
                                         color: Colors.white
                                             .withValues(alpha: 0.35),

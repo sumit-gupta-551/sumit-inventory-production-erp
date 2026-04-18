@@ -334,6 +334,11 @@ class FirebaseSyncService {
           if (id == null) continue;
           // Skip records that are pending delete locally
           if (_isPendingDelete(table, id)) continue;
+          // For stock_ledger, skip remote entries marked as deleted
+          if (table == 'stock_ledger' &&
+              (entry.value is Map && (entry.value as Map)['is_deleted'] == 1)) {
+            continue;
+          }
           remoteIds.add(id);
 
           final data = Map<String, dynamic>.from(entry.value as Map);

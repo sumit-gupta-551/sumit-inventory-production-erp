@@ -413,6 +413,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
       WHERE (? IS NULL OR l.date >= ?)
         AND (? IS NULL OR l.date <= ?)
         AND (l.fabric_shade_id IS NULL OR l.fabric_shade_id = 0 OR f.id IS NOT NULL)
+        AND (l.is_deleted IS NULL OR l.is_deleted = 0)
       ORDER BY l.date DESC, l.id DESC
     ''', [
       fromMs,

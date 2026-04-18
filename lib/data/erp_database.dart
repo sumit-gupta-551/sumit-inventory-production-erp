@@ -44,6 +44,103 @@ class _DebouncedNotifier extends ValueNotifier<int> {
 }
 
 class ErpDatabase {
+  /// Update attendance for production entries since [sinceMs].
+  /// Optionally restrict to a date range [from] to [to].
+  Future<void> updateAttendanceFromProductionSince(int? sinceMs, {DateTime? from, DateTime? to}) async {
+    // --- MIGRATION: Ensure is_deleted column exists on stock_ledger ---
+    final db = await database;
+    final cols = await db.rawQuery("PRAGMA table_info(stock_ledger)");
+    final hasIsDeleted = cols.any((c) => c['name'] == 'is_deleted');
+    if (!hasIsDeleted) {
+      await db.execute("ALTER TABLE stock_ledger ADD COLUMN is_deleted INTEGER DEFAULT 0");
+    }
+    debugPrint('SYNC: updateAttendanceFromProductionSince called with sinceMs=$sinceMs, from=$from, to=$to');
+    // Use a different variable name to avoid redeclaration
+    final db2 = await database;
+    String where = 'employee_id IS NOT NULL AND date IS NOT NULL';
+    List whereArgs = [];
+    if (sinceMs != null) {
+      where += ' AND date > ?';
+      whereArgs.add(sinceMs);
+    }
+    if (from != null) {
+      where += ' AND date >= ?';
+      whereArgs.add(from.millisecondsSinceEpoch);
+    }
+    if (to != null) {
+      where += ' AND date <= ?';
+      whereArgs.add(to.millisecondsSinceEpoch);
+    }
+    debugPrint('SYNC: where=$where, whereArgs=$whereArgs');
+    final prodRows = await db2.query('production_entries',
+      distinct: true,
+      columns: ['employee_id', 'date'],
+      where: where,
+      whereArgs: whereArgs,
+    );
+    debugPrint('SYNC: Found ${prodRows.length} production entries to sync');
+
+    // Optimization: Fetch all attendance records for the relevant dates in one query
+    final empDates = prodRows.map((row) {
+      final empId = row['employee_id'];
+      final date = row['date'];
+      if (empId == null || date == null) return null;
+      final normDate = DateTime.fromMillisecondsSinceEpoch(date is int ? date : (date as num).toInt());
+      final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
+      return {'employee_id': empId, 'date': dayStart};
+    }).whereType<Map<String, dynamic>>().toList();
+
+    // Build a set of all (employee_id, date) pairs
+    final empDateSet = empDates.map((e) => "${e['employee_id']}_${e['date']}").toSet();
+    List<Map<String, dynamic>> existingAttendance = [];
+    if (empDateSet.isNotEmpty) {
+      final empIds = empDates.map((e) => e['employee_id']).toSet().toList();
+      final minDate = empDates.map((e) => e['date'] as int).reduce((a, b) => a < b ? a : b);
+      final maxDate = empDates.map((e) => e['date'] as int).reduce((a, b) => a > b ? a : b);
+      existingAttendance = await db2.query(
+        'attendance',
+        columns: ['id', 'employee_id', 'date'],
+        where: 'employee_id IN (${List.filled(empIds.length, '?').join(',')}) AND date >= ? AND date <= ?',
+        whereArgs: [...empIds, minDate, maxDate],
+      );
+    }
+    // Build a map for quick lookup
+    final Map<String, Map<String, dynamic>> attendanceMap = {
+      for (var row in existingAttendance)
+        "${row['employee_id']}_${row['date']}": row
+    };
+
+    // Batch insert/update in a transaction
+    await db2.transaction((txn) async {
+      for (final row in prodRows) {
+        final empId = row['employee_id'];
+        final date = row['date'];
+        if (empId == null || date == null) continue;
+        final normDate = DateTime.fromMillisecondsSinceEpoch(date is int ? date : (date as num).toInt());
+        final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
+        final key = "${empId}_$dayStart";
+        final existing = attendanceMap[key];
+        if (existing == null) {
+          await txn.insert('attendance', {
+            'employee_id': empId,
+            'date': dayStart,
+            'status': 'present',
+            'shift': 'day',
+            'remarks': 'Auto: Production (update new)',
+          });
+        } else {
+          // Only update if needed (optional, can skip if always same)
+          await txn.update('attendance', {
+            'employee_id': empId,
+            'date': dayStart,
+            'status': 'present',
+            'shift': 'day',
+            'remarks': 'Auto: Production (update new)',
+          }, where: 'id = ?', whereArgs: [existing['id']]);
+        }
+      }
+    });
+  }
 
   /// Update attendance for all employees who have production entries.
   /// For every (employee, date) in production, set attendance to 'present'.
@@ -222,7 +319,8 @@ class ErpDatabase {
       '''CREATE TABLE IF NOT EXISTS stock_ledger (
         id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER,
         fabric_shade_id INTEGER, qty REAL, type TEXT, date INTEGER,
-        reference TEXT, remarks TEXT)''',
+        reference TEXT, remarks TEXT, is_deleted INTEGER DEFAULT 0
+      )''',
       '''CREATE TABLE IF NOT EXISTS challan_requirements (
         id INTEGER PRIMARY KEY AUTOINCREMENT, challan_no TEXT,
         party_id INTEGER, party_name TEXT, product_id INTEGER,
@@ -527,7 +625,8 @@ class ErpDatabase {
       type TEXT,
       date INTEGER,
       reference TEXT,
-      remarks TEXT
+      remarks TEXT,
+      is_deleted INTEGER DEFAULT 0
     )
     ''');
 
@@ -669,6 +768,7 @@ class ErpDatabase {
         SELECT id, remarks, date FROM stock_ledger
         WHERE reference = 'REQ-CLOSE'
           AND (remarks NOT LIKE '%Party:%' OR remarks LIKE '%Requirement closed%')
+          AND (is_deleted IS NULL OR is_deleted = 0)
       ''');
       if (rows.isEmpty) return;
 
@@ -1175,14 +1275,18 @@ class ErpDatabase {
       sync.addPendingDelete(table, id);
     }
     // Delete locally FIRST (ensures data is removed even if Firebase call fails)
-    await db.delete(table, where: 'id=?', whereArgs: [id]);
+    if (table == 'stock_ledger') {
+      await db.update('stock_ledger', {'is_deleted': 1}, where: 'id=?', whereArgs: [id]);
+    } else {
+      await db.delete(table, where: 'id=?', whereArgs: [id]);
+    }
     dataVersion.value++;
     // Then remove from Firebase
     if (syncEnabled && sync.isInitialized) {
       try {
         await sync.deleteRecord(table, id);
       } catch (e) {
-        debugPrint('⚠ _syncDelete Firebase failed ($table/$id): $e');
+        debugPrint('⚠ _syncDelete Firebase failed ( $table/$id): $e');
       }
     }
     if (table != 'activity_log') {
@@ -1375,6 +1479,7 @@ class ErpDatabase {
       FROM stock_ledger
       WHERE product_id = ?
         AND COALESCE(fabric_shade_id, 0) = ?
+        AND (is_deleted IS NULL OR is_deleted = 0)
       ''',
       [productId, shadeKey],
     );
@@ -1412,6 +1517,7 @@ class ErpDatabase {
         JOIN products p ON p.id = l.product_id
         LEFT JOIN fabric_shades f ON f.id = l.fabric_shade_id
         WHERE (l.fabric_shade_id IS NULL OR l.fabric_shade_id = 0 OR f.id IS NOT NULL)
+          AND (l.is_deleted IS NULL OR l.is_deleted = 0)
         GROUP BY l.product_id, COALESCE(l.fabric_shade_id, 0)
       ) x
       WHERE x.balance < 0
@@ -1465,7 +1571,22 @@ class ErpDatabase {
   }
 
   Future<void> deleteLedgerEntry(int id) async {
-    await _syncDelete('stock_ledger', id);
+    final db = await database;
+    // Soft delete: set is_deleted = 1
+    await db.update('stock_ledger', {'is_deleted': 1}, where: 'id=?', whereArgs: [id]);
+    // Sync to Firebase as deleted
+    if (syncEnabled && FirebaseSyncService.instance.isInitialized) {
+      try {
+        await FirebaseSyncService.instance.pushRecord(
+          'stock_ledger',
+          id,
+          {'is_deleted': 1},
+        );
+      } catch (e) {
+        debugPrint('⚠ Failed to push soft delete for stock_ledger/ $id: $e');
+      }
+    }
+    dataVersion.value++;
   }
 
   // ================= MACHINE / OPERATOR =================
