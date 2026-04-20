@@ -174,6 +174,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
 
     final data = await db.rawQuery('''
       SELECT 
+        pm.id AS purchase_master_id,
         pm.purchase_no,
         pm.party_id,
         pi.id AS purchase_item_id,
@@ -555,6 +556,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
 
     final first = groupRows.first;
     final purchaseNo = first['purchase_no'] as int?;
+    final purchaseMasterId = first['purchase_master_id'] as int?;
     if (purchaseNo == null) return;
 
     int? partyId = first['party_id'] as int?;
@@ -586,6 +588,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => _FullPurchaseEditPage(
+          purchaseMasterId: purchaseMasterId,
           purchaseNo: purchaseNo,
           partyId: partyId,
           invoiceNo: invoiceNo,
@@ -603,6 +606,146 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
 
     // Reload after returning
     await _load();
+  }
+
+  Future<void> _deleteFullInvoice(List<Map<String, dynamic>> groupRows) async {
+    if (!await _ensureUnlocked()) return;
+    if (groupRows.isEmpty || !mounted) return;
+
+    final first = groupRows.first;
+    final party = (first['party_name'] ?? '-').toString();
+    final invoice = (first['invoice_no'] ?? '-').toString();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Full Invoice?'),
+        content: Text(
+          'This will permanently delete invoice $invoice for $party, including all purchase items and stock entries.\n\nUse this only if the whole invoice entry is wrong.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final purchaseNos = groupRows
+        .map((r) => r['purchase_no'] as int?)
+        .whereType<int>()
+        .toSet()
+        .toList();
+    final purchaseMasterIds = groupRows
+        .map((r) => r['purchase_master_id'] as int?)
+        .whereType<int>()
+        .toSet()
+        .toList();
+    final purchaseItemIds = groupRows
+        .map((r) => r['purchase_item_id'] as int?)
+        .whereType<int>()
+        .toSet()
+        .toList();
+
+    if (purchaseNos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to delete this invoice')),
+      );
+      return;
+    }
+
+    final db = await ErpDatabase.instance.database;
+    final sync = FirebaseSyncService.instance;
+    final ledgerIds = <int>{};
+
+    await db.transaction((txn) async {
+      for (final row in groupRows) {
+        final productId = row['product_id'] as int?;
+        final shadeId = row['shade_id'] as int?;
+        final date = row['purchase_date'] as int?;
+        final ref = (row['invoice_no'] ?? '').toString();
+        final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+        if (productId == null || shadeId == null || date == null) continue;
+
+        final matches = await txn.rawQuery('''
+          SELECT id FROM stock_ledger
+          WHERE product_id=?
+            AND fabric_shade_id=?
+            AND type='IN'
+            AND date=?
+            AND reference=?
+            AND remarks='Purchase'
+            AND ABS(COALESCE(qty,0) - ?) < 0.001
+        ''', [productId, shadeId, date, ref, qty]);
+
+        for (final match in matches) {
+          final id = match['id'] as int?;
+          if (id != null) ledgerIds.add(id);
+        }
+      }
+
+      if (ledgerIds.isNotEmpty) {
+        final placeholders = List.filled(ledgerIds.length, '?').join(',');
+        await txn.delete(
+          'stock_ledger',
+          where: 'id IN ($placeholders)',
+          whereArgs: ledgerIds.toList(),
+        );
+      }
+
+      final purchasePlaceholders = List.filled(purchaseNos.length, '?').join(',');
+      await txn.delete(
+        'purchase_items',
+        where: 'purchase_no IN ($purchasePlaceholders)',
+        whereArgs: purchaseNos,
+      );
+      await txn.delete(
+        'purchase_master',
+        where: 'firm_id=? AND purchase_no IN ($purchasePlaceholders)',
+        whereArgs: [widget.firmId, ...purchaseNos],
+      );
+    });
+
+    if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
+      for (final id in purchaseMasterIds) {
+        sync.addPendingDelete('purchase_master', id);
+      }
+      for (final id in purchaseItemIds) {
+        sync.addPendingDelete('purchase_items', id);
+      }
+      for (final id in ledgerIds) {
+        sync.addPendingDelete('stock_ledger', id);
+      }
+
+      for (final id in purchaseItemIds) {
+        await sync.deleteRecord('purchase_items', id);
+      }
+      for (final id in ledgerIds) {
+        await sync.deleteRecord('stock_ledger', id);
+      }
+      for (final id in purchaseMasterIds) {
+        await sync.deleteRecord('purchase_master', id);
+      }
+    }
+
+    ErpDatabase.instance.dataVersion.value++;
+    await _load();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Invoice $invoice deleted')),
+    );
   }
 
   @override
@@ -754,20 +897,40 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                                 _shadeGrid(groupRows),
                                 if (editUnlocked) ...[
                                   const SizedBox(height: 8),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor:
-                                            const Color(0xFF1565C0),
-                                        foregroundColor: Colors.white,
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                const Color(0xFF1565C0),
+                                            foregroundColor: Colors.white,
+                                          ),
+                                          onPressed: () =>
+                                              _editFullPurchase(groupRows),
+                                          icon: const Icon(Icons.edit_note,
+                                              size: 20),
+                                          label:
+                                              const Text('Edit Full Purchase'),
+                                        ),
                                       ),
-                                      onPressed: () =>
-                                          _editFullPurchase(groupRows),
-                                      icon:
-                                          const Icon(Icons.edit_note, size: 20),
-                                      label: const Text('Edit Full Purchase'),
-                                    ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.red,
+                                            foregroundColor: Colors.white,
+                                          ),
+                                          onPressed: () =>
+                                              _deleteFullInvoice(groupRows),
+                                          icon: const Icon(
+                                              Icons.delete_forever_outlined,
+                                              size: 20),
+                                          label:
+                                              const Text('Delete Full Invoice'),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ],
@@ -784,6 +947,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
 
 // ==================== FULL PURCHASE EDIT PAGE ====================
 class _FullPurchaseEditPage extends StatefulWidget {
+  final int? purchaseMasterId;
   final int purchaseNo;
   final int? partyId;
   final String invoiceNo;
@@ -797,6 +961,7 @@ class _FullPurchaseEditPage extends StatefulWidget {
   final int firmId;
 
   const _FullPurchaseEditPage({
+    required this.purchaseMasterId,
     required this.purchaseNo,
     required this.partyId,
     required this.invoiceNo,
@@ -955,7 +1120,8 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
         );
         updatedPurchaseItems[-1] = {
           ...headerData,
-          'purchase_no': widget.purchaseNo
+          if (widget.purchaseMasterId != null) 'id': widget.purchaseMasterId,
+          'purchase_no': widget.purchaseNo,
         };
 
         // 2. Delete removed rows
@@ -1099,9 +1265,10 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
           await sync.deleteRecord('stock_ledger', id);
         }
         // Push purchase_master update
-        if (updatedPurchaseItems.containsKey(-1)) {
+        if (updatedPurchaseItems.containsKey(-1) &&
+            widget.purchaseMasterId != null) {
           await sync.pushRecord(
-              'purchase_master', widget.purchaseNo, updatedPurchaseItems[-1]!);
+              'purchase_master', widget.purchaseMasterId!, updatedPurchaseItems[-1]!);
         }
         for (final e in updatedPurchaseItems.entries) {
           if (e.key == -1) continue;

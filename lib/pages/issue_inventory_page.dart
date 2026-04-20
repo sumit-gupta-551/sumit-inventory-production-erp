@@ -129,6 +129,34 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
     return (s?['shade_no'] ?? '-').toString();
   }
 
+  int? get _selectedPartyId {
+    final id = selectedParty?.id;
+    if (id == null) return null;
+    return parties.any((p) => p.id == id) ? id : null;
+  }
+
+  Party? _partyById(int? id) {
+    if (id == null) return null;
+    return parties.cast<Party?>().firstWhere(
+          (p) => p?.id == id,
+          orElse: () => null,
+        );
+  }
+
+  int? get _selectedProductId {
+    final id = selectedProduct?.id;
+    if (id == null) return null;
+    return products.any((p) => p.id == id) ? id : null;
+  }
+
+  Product? _productById(int? id) {
+    if (id == null) return null;
+    return products.cast<Product?>().firstWhere(
+          (p) => p?.id == id,
+          orElse: () => null,
+        );
+  }
+
   List<Map<String, dynamic>> _filteredShadesForProduct() {
     if (selectedProduct == null) return [];
 
@@ -1247,8 +1275,8 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              DropdownButtonFormField<Party>(
-                                value: selectedParty,
+                              DropdownButtonFormField<int>(
+                                value: _selectedPartyId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Party Code',
@@ -1256,19 +1284,20 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                       horizontal: 10, vertical: 8),
                                 ),
                                 items: parties
+                                    .where((p) => p.id != null)
                                     .map(
-                                      (p) => DropdownMenuItem<Party>(
-                                        value: p,
+                                      (p) => DropdownMenuItem<int>(
+                                        value: p.id!,
                                         child: Text(p.name),
                                       ),
                                     )
                                     .toList(),
                                 onChanged: (v) =>
-                                    setState(() => selectedParty = v),
+                                    setState(() => selectedParty = _partyById(v)),
                               ),
                               const SizedBox(height: 6),
-                              DropdownButtonFormField<Product>(
-                                value: selectedProduct,
+                              DropdownButtonFormField<int>(
+                                value: _selectedProductId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Product',
@@ -1276,16 +1305,17 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                                       horizontal: 10, vertical: 8),
                                 ),
                                 items: products
+                                    .where((p) => p.id != null)
                                     .map(
-                                      (p) => DropdownMenuItem<Product>(
-                                        value: p,
+                                      (p) => DropdownMenuItem<int>(
+                                        value: p.id!,
                                         child: Text(p.name),
                                       ),
                                     )
                                     .toList(),
                                 onChanged: (v) {
                                   setState(() {
-                                    selectedProduct = v;
+                                    selectedProduct = _productById(v);
                                     selectedShadeId = null;
                                     selectedShadeIds.clear();
                                     selectedShadeQtyById.clear();

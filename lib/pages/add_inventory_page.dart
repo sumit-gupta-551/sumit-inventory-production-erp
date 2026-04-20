@@ -414,6 +414,34 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     return shade['shade_no']?.toString() ?? '';
   }
 
+  int? get _selectedPartyId {
+    final id = selectedParty?.id;
+    if (id == null) return null;
+    return parties.any((p) => p.id == id) ? id : null;
+  }
+
+  Party? _partyById(int? id) {
+    if (id == null) return null;
+    return parties.cast<Party?>().firstWhere(
+          (p) => p?.id == id,
+          orElse: () => null,
+        );
+  }
+
+  int? get _selectedProductId {
+    final id = selectedProduct?.id;
+    if (id == null) return null;
+    return products.any((p) => p.id == id) ? id : null;
+  }
+
+  Product? _productById(int? id) {
+    if (id == null) return null;
+    return products.cast<Product?>().firstWhere(
+          (p) => p?.id == id,
+          orElse: () => null,
+        );
+  }
+
   List<Map<String, dynamic>> _filteredShadesForProduct() {
     if (selectedProduct == null) return [];
 
@@ -2089,27 +2117,28 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
       return;
     }
 
-    final to = _autoReportMobile.trim();
-    if (to.isEmpty) return;
-
-    final body = 'Date: $date\n'
-        'Party: ${partyName.isEmpty ? '-' : partyName}\n'
-        'Bill No: ${invoiceNo.isEmpty ? '-' : invoiceNo}\n'
-        'Product: ${productName.isEmpty ? '-' : productName}\n'
-        'Shades: ${shadeLines.isNotEmpty ? shadeLines : '-'}\n'
-        'Total $unit: ${totalMtr.toStringAsFixed(2)}';
-
-    final granted = await _telephony.requestPhoneAndSmsPermissions;
-    if (granted != true) {
-      if (mounted) {
-        _msg('Inventory saved, but SMS permission denied.');
-      }
-      return;
-    }
-
     try {
+      final to = _autoReportMobile.trim();
+      if (to.isEmpty) return;
+
+      final body = 'Date: $date\n'
+          'Party: ${partyName.isEmpty ? '-' : partyName}\n'
+          'Bill No: ${invoiceNo.isEmpty ? '-' : invoiceNo}\n'
+          'Product: ${productName.isEmpty ? '-' : productName}\n'
+          'Shades: ${shadeLines.isNotEmpty ? shadeLines : '-'}\n'
+          'Total $unit: ${totalMtr.toStringAsFixed(2)}';
+
+      final granted = await _telephony.requestPhoneAndSmsPermissions;
+      if (granted != true) {
+        if (mounted) {
+          _msg('Inventory saved, but SMS permission denied.');
+        }
+        return;
+      }
+
       await _telephony.sendSms(to: to, message: body);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Auto SMS failed: $e');
       if (mounted) {
         _msg('Inventory saved, but auto SMS failed.');
       }
@@ -2326,8 +2355,8 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                                 ),
                               ),
                               const SizedBox(height: 6),
-                              DropdownButtonFormField<Party>(
-                                value: selectedParty,
+                              DropdownButtonFormField<int>(
+                                value: _selectedPartyId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Party Name',
@@ -2335,19 +2364,20 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                                       horizontal: 10, vertical: 8),
                                 ),
                                 items: parties
+                                    .where((p) => p.id != null)
                                     .map(
-                                      (p) => DropdownMenuItem<Party>(
-                                        value: p,
+                                      (p) => DropdownMenuItem<int>(
+                                        value: p.id!,
                                         child: Text(p.name),
                                       ),
                                     )
                                     .toList(),
                                 onChanged: (v) =>
-                                    setState(() => selectedParty = v),
+                                    setState(() => selectedParty = _partyById(v)),
                               ),
                               const SizedBox(height: 6),
-                              DropdownButtonFormField<Product>(
-                                value: selectedProduct,
+                              DropdownButtonFormField<int>(
+                                value: _selectedProductId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Product',
@@ -2355,16 +2385,17 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                                       horizontal: 10, vertical: 8),
                                 ),
                                 items: products
+                                    .where((p) => p.id != null)
                                     .map(
-                                      (p) => DropdownMenuItem<Product>(
-                                        value: p,
+                                      (p) => DropdownMenuItem<int>(
+                                        value: p.id!,
                                         child: Text(p.name),
                                       ),
                                     )
                                     .toList(),
                                 onChanged: (v) {
                                   setState(() {
-                                    selectedProduct = v;
+                                    selectedProduct = _productById(v);
                                     selectedFabricShadeId = null;
                                     selectedFabricShadeIds.clear();
                                     selectedShadeQtyById.clear();

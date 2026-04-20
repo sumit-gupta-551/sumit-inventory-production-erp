@@ -13,6 +13,30 @@ class AttendancePage extends StatefulWidget {
 }
 
 class _AttendancePageState extends State<AttendancePage> {
+    /// Force full attendance sync: clear local and reload from Firebase for a month
+    Future<void> _forceFullAttendanceSync() async {
+      try {
+        final picked = await showMonthPicker(context: context, initialDate: DateTime.now());
+        if (picked == null) return;
+        final from = DateTime(picked.year, picked.month, 1);
+        final to = DateTime(picked.year, picked.month + 1, 1).subtract(const Duration(milliseconds: 1));
+        setState(() => loading = true);
+        // Clear local attendance for this month
+        await ErpDatabase.instance.deleteAttendanceForPeriod(from.millisecondsSinceEpoch, to.millisecondsSinceEpoch);
+        // Reset last sync so all entries are pulled
+        await SyncHelper.setLastAttendanceSync(0);
+        // Reload from Firebase
+        await ErpDatabase.instance.updateAttendanceFromProductionSince(null, from: from, to: to);
+        await SyncHelper.setLastAttendanceSync(DateTime.now().millisecondsSinceEpoch);
+        setState(() => loading = false);
+        _msg('Force full sync for [1m${picked.year}-${picked.month.toString().padLeft(2, '0')}[22m complete!');
+        _load();
+      } catch (e, st) {
+        debugPrint('ForceFullAttendanceSync: ERROR: $e\n$st');
+        setState(() => loading = false);
+        _msg('Error during force sync: $e');
+      }
+    }
   /// Debug: Cleanup duplicate attendance and enforce unique index
   Future<void> _cleanupAttendanceDuplicates() async {
     await ErpDatabase.instance.cleanupDuplicateAttendance();
@@ -145,7 +169,7 @@ class _AttendancePageState extends State<AttendancePage> {
 
       if (!mounted) return;
       setState(() {
-        allEmployees = combinedEmployees.values.toList();
+        allEmployees = combinedEmployees.values.toList().cast<Map<String, dynamic>>();
         units = unitList;
         attendance = attMap;
         _pending = {};
@@ -379,6 +403,15 @@ class _AttendancePageState extends State<AttendancePage> {
             tooltip: 'Full Sync by Month',
             onPressed: _fullMonthSync,
           ),
+
+          IconButton(
+            icon: const Icon(Icons.sync_problem),
+            tooltip: 'Force Full Sync (Clear & Reload)',
+            onPressed: _forceFullAttendanceSync,
+          ),
+
+// ...existing code...
+
           PopupMenuButton<String>(
             icon: const Icon(Icons.checklist_rounded),
             tooltip: 'Mark All',

@@ -53,6 +53,34 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
     setState(() {});
   }
 
+  int? get _selectedPartyId {
+    final id = selectedParty?.id;
+    if (id == null) return null;
+    return parties.any((p) => p.id == id) ? id : null;
+  }
+
+  Party? _partyById(int? id) {
+    if (id == null) return null;
+    return parties.cast<Party?>().firstWhere(
+          (p) => p?.id == id,
+          orElse: () => null,
+        );
+  }
+
+  int? get _selectedProductId {
+    final id = selectedProduct?.id;
+    if (id == null) return null;
+    return products.any((p) => p.id == id) ? id : null;
+  }
+
+  Product? _productById(int? id) {
+    if (id == null) return null;
+    return products.cast<Product?>().firstWhere(
+          (p) => p?.id == id,
+          orElse: () => null,
+        );
+  }
+
   int _dateMillis() =>
       DateFormat('dd-MM-yyyy').parse(dateCtrl.text).millisecondsSinceEpoch;
 
@@ -230,24 +258,32 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      DropdownButtonFormField<Party>(
-                        value: selectedParty,
+                      DropdownButtonFormField<int>(
+                        value: _selectedPartyId,
                         decoration: const InputDecoration(labelText: 'Party'),
                         items: parties
-                            .map((p) =>
-                                DropdownMenuItem(value: p, child: Text(p.name)))
+                            .where((p) => p.id != null)
+                            .map((p) => DropdownMenuItem<int>(
+                                  value: p.id!,
+                                  child: Text(p.name),
+                                ))
                             .toList(),
-                        onChanged: (v) => setState(() => selectedParty = v),
+                        onChanged: (v) =>
+                            setState(() => selectedParty = _partyById(v)),
                       ),
                       const SizedBox(height: 12),
-                      DropdownButtonFormField<Product>(
-                        value: selectedProduct,
+                      DropdownButtonFormField<int>(
+                        value: _selectedProductId,
                         decoration: const InputDecoration(labelText: 'Product'),
                         items: products
-                            .map((p) =>
-                                DropdownMenuItem(value: p, child: Text(p.name)))
+                            .where((p) => p.id != null)
+                            .map((p) => DropdownMenuItem<int>(
+                                  value: p.id!,
+                                  child: Text(p.name),
+                                ))
                             .toList(),
-                        onChanged: (v) => setState(() => selectedProduct = v),
+                        onChanged: (v) =>
+                            setState(() => selectedProduct = _productById(v)),
                       ),
                     ],
                   ),

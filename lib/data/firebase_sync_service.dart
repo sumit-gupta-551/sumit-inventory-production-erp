@@ -133,6 +133,10 @@ class FirebaseSyncService {
     }
   }
 
+  Future<void> queuePush(String table, int id, Map<String, dynamic> data) async {
+    await _queueFailedPush(table, id, data);
+  }
+
   Future<void> _refreshPendingSyncCount() async {
     try {
       final db = await ErpDatabase.instance.database;
@@ -183,13 +187,18 @@ class FirebaseSyncService {
   // ---------- PUSH / DELETE ----------
   Future<void> pushRecord(
       String table, int id, Map<String, dynamic> data) async {
-    if (_syncing) return;
+    final keepQueuedUntilFullSyncEnds = _syncing;
+    if (keepQueuedUntilFullSyncEnds) {
+      await _queueFailedPush(table, id, data);
+    }
     try {
       final pushData = Map<String, dynamic>.from(data);
       pushData['_ts'] = ServerValue.timestamp;
       await _ref.child('$table/$id').set(pushData);
       // If this was a queued retry, remove from pending
-      await _removePendingSync(table, id, 'push');
+      if (!keepQueuedUntilFullSyncEnds) {
+        await _removePendingSync(table, id, 'push');
+      }
     } catch (e) {
       debugPrint('⚠ sync push ($table/$id): $e');
       // Queue for retry so data is not lost
@@ -221,7 +230,17 @@ class FirebaseSyncService {
     } catch (_) {}
   }
 
-  // ---------- FULL SYNC (startup) ----------
+  // ---------- FAST / FULL SYNC ----------
+  Future<void> fastSync() async {
+    await init();
+    final db = await ErpDatabase.instance.database;
+    await _retryPendingDeletes(db);
+    await _retryFailedPushes(db);
+    startListening();
+    syncVersion.value++;
+    ErpDatabase.instance.dataVersion.value++;
+  }
+
   Future<void> fullSync() async {
     await init();
     _syncing = true;
@@ -248,6 +267,12 @@ class FirebaseSyncService {
       debugPrint('⚠ fullSync error: $e');
     } finally {
       _syncing = false;
+      try {
+        final db = await ErpDatabase.instance.database;
+        await _retryFailedPushes(db);
+      } catch (e) {
+        debugPrint('âš  retry after fullSync: $e');
+      }
     }
   }
 

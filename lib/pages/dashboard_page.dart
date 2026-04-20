@@ -165,9 +165,9 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
     try {
-      await FirebaseSyncService.instance.fullSync();
-      FirebaseSyncService.instance.startListening();
+      await FirebaseSyncService.instance.fastSync();
       await _loadRequirementCount();
+      await _loadStockTicker();
       await _checkConnectivity();
     } catch (e) {
       debugPrint('Sync error: $e');
@@ -176,7 +176,53 @@ class _DashboardPageState extends State<DashboardPage> {
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Data updated from server'),
+        content: Text('Fast sync complete'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _loadBackupFromServer() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Load Backup From Server?'),
+        content: const Text(
+          'This will run a full sync from Firebase and may take time. Use it for a new phone, restore, or missing data.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Load'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      await FirebaseSyncService.instance.fullSync();
+      FirebaseSyncService.instance.startListening();
+      await _loadRequirementCount();
+      await _loadStockTicker();
+      await _checkConnectivity();
+    } catch (e) {
+      debugPrint('Load backup error: $e');
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Backup loaded from server'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -1097,7 +1143,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                     ),
                                     const SizedBox(height: 3),
                                     Text(
-                                      'ERP System  •  v1.0.17',
+                                      'ERP System  •  v1.0.01',
                                       style: TextStyle(
                                         color: Colors.white
                                             .withValues(alpha: 0.35),
@@ -1484,6 +1530,8 @@ class _DashboardPageState extends State<DashboardPage> {
             _checkAppUpdateWithPasscode();
           case 'cloud_backup':
             _runCloudBackup();
+          case 'load_backup':
+            _loadBackupFromServer();
           case 'clear_firebase':
             _clearFirebaseData();
           case 'activity_log':
@@ -1534,6 +1582,11 @@ class _DashboardPageState extends State<DashboardPage> {
           const PopupMenuItem(
               value: 'cloud_backup',
               child: _MenuRow(Icons.cloud_upload_rounded, 'Backup to Cloud')),
+        if (_perm.hasPermission('sync_data'))
+          const PopupMenuItem(
+              value: 'load_backup',
+              child: _MenuRow(
+                  Icons.cloud_download_rounded, 'Load Backup From Server')),
         if (_perm.hasPermission('update_app'))
           const PopupMenuItem(
               value: 'update_app',

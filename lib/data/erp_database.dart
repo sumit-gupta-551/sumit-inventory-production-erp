@@ -1,62 +1,84 @@
-﻿import 'dart:async';
-import 'package:flutter/foundation.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
-import '../models/product.dart';
-import '../models/party.dart';
-import 'firebase_sync_service.dart';
-import 'permission_service.dart';
+﻿
 
 import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-
 import '../models/product.dart';
 import '../models/party.dart';
 import 'firebase_sync_service.dart';
 import 'permission_service.dart';
 
-/// A ValueNotifier that coalesces rapid value changes and only
-/// notifies listeners after a short debounce period.
-class _DebouncedNotifier extends ValueNotifier<int> {
-  Timer? _timer;
-  int _pending = 0;
-  final Duration delay;
 
-  _DebouncedNotifier(this.delay) : super(0);
 
-  @override
-  set value(int newValue) {
-    _pending = newValue;
-    _timer?.cancel();
-    _timer = Timer(delay, () {
-      super.value = _pending;
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-}
 
 class ErpDatabase {
+
+    static final ErpDatabase instance = ErpDatabase._init();
+    static Database? _db;
+
+    /// Incremented after every insert/update/delete.
+    /// Pages listen to this to auto-refresh their data.
+    /// Debounced so rapid-fire changes don't cause continuous reloads.
+    // Use ValueNotifier instead of _DebouncedNotifier if not defined
+    final dataVersion = ValueNotifier<int>(0);
+
+    ErpDatabase._init();
+
+    // ================= DATABASE INSTANCE =================
+    Future<Database> get database async {
+      if (_db != null) return _db!;
+      _db = await _initDB();
+      return _db!;
+    }
+
+    // ================= INIT DB =================
+    Future<Database> _initDB() async {
+      final dbPath = await getDatabasesPath();
+      final path = join(dbPath, 'erp.db');
+
+      final db = await openDatabase(
+        path,
+        version: 21,
+        onCreate: (db, version) async {
+          await _createDB(db, version);
+          await _seedGstCategories(db);
+        },
+        onUpgrade: _upgradeDB,
+      );
+
+      // 🔥 ADD THIS LINE (VERY IMPORTANT)
+      await _seedGstCategories(db);
+      await _ensureAllTables(db);
+      await _ensurePurchaseMasterReportingColumns(db);
+      await _createIndexes(db);
+      await _fixReqCloseRemarks(db);
+
+      return db;
+    }
+  // Only keep the first definition block above. Remove all duplicate static fields, constructors, and methods below this point.
+
+  /// Delete all attendance records for a given period
+  Future<void> deleteAttendanceForPeriod(int fromMs, int toMs) async {
+    final db = await database;
+    await db.delete(
+      'attendance',
+      where: 'date >= ? AND date <= ?',
+      whereArgs: [fromMs, toMs],
+    );
+  }
+
   /// Update attendance for production entries since [sinceMs].
   /// Optionally restrict to a date range [from] to [to].
   Future<void> updateAttendanceFromProductionSince(int? sinceMs, {DateTime? from, DateTime? to}) async {
-    // --- MIGRATION: Ensure is_deleted column exists on stock_ledger ---
+    // ...existing code...
     final db = await database;
     final cols = await db.rawQuery("PRAGMA table_info(stock_ledger)");
     final hasIsDeleted = cols.any((c) => c['name'] == 'is_deleted');
     if (!hasIsDeleted) {
       await db.execute("ALTER TABLE stock_ledger ADD COLUMN is_deleted INTEGER DEFAULT 0");
     }
-    debugPrint('SYNC: updateAttendanceFromProductionSince called with sinceMs=$sinceMs, from=$from, to=$to');
-    // Use a different variable name to avoid redeclaration
-    final db2 = await database;
+    debugPrint('SYNC: updateAttendanceFromProductionSince called with sinceMs=[1m$sinceMs[22m, from=$from, to=$to');
     String where = 'employee_id IS NOT NULL AND date IS NOT NULL';
     List whereArgs = [];
     if (sinceMs != null) {
@@ -72,7 +94,7 @@ class ErpDatabase {
       whereArgs.add(to.millisecondsSinceEpoch);
     }
     debugPrint('SYNC: where=$where, whereArgs=$whereArgs');
-    final prodRows = await db2.query('production_entries',
+    final prodRows = await db.query('production_entries',
       distinct: true,
       columns: ['employee_id', 'date'],
       where: where,
@@ -97,7 +119,7 @@ class ErpDatabase {
       final empIds = empDates.map((e) => e['employee_id']).toSet().toList();
       final minDate = empDates.map((e) => e['date'] as int).reduce((a, b) => a < b ? a : b);
       final maxDate = empDates.map((e) => e['date'] as int).reduce((a, b) => a > b ? a : b);
-      existingAttendance = await db2.query(
+      existingAttendance = await db.query(
         'attendance',
         columns: ['id', 'employee_id', 'date'],
         where: 'employee_id IN (${List.filled(empIds.length, '?').join(',')}) AND date >= ? AND date <= ?',
@@ -111,7 +133,7 @@ class ErpDatabase {
     };
 
     // Batch insert/update in a transaction
-    await db2.transaction((txn) async {
+    await db.transaction((txn) async {
       for (final row in prodRows) {
         final empId = row['employee_id'];
         final date = row['date'];
@@ -222,47 +244,7 @@ class ErpDatabase {
         }
       }
     }
-  static final ErpDatabase instance = ErpDatabase._init();
-  static Database? _db;
 
-  /// Incremented after every insert/update/delete.
-  /// Pages listen to this to auto-refresh their data.
-  /// Debounced so rapid-fire changes don't cause continuous reloads.
-  final dataVersion = _DebouncedNotifier(const Duration(milliseconds: 300));
-
-  ErpDatabase._init();
-
-  // ================= DATABASE INSTANCE =================
-  Future<Database> get database async {
-    if (_db != null) return _db!;
-    _db = await _initDB();
-    return _db!;
-  }
-
-  // ================= INIT DB =================
-  Future<Database> _initDB() async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, 'erp.db');
-
-    final db = await openDatabase(
-      path,
-      version: 21,
-      onCreate: (db, version) async {
-        await _createDB(db, version);
-        await _seedGstCategories(db);
-      },
-      onUpgrade: _upgradeDB,
-    );
-
-    // 🔥 ADD THIS LINE (VERY IMPORTANT)
-    await _seedGstCategories(db);
-    await _ensureAllTables(db);
-    await _ensurePurchaseMasterReportingColumns(db);
-    await _createIndexes(db);
-    await _fixReqCloseRemarks(db);
-
-    return db;
-  }
 
   /// Ensure every table exists (safe to call on every startup).
   Future<void> _ensureAllTables(Database db) async {
@@ -1187,7 +1169,7 @@ class ErpDatabase {
     final db = await database;
     final sync = FirebaseSyncService.instance;
     int id;
-    if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
+    if (syncEnabled && sync.isInitialized) {
       int? firebaseId;
       try {
         firebaseId = await sync.getNextId(table);
@@ -1223,6 +1205,10 @@ class ErpDatabase {
     }
     data.remove('id');
     id = await db.insert(table, data);
+    if (syncEnabled) {
+      data['id'] = id;
+      await sync.queuePush(table, id, data);
+    }
     dataVersion.value++;
     if (table != 'activity_log') {
       logActivity(
@@ -1242,8 +1228,12 @@ class ErpDatabase {
     await db.update(table, data, where: 'id=?', whereArgs: [id]);
     dataVersion.value++;
     final sync = FirebaseSyncService.instance;
-    if (syncEnabled && sync.isInitialized) {
-      await sync.pushRecord(table, id, data);
+    if (syncEnabled) {
+      if (sync.isInitialized) {
+        await sync.pushRecord(table, id, data);
+      } else {
+        await sync.queuePush(table, id, data);
+      }
     }
     if (table != 'activity_log') {
       logActivity(
@@ -1349,10 +1339,21 @@ class ErpDatabase {
   }
 
   // ================= PRODUCTS =================
-  Future<List<Product>> getProducts() async =>
-      (await database).query('products').then(
-            (r) => r.map((e) => Product.fromMap(e)).toList(),
-          );
+  Future<List<Product>> getProducts() async {
+    final rows = await (await database).query('products', orderBy: 'name');
+    final byId = <int, Product>{};
+    final withoutId = <Product>[];
+    for (final row in rows) {
+      final product = Product.fromMap(row);
+      final id = product.id;
+      if (id == null) {
+        withoutId.add(product);
+      } else {
+        byId[id] = product;
+      }
+    }
+    return [...byId.values, ...withoutId];
+  }
 
   Future<void> insertProduct(Product p) async {
     final data = p.toMap();
@@ -1368,10 +1369,21 @@ class ErpDatabase {
   Future<void> deleteProduct(int id) async => _syncDelete('products', id);
 
   // ================= PARTIES =================
-  Future<List<Party>> getParties() async =>
-      (await database).query('parties').then(
-            (r) => r.map((e) => Party.fromMap(e)).toList(),
-          );
+  Future<List<Party>> getParties() async {
+    final rows = await (await database).query('parties', orderBy: 'name');
+    final byId = <int, Party>{};
+    final withoutId = <Party>[];
+    for (final row in rows) {
+      final party = Party.fromMap(row);
+      final id = party.id;
+      if (id == null) {
+        withoutId.add(party);
+      } else {
+        byId[id] = party;
+      }
+    }
+    return [...byId.values, ...withoutId];
+  }
 
   // ================= FIRMS =================
   Future<List<Map<String, dynamic>>> getFirms() async =>

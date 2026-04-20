@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -16,6 +17,9 @@ import 'data/permission_service.dart';
 import 'theme/app_theme.dart';
 import 'pages/dashboard_page.dart';
 import 'pages/login_page.dart';
+
+Timer? _autoFastSyncTimer;
+final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +43,10 @@ Future<void> main() async {
 
   try {
     await ErpDatabase.instance.database;
+    await FirebaseSyncService.instance.init();
+    ErpDatabase.instance.syncEnabled = true;
+    FirebaseSyncService.instance.startListening();
+    _startAutoFastSync();
   } catch (e) {
     debugPrint('⚠ Database init failed: $e');
   }
@@ -56,24 +64,21 @@ Future<void> main() async {
   runApp(
       MyApp(showLogin: isRegistered && !isLoggedIn, showDashboard: isLoggedIn));
 
-  // --- Heavy sync runs AFTER UI is visible (non-blocking) ---
-  _initSyncInBackground();
 }
 
-/// Runs Firebase full sync in the background so UI is not blocked.
-Future<void> _initSyncInBackground() async {
-  try {
-    await FirebaseSyncService.instance.init();
-    ErpDatabase.instance.syncEnabled = true;
-    await FirebaseSyncService.instance.fullSync();
-    FirebaseSyncService.instance.startListening();
-    debugPrint('✅ Firebase sync completed in background');
-  } catch (e) {
-    debugPrint('⚠ Firebase sync failed: $e');
-  }
+void _startAutoFastSync() {
+  _autoFastSyncTimer?.cancel();
+  _autoFastSyncTimer = Timer.periodic(const Duration(minutes: 30), (_) async {
+    try {
+      await FirebaseSyncService.instance.fastSync();
+      debugPrint('Auto fast sync completed');
+    } catch (e) {
+      debugPrint('Auto fast sync failed: $e');
+    }
+  });
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   final bool showLogin;
   final bool showDashboard;
 
@@ -81,21 +86,77 @@ class MyApp extends StatelessWidget {
       {super.key, required this.showLogin, required this.showDashboard});
 
   @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  static const _autoLogoutAfter = Duration(minutes: 1);
+  Timer? _logoutTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.showDashboard) {
+      _resetLogoutTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _logoutTimer?.cancel();
+    super.dispose();
+  }
+
+  void _resetLogoutTimer() {
+    _logoutTimer?.cancel();
+    _logoutTimer = Timer(_autoLogoutAfter, _autoLogout);
+  }
+
+  void _recordActivity() {
+    _resetLogoutTimer();
+  }
+
+  Future<void> _autoLogout() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('is_logged_in') != true) return;
+
+    await prefs.setBool('is_logged_in', false);
+    ErpDatabase.instance.logActivity(
+      action: 'AUTO_LOGOUT',
+      details: 'User auto logged out after 1 minute of inactivity',
+    );
+
+    final nav = _navigatorKey.currentState;
+    if (nav == null) return;
+    nav.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+      (_) => false,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     Widget home;
-    if (showDashboard) {
+    if (widget.showDashboard) {
       home = const DashboardPage();
-    } else if (showLogin) {
+    } else if (widget.showLogin) {
       home = const LoginPage();
     } else {
       home = const LoginPage();
     }
 
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'ERP Inventory',
       theme: AppTheme.light,
       home: home,
+      builder: (context, child) => Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => _recordActivity(),
+        onPointerSignal: (_) => _recordActivity(),
+        child: child ?? const SizedBox.shrink(),
+      ),
     );
   }
 }

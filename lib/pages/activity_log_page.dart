@@ -109,7 +109,7 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
     if (!mounted) return;
     setState(() {
       logs.addAll(result);
-      offset += result.length;
+      offset += result.length as int;
       hasMore = result.length == pageSize;
     });
   }
