@@ -17,8 +17,16 @@ jobs:
         with:
           flutter-version: '3.16.9' # or your version
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Print Flutter and Dart versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: List repository files
+        run: ls -R
+
+      - name: Install dependencies (verbose)
+        run: flutter pub get -v
 
       - name: Build APK
         run: flutter build apk --release
