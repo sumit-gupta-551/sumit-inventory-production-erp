@@ -1,5 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -26,6 +28,8 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
   DateTime? fromDate;
   DateTime? toDate;
   bool loading = true;
+  Timer? _reloadDebounce;
+  int _loadVersion = 0;
 
   List<Map<String, dynamic>> _applyProductShadeFilters(
     List<Map<String, dynamic>> rows,
@@ -152,20 +156,17 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         0,
         (sum, r) => sum + ((r['balance'] as num?)?.toDouble() ?? 0),
       );
-      final shadeRows = rows
-          .asMap()
-          .entries
-          .map((e) {
-            final bal = ((e.value['balance'] as num?)?.toDouble() ?? 0).toStringAsFixed(2);
-            return [
-                (e.key + 1).toString(),
-                productName,
-                (e.value['shade'] ?? '-').toString(),
-                bal,
-                unit,
-              ];
-          })
-          .toList();
+      final shadeRows = rows.asMap().entries.map((e) {
+        final bal =
+            ((e.value['balance'] as num?)?.toDouble() ?? 0).toStringAsFixed(2);
+        return [
+          (e.key + 1).toString(),
+          productName,
+          (e.value['shade'] ?? '-').toString(),
+          bal,
+          unit,
+        ];
+      }).toList();
 
       bodyWidgets.add(pw.Text(
         productName,
@@ -372,22 +373,30 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _load(showLoader: true);
     ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     super.dispose();
   }
 
   void _onDataChanged() {
-    if (mounted) _load();
+    if (!mounted) return;
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _load(showLoader: false),
+    );
   }
 
-  Future<void> _load() async {
-    if (mounted) {
+  Future<void> _load({bool showLoader = false}) async {
+    final loadVersion = ++_loadVersion;
+    final shouldShowLoader = showLoader || ledger.isEmpty;
+    if (mounted && shouldShowLoader) {
       setState(() => loading = true);
     }
 
@@ -402,7 +411,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
         : DateTime(toDate!.year, toDate!.month, toDate!.day, 23, 59, 59, 999)
             .millisecondsSinceEpoch;
 
-    ledger = await db.rawQuery('''
+    final loadedLedger = await db.rawQuery('''
       SELECT l.*, 
              p.name AS product_name,
              COALESCE(p.unit, 'Mtr') AS product_unit,
@@ -422,11 +431,11 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
       toMs,
     ]);
 
-    products = await db.query('products');
-    shades = await db.query('fabric_shades');
+    final loadedProducts = await db.query('products');
+    final loadedShades = await db.query('fabric_shades');
 
     // Build running balance (chronological) and current balance
-    final chrono = List<Map<String, dynamic>>.from(ledger)
+    final chrono = List<Map<String, dynamic>>.from(loadedLedger)
       ..sort((a, b) {
         final da = (a['date'] as int?) ?? 0;
         final dbb = (b['date'] as int?) ?? 0;
@@ -460,12 +469,23 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
       }
     }
 
-    runningBalanceByRowId = runById;
-    currentBalanceByKey = liveBal;
+    if (!mounted || loadVersion != _loadVersion) return;
+    setState(() {
+      ledger = loadedLedger;
+      products = loadedProducts;
+      shades = loadedShades;
+      runningBalanceByRowId = runById;
+      currentBalanceByKey = liveBal;
+      loading = false;
+    });
+  }
 
-    if (mounted) {
-      setState(() => loading = false);
-    }
+  Future<void> _refresh() async {
+    await _load(showLoader: true);
+  }
+
+  Future<void> _reloadForFilters() async {
+    await _load(showLoader: ledger.isEmpty);
   }
 
   // ================= UI =================
@@ -516,7 +536,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
           ),
           IconButton(
             tooltip: 'Refresh',
-            onPressed: () => _load(),
+            onPressed: _refresh,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -636,7 +656,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
                                     selectedProductId = null;
                                     selectedShadeId = null;
                                   });
-                                  _load();
+                                  _reloadForFilters();
                                 },
                                 child: const Text('Clear'),
                               ),
@@ -644,7 +664,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: ElevatedButton(
-                                onPressed: _load,
+                                onPressed: _reloadForFilters,
                                 child: const Text('Apply'),
                               ),
                             ),

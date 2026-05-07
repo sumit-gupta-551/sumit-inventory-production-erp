@@ -157,6 +157,147 @@ class _UserManagementPageState extends State<UserManagementPage> {
     }
   }
 
+  // ─── Attendance Units (unit-wise restriction) ───
+  Future<void> _editAttendanceUnits(Map<String, dynamic> user) async {
+    final phone = user['phone'] as String;
+    if (phone == PermissionService.superPhone) return;
+
+    if ((user['role'] as String?) == 'admin') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Admin has full access. Change role to Custom first.')),
+      );
+      return;
+    }
+
+    // Load all units
+    final allUnits = await ErpDatabase.instance.getUnits();
+    final unitNames = allUnits
+        .map((u) => (u['name'] ?? '').toString())
+        .where((n) => n.isNotEmpty)
+        .toList();
+
+    // Existing allowed list from user record. If the field is missing
+    // we treat it as "unrestricted" (all units allowed).
+    final existingRaw = user['allowed_attendance_units'];
+    bool unrestricted = existingRaw == null;
+    final selected = <String>{};
+    if (existingRaw is List) {
+      selected.addAll(existingRaw.map((e) => e.toString()));
+    } else if (existingRaw is Map) {
+      selected.addAll(existingRaw.values.map((e) => e.toString()));
+    }
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: Text('Attendance Units — ${user['name'] ?? phone}'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Allow all units',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text(
+                      'When ON, the user can mark attendance for every unit.',
+                      style: TextStyle(fontSize: 11)),
+                  value: unrestricted,
+                  onChanged: (v) => setDlg(() => unrestricted = v),
+                ),
+                const Divider(),
+                if (unitNames.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Text('No units found in master.'),
+                  )
+                else
+                  Flexible(
+                    child: Opacity(
+                      opacity: unrestricted ? 0.4 : 1.0,
+                      child: IgnorePointer(
+                        ignoring: unrestricted,
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: unitNames.map((name) {
+                            final isSel = selected.contains(name);
+                            return CheckboxListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(name),
+                              value: isSel,
+                              onChanged: (v) => setDlg(() {
+                                if (v == true) {
+                                  selected.add(name);
+                                } else {
+                                  selected.remove(name);
+                                }
+                              }),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (!unrestricted) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () =>
+                            setDlg(() => selected.addAll(unitNames)),
+                        child: const Text('Select All'),
+                      ),
+                      TextButton(
+                        onPressed: () => setDlg(() => selected.clear()),
+                        child: const Text('Clear'),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, {
+                'unrestricted': unrestricted,
+                'units': selected.toList(),
+              }),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == null) return;
+
+    final isUnrestricted = result['unrestricted'] as bool;
+    final units = (result['units'] as List).cast<String>();
+    await _perm.setUserAttendanceUnits(phone, isUnrestricted ? null : units);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(isUnrestricted
+            ? 'All units allowed for ${user['name'] ?? phone}'
+            : '${units.length} unit(s) allowed for ${user['name'] ?? phone}'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    _load();
+  }
+
   // ─── Delete User ───
   Future<void> _deleteUser(Map<String, dynamic> user) async {
     final phone = user['phone'] as String;
@@ -408,6 +549,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
                                   if (value == 'permissions') {
                                     _editPermissions(user);
                                   }
+                                  if (value == 'attendance_units') {
+                                    _editAttendanceUnits(user);
+                                  }
                                   if (value == 'delete') {
                                     _deleteUser(user);
                                   }
@@ -431,6 +575,16 @@ class _UserManagementPageState extends State<UserManagementPage> {
                                         Icon(Icons.lock_open_rounded, size: 18),
                                         SizedBox(width: 8),
                                         Text('Edit Permissions'),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'attendance_units',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.business_rounded, size: 18),
+                                        SizedBox(width: 8),
+                                        Text('Attendance Units'),
                                       ],
                                     ),
                                   ),
@@ -479,6 +633,7 @@ class _PermissionEditorPageState extends State<_PermissionEditorPage> {
   static const _categories = <String, List<String>>{
     'Modules': [
       'purchase_entry',
+      'order_management',
       'issue_entry',
       'requirement',
       'stock_adjustment',
@@ -486,6 +641,8 @@ class _PermissionEditorPageState extends State<_PermissionEditorPage> {
       'firms',
       'machine_allotment',
       'operator_live',
+      'program_card',
+      'dispatch_goods',
     ],
     'Masters': [
       'master_parties',
@@ -500,12 +657,15 @@ class _PermissionEditorPageState extends State<_PermissionEditorPage> {
     'Reports': [
       'report_stock',
       'report_purchase',
+      'report_order',
       'report_issue',
       'report_challan',
       'report_shade_movement',
       'report_daily_consumption',
       'report_requirement_history',
       'report_adjustment_history',
+      'report_program_card',
+      'report_dispatch',
     ],
     'Payroll': [
       'payroll_employee_master',

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -24,6 +25,7 @@ class PermissionService {
   static const allPermissions = <String, String>{
     // Modules
     'purchase_entry': 'Purchase Entry',
+    'order_management': 'Order Management',
     'issue_entry': 'Issue Entry',
     'requirement': 'Requirement',
     'stock_adjustment': 'Stock Adjustment',
@@ -32,6 +34,8 @@ class PermissionService {
     'firms': 'Firms',
     'machine_allotment': 'Machine Allotment',
     'operator_live': 'Operator Live',
+    'program_card': 'Program Card',
+    'dispatch_goods': 'Dispatch Goods',
     // Masters
     'master_parties': 'Parties',
     'master_products': 'Products / Items',
@@ -44,12 +48,16 @@ class PermissionService {
     // Reports
     'report_stock': 'Stock Report',
     'report_purchase': 'Purchase Report',
+    'report_order': 'Order Report',
     'report_issue': 'Issue Report',
     'report_challan': 'Issue Challan',
     'report_shade_movement': 'Shade Movement',
     'report_daily_consumption': 'Daily Consumption',
     'report_requirement_history': 'Requirement History',
     'report_adjustment_history': 'Adjustment History',
+    'report_program_card': 'Program Card Report',
+    'report_dispatch': 'Dispatch Report',
+    'report_paid_salary': 'Paid Salary Report',
     // Payroll
     'payroll_employee_master': 'Employee Master',
     'payroll_production_entry': 'Production Entry',
@@ -72,6 +80,10 @@ class PermissionService {
   String _currentRole = 'custom';
   String _currentName = '';
   Map<String, bool> _permissions = {};
+  // Per-user list of unit names this user may access in Attendance.
+  // `null` (i.e. node missing in Firebase) means unrestricted (all units).
+  // Empty list means the user is restricted to NO units.
+  List<String>? _allowedAttendanceUnits;
 
   String get currentPhone => _currentPhone;
   String get currentRole => _currentRole;
@@ -79,10 +91,55 @@ class PermissionService {
   bool get isSuper => _currentPhone == superPhone;
   bool get isAdmin => _currentRole == 'admin' || isSuper;
 
+  /// Returns the list of allowed unit names for Attendance for the current user.
+  /// `null` means unrestricted (all units allowed).
+  List<String>? get allowedAttendanceUnits =>
+      _allowedAttendanceUnits == null ? null : List.unmodifiable(_allowedAttendanceUnits!);
+
+  /// Whether the current user can access attendance for the given unit name.
+  /// Admin/super always pass. If no restriction list is configured, all units are allowed.
+  bool canAccessAttendanceUnit(String unitName) {
+    if (isSuper || isAdmin) return true;
+    final allowed = _allowedAttendanceUnits;
+    if (allowed == null) return true; // unrestricted
+    return allowed.contains(unitName);
+  }
+
   DatabaseReference get _ref => FirebaseDatabase.instanceFor(
         app: Firebase.app(),
         databaseURL: _dbUrl,
       ).ref();
+
+  /// REST fallback for platforms where the native Firebase RTDB plugin
+  /// is unavailable (e.g. Windows / Linux desktop) or fails to connect.
+  /// Returns the decoded `app_users/<phone>` map, or `null` if the node
+  /// does not exist or the request failed.
+  Future<Map<String, dynamic>?> _restGetUser(String phone) async {
+    HttpClient? client;
+    try {
+      client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 10);
+      final uri = Uri.parse('$_dbUrl/app_users/$phone.json');
+      final req = await client.getUrl(uri);
+      final resp = await req.close().timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200) {
+        debugPrint('⚠ REST user fetch HTTP ${resp.statusCode}');
+        return null;
+      }
+      final body = await resp.transform(utf8.decoder).join();
+      if (body.isEmpty || body == 'null') return null;
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        return decoded.map((k, v) => MapEntry(k.toString(), v));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('⚠ REST user fetch failed: $e');
+      return null;
+    } finally {
+      client?.close(force: true);
+    }
+  }
 
   /// Whether the current user can access the given page/feature.
   bool hasPermission(String key) {
@@ -99,19 +156,55 @@ class PermissionService {
       return;
     }
 
+    Map<String, dynamic>? data;
     try {
       final snap = await _ref.child('app_users/$phone').get();
-      if (snap.exists) {
-        final data = Map<String, dynamic>.from(snap.value as Map);
-        _currentRole = (data['role'] as String?) ?? 'custom';
-        _currentName = (data['name'] as String?) ?? '';
-        if (data['permissions'] != null) {
-          _permissions = Map<String, dynamic>.from(data['permissions'] as Map)
-              .map((k, v) => MapEntry(k, v == true));
-        }
+      if (snap.exists && snap.value is Map) {
+        data = Map<String, dynamic>.from(snap.value as Map);
       }
     } catch (e) {
-      debugPrint('⚠ Load permissions failed: $e');
+      debugPrint('⚠ Load permissions (Firebase) failed: $e');
+    }
+
+    // Fallback to REST when native plugin returned nothing or threw
+    // (typical on Windows desktop builds).
+    data ??= await _restGetUser(phone);
+    if (data == null) return;
+
+    _currentRole = (data['role'] as String?) ?? 'custom';
+    _currentName = (data['name'] as String?) ?? '';
+    if (data['permissions'] != null && data['permissions'] is Map) {
+      _permissions = Map<String, dynamic>.from(data['permissions'] as Map)
+          .map((k, v) => MapEntry(k, v == true));
+    }
+    if (data['allowed_attendance_units'] != null) {
+      final raw = data['allowed_attendance_units'];
+      if (raw is List) {
+        _allowedAttendanceUnits = raw.map((e) => e.toString()).toList();
+      } else if (raw is Map) {
+        _allowedAttendanceUnits =
+            raw.values.map((e) => e.toString()).toList();
+      }
+    } else {
+      _allowedAttendanceUnits = null;
+    }
+  }
+
+  /// Set the list of unit names a custom user may access in Attendance (super only).
+  /// Pass `null` to clear restrictions (allow all units).
+  Future<void> setUserAttendanceUnits(
+      String phone, List<String>? units) async {
+    if (!isSuper || phone == superPhone) return;
+    try {
+      if (units == null) {
+        await _ref.child('app_users/$phone/allowed_attendance_units').remove();
+      } else {
+        await _ref
+            .child('app_users/$phone/allowed_attendance_units')
+            .set(units);
+      }
+    } catch (e) {
+      debugPrint('⚠ Set attendance units failed: $e');
     }
   }
 
@@ -251,20 +344,25 @@ class PermissionService {
   /// Returns user name on success, null on failure.
   Future<String?> verifyFirebaseLogin(
       String phone, String hashedPassword) async {
+    Map<String, dynamic>? data;
     try {
       final snap = await _ref.child('app_users/$phone').get();
-      if (!snap.exists) return null;
-
-      final data = Map<String, dynamic>.from(snap.value as Map);
-      final savedHash = data['password'] as String? ?? '';
-
-      if (savedHash == hashedPassword) {
-        return (data['name'] as String?) ?? phone;
+      if (snap.exists && snap.value is Map) {
+        data = Map<String, dynamic>.from(snap.value as Map);
       }
-      return null;
     } catch (e) {
       debugPrint('⚠ Firebase login verify failed: $e');
-      return null;
     }
+
+    // Fallback to REST when the native plugin couldn't fetch the record
+    // (e.g. Windows desktop, missing firebase_options, network issues).
+    data ??= await _restGetUser(phone);
+    if (data == null) return null;
+
+    final savedHash = data['password'] as String? ?? '';
+    if (savedHash == hashedPassword) {
+      return (data['name'] as String?) ?? phone;
+    }
+    return null;
   }
 }

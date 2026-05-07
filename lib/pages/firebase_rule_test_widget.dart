@@ -16,7 +16,8 @@ class _FirebaseRuleTestWidgetState extends State<FirebaseRuleTestWidget> {
       await FirebaseAuth.instance.signInAnonymously();
 
       DatabaseReference ref = FirebaseDatabase.instance.ref('test_node');
-      await ref.set({'test': 'value', 'timestamp': DateTime.now().toIso8601String()});
+      await ref.set(
+          {'test': 'value', 'timestamp': DateTime.now().toIso8601String()});
       setState(() {
         _result = 'Write succeeded!';
       });

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
+import '../data/permission_service.dart';
+import '../widgets/passcode_gate.dart';
 
 class EmployeeMasterPage extends StatefulWidget {
   const EmployeeMasterPage({super.key});
@@ -51,9 +53,26 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
         final d = (e['designation'] ?? '').toString().trim();
         if (d.isNotEmpty) desigSet.add(d);
       }
+
+      // Restrict employees & units to the units this user is allowed to see
+      // (same per-user unit access used by Attendance).
+      final allowed = PermissionService.instance.allowedAttendanceUnits;
+      final filteredRows = allowed == null
+          ? rows
+          : rows
+              .where((e) =>
+                  allowed.contains((e['unit_name'] ?? '').toString()))
+              .toList();
+      final filteredUnits = allowed == null
+          ? u
+          : u
+              .where(
+                  (un) => allowed.contains((un['name'] ?? '').toString()))
+              .toList();
+
       setState(() {
-        employees = rows;
-        units = u;
+        employees = filteredRows;
+        units = filteredUnits;
         designations = desigSet.toList()..sort();
         loading = false;
       });
@@ -682,13 +701,25 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.edit, size: 20),
-                              onPressed: () => _openForm(existing: e),
+                              onPressed: () async {
+                                final ok = await requirePasscode(context,
+                                    title: 'Enter Passcode to Edit',
+                                    action: 'Edit');
+                                if (!ok) return;
+                                _openForm(existing: e);
+                              },
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete,
                                   size: 20, color: Colors.red),
-                              onPressed: () => _delete(
-                                  e['id'] as int, (e['name'] ?? '').toString()),
+                              onPressed: () async {
+                                final ok = await requirePasscode(context,
+                                    title: 'Enter Passcode to Delete',
+                                    action: 'Delete');
+                                if (!ok) return;
+                                _delete(e['id'] as int,
+                                    (e['name'] ?? '').toString());
+                              },
                             ),
                           ],
                         ),

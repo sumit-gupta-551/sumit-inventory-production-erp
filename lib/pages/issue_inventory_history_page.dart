@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
-import '../data/firebase_sync_service.dart';
+import 'package:sssj/data/firebase_sync_service.dart';
 
 class IssueInventoryHistoryPage extends StatefulWidget {
   const IssueInventoryHistoryPage({super.key});
@@ -57,6 +57,7 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
       LEFT JOIN products p ON p.id = sl.product_id
       LEFT JOIN fabric_shades fs ON fs.id = sl.fabric_shade_id
       WHERE UPPER(sl.type) = 'OUT'
+        AND (sl.is_deleted IS NULL OR sl.is_deleted = 0)
       ORDER BY sl.date DESC, sl.id DESC
     ''');
 
@@ -1293,60 +1294,66 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
       if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
         for (final d in deleted) {
           final ledgerId = d['ledger_id'] as int?;
-          if (ledgerId != null) sync.addPendingDelete('stock_ledger', ledgerId);
+          if (ledgerId != null)
+            await sync.addPendingDelete('stock_ledger', ledgerId);
         }
       }
 
-      await db.transaction((txn) async {
-        // 1. Delete removed rows
-        for (final d in deleted) {
-          final ledgerId = d['ledger_id'] as int?;
-          if (ledgerId == null) continue;
-          await txn
-              .delete('stock_ledger', where: 'id=?', whereArgs: [ledgerId]);
-        }
+      await sync.beginLocalDbWrite();
+      try {
+        await db.transaction((txn) async {
+          // 1. Delete removed rows
+          for (final d in deleted) {
+            final ledgerId = d['ledger_id'] as int?;
+            if (ledgerId == null) continue;
+            await txn
+                .delete('stock_ledger', where: 'id=?', whereArgs: [ledgerId]);
+          }
 
-        // 2. Update existing rows
-        for (final item in items) {
-          if (item['is_new'] == true) continue;
-          final ledgerId = item['ledger_id'] as int?;
-          if (ledgerId == null) continue;
+          // 2. Update existing rows
+          for (final item in items) {
+            if (item['is_new'] == true) continue;
+            final ledgerId = item['ledger_id'] as int?;
+            if (ledgerId == null) continue;
 
-          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
-          final newShade = item['shade_id'] as int?;
+            final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+            final newShade = item['shade_id'] as int?;
 
-          await txn.update(
-            'stock_ledger',
-            {
+            await txn.update(
+              'stock_ledger',
+              {
+                'product_id': productId,
+                'fabric_shade_id': newShade,
+                'qty': newQty,
+                'date': newDateMs,
+                'remarks': remarks,
+              },
+              where: 'id=?',
+              whereArgs: [ledgerId],
+            );
+          }
+
+          // 3. Insert new rows
+          for (final item in items) {
+            if (item['is_new'] != true) continue;
+            final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+            final newShade = item['shade_id'] as int?;
+
+            final newId = await txn.insert('stock_ledger', {
               'product_id': productId,
               'fabric_shade_id': newShade,
               'qty': newQty,
+              'type': 'OUT',
               'date': newDateMs,
+              'reference': '',
               'remarks': remarks,
-            },
-            where: 'id=?',
-            whereArgs: [ledgerId],
-          );
-        }
-
-        // 3. Insert new rows
-        for (final item in items) {
-          if (item['is_new'] != true) continue;
-          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
-          final newShade = item['shade_id'] as int?;
-
-          final newId = await txn.insert('stock_ledger', {
-            'product_id': productId,
-            'fabric_shade_id': newShade,
-            'qty': newQty,
-            'type': 'OUT',
-            'date': newDateMs,
-            'reference': '',
-            'remarks': remarks,
-          });
-          item['ledger_id'] = newId;
-        }
-      });
+            });
+            item['ledger_id'] = newId;
+          }
+        });
+      } finally {
+        await sync.endLocalDbWrite();
+      }
 
       ErpDatabase.instance.dataVersion.value++;
 

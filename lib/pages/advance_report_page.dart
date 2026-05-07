@@ -1,5 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -26,6 +28,8 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
 
   List<Map<String, dynamic>> _advances = [];
   bool _loading = true;
+  Timer? _reloadDebounce;
+  int _loadVersion = 0;
 
   // Group-by mode
   String _groupBy = 'month'; // month, unit, mode
@@ -49,36 +53,46 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _load(showLoader: true);
     ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     super.dispose();
   }
 
   void _onDataChanged() {
     if (!mounted) return;
-    _load();
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _load(showLoader: false),
+    );
   }
 
   int get _fromMs => DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
       .millisecondsSinceEpoch;
-  int get _toMs =>
-      DateTime(_toDate.year, _toDate.month, _toDate.day)
-          .add(const Duration(days: 1))
-          .millisecondsSinceEpoch;
+  int get _toMs => DateTime(_toDate.year, _toDate.month, _toDate.day)
+      .add(const Duration(days: 1))
+      .millisecondsSinceEpoch;
 
-  Future<void> _load() async {
-    if (_advances.isEmpty) setState(() => _loading = true);
+  Future<void> _load({bool showLoader = false}) async {
+    final loadVersion = ++_loadVersion;
+    final shouldShowLoader = showLoader || _advances.isEmpty;
+    if (mounted && shouldShowLoader) setState(() => _loading = true);
     final list = await _db.getSalaryAdvances(fromMs: _fromMs, toMs: _toMs);
-    if (!mounted) return;
+    if (!mounted || loadVersion != _loadVersion) return;
     setState(() {
       _advances = list;
       _loading = false;
     });
+  }
+
+  Future<void> _reloadForFilters() async {
+    await _load(showLoader: _advances.isEmpty);
   }
 
   // ─── helpers ───
@@ -144,7 +158,7 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
     );
     if (d != null) {
       setState(() => _fromDate = d);
-      _load();
+      _reloadForFilters();
     }
   }
 
@@ -157,7 +171,7 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
     );
     if (d != null) {
       setState(() => _toDate = d);
-      _load();
+      _reloadForFilters();
     }
   }
 

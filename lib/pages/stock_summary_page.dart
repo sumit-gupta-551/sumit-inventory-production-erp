@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -29,6 +31,8 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
   DateTime? fromDate;
   DateTime? toDate;
   bool loading = true;
+  Timer? _reloadDebounce;
+  int _loadVersion = 0;
 
   String _fmtDateChip(DateTime? d) {
     if (d == null) return 'Any';
@@ -94,30 +98,40 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _load(showLoader: true);
     ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     super.dispose();
   }
 
   void _onDataChanged() {
-    if (mounted) _load();
+    if (!mounted) return;
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _load(showLoader: false),
+    );
   }
 
-  Future<void> _load() async {
-    setState(() => loading = true);
+  Future<void> _load({bool showLoader = false}) async {
+    final loadVersion = ++_loadVersion;
+    final shouldShowLoader = showLoader || rows.isEmpty;
+    if (mounted && shouldShowLoader) {
+      setState(() => loading = true);
+    }
 
     final db = await ErpDatabase.instance.database;
 
-    parties =
+    final nextParties =
         await db.query('parties', columns: ['id', 'name'], orderBy: 'name');
-    products =
+    final nextProducts =
         await db.query('products', columns: ['id', 'name'], orderBy: 'name');
-    shades = await db.query(
+    final nextShades = await db.query(
       'fabric_shades',
       columns: ['id', 'shade_no'],
       orderBy: 'shade_no',
@@ -132,7 +146,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
         : DateTime(toDate!.year, toDate!.month, toDate!.day, 23, 59, 59, 999)
             .millisecondsSinceEpoch;
 
-    rows = await db.rawQuery('''
+    final nextRows = await db.rawQuery('''
       SELECT
         pm.purchase_no,
         pm.purchase_date,
@@ -178,8 +192,22 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
       selectedShadeId,
     ]);
 
-    if (!mounted) return;
-    setState(() => loading = false);
+    if (!mounted || loadVersion != _loadVersion) return;
+    setState(() {
+      parties = nextParties;
+      products = nextProducts;
+      shades = nextShades;
+      rows = nextRows;
+      loading = false;
+    });
+  }
+
+  Future<void> _refresh() async {
+    await _load(showLoader: true);
+  }
+
+  Future<void> _reloadForFilters() async {
+    await _load(showLoader: rows.isEmpty);
   }
 
   List<Map<String, dynamic>> _buildDateWiseSections() {
@@ -226,8 +254,15 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
     sections.sort((a, b) => (b['dayMs'] as int).compareTo(a['dayMs'] as int));
 
     for (final sec in sections) {
-      final entries =
-          (sec['entries'] as Map<String, Map<String, dynamic>>).values.toList();
+      final entriesMap =
+          sec['entries'] as Map<String, Map<String, dynamic>>;
+      // Drop zero-stock shades from each entry; drop entries that end up empty.
+      entriesMap.removeWhere((_, e) {
+        final shadeMap = e['shadeQty'] as Map<String, double>;
+        shadeMap.removeWhere((_, v) => v.abs() <= 0.0001);
+        return shadeMap.isEmpty;
+      });
+      final entries = entriesMap.values.toList();
       entries.sort((a, b) {
         final p =
             (a['partyName'] as String).compareTo(b['partyName'] as String);
@@ -239,6 +274,9 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
       });
       sec['entryList'] = entries;
     }
+
+    // Drop date sections that have no remaining entries.
+    sections.removeWhere((sec) => (sec['entryList'] as List).isEmpty);
 
     return sections;
   }
@@ -266,6 +304,13 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
     }
 
     final sections = map.values.toList();
+    // Drop zero-stock shades from each product; drop products with no remaining shades.
+    for (final p in sections) {
+      final shadeMap = p['shadeQty'] as Map<String, double>;
+      shadeMap.removeWhere((_, v) => v.abs() <= 0.0001);
+    }
+    sections.removeWhere(
+        (p) => (p['shadeQty'] as Map<String, double>).isEmpty);
     sections.sort(
       (a, b) =>
           (a['productName'] as String).compareTo(b['productName'] as String),
@@ -274,8 +319,20 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
   }
 
   Widget _shadeGrid(Map<String, double> shadeQty) {
-    final shadeRows = shadeQty.entries.toList()
+    // Hide shades with zero (or negligible) stock.
+    final shadeRows = shadeQty.entries
+        .where((e) => e.value.abs() > 0.0001)
+        .toList()
       ..sort((a, b) => a.key.compareTo(b.key));
+    if (shadeRows.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(8),
+        child: Text(
+          'No stock available',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
 
     return Table(
       border: TableBorder.all(color: Colors.black12),
@@ -424,8 +481,10 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
               for (final e in entries) {
                 final shadeMap = (e['shadeQty'] as Map<String, double>);
                 final tableData = shadeMap.entries
+                    .where((s) => s.value.abs() > 0.0001)
                     .map((s) => [s.key, s.value.toStringAsFixed(2)])
                     .toList();
+                if (tableData.isEmpty) continue;
 
                 widgets.add(
                   pw.Container(
@@ -474,8 +533,10 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
             for (final p in productSections) {
               final shadeMap = (p['shadeQty'] as Map<String, double>);
               final tableData = shadeMap.entries
+                  .where((s) => s.value.abs() > 0.0001)
                   .map((s) => [s.key, s.value.toStringAsFixed(2)])
                   .toList();
+              if (tableData.isEmpty) continue;
 
               widgets.add(
                 pw.Container(
@@ -538,7 +599,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
           ),
           IconButton(
             tooltip: 'Refresh',
-            onPressed: _load,
+            onPressed: _refresh,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -712,7 +773,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                                     selectedShadeId = null;
                                     reportMode = StockSummaryReportMode.both;
                                   });
-                                  _load();
+                                  _reloadForFilters();
                                 },
                                 child: const Text('Clear'),
                               ),
@@ -720,7 +781,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: ElevatedButton(
-                                onPressed: _load,
+                                onPressed: _reloadForFilters,
                                 child: const Text('Apply'),
                               ),
                             ),

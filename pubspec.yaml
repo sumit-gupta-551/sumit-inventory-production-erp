@@ -20,13 +20,15 @@ dependencies:
 
   # LOCAL DATABASE
   sqflite: ^2.3.2
-  sqflite_common_ffi: ^2.3.2+1
+  sqflite_common_ffi: ^2.3.3
+  sqlite3_flutter_libs: ^0.5.24
   path: ^1.8.3
 
   # 🔥 FIREBASE (CORRECT POSITION)
   firebase_core: ^3.12.1
   cloud_firestore:  ^5.6.7
   firebase_database: ^11.3.5
+  firebase_auth: ^5.7.0
   # FILE / PDF / EXPORT
   pdf: ^3.10.8
   printing: ^5.12.0
@@ -54,10 +56,10 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon.png"
+  image_path: "assets/mslogo.png"
   min_sdk_android: 21
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "assets/icon.png"
+  adaptive_icon_foreground: "assets/mslogo.png"
 
 flutter:
   uses-material-design: true

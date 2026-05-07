@@ -1,5 +1,3 @@
-﻿
-
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
@@ -9,53 +7,87 @@ import '../models/party.dart';
 import 'firebase_sync_service.dart';
 import 'permission_service.dart';
 
-
-
-
 class ErpDatabase {
+  static final ErpDatabase instance = ErpDatabase._init();
+  static Database? _db;
+  bool _closedRequirementLedgerRepairDone = false;
+  bool _closedRequirementDataRepairDone = false;
+  int _bulkMutationDepth = 0;
+  bool _bulkMutationDirty = false;
+  int _suppressActivityLogDepth = 0;
 
-    static final ErpDatabase instance = ErpDatabase._init();
-    static Database? _db;
+  /// Incremented after every insert/update/delete.
+  /// Pages listen to this to auto-refresh their data.
+  /// Debounced so rapid-fire sync changes don't trigger reload storms.
+  final dataVersion = _DebouncedIntNotifier(0);
 
-    /// Incremented after every insert/update/delete.
-    /// Pages listen to this to auto-refresh their data.
-    /// Debounced so rapid-fire changes don't cause continuous reloads.
-    // Use ValueNotifier instead of _DebouncedNotifier if not defined
-    final dataVersion = ValueNotifier<int>(0);
+  ErpDatabase._init();
 
-    ErpDatabase._init();
-
-    // ================= DATABASE INSTANCE =================
-    Future<Database> get database async {
-      if (_db != null) return _db!;
-      _db = await _initDB();
-      return _db!;
+  void _beginBulkMutation({bool suppressActivityLog = false}) {
+    _bulkMutationDepth++;
+    if (suppressActivityLog) {
+      _suppressActivityLogDepth++;
     }
+  }
 
-    // ================= INIT DB =================
-    Future<Database> _initDB() async {
-      final dbPath = await getDatabasesPath();
-      final path = join(dbPath, 'erp.db');
-
-      final db = await openDatabase(
-        path,
-        version: 21,
-        onCreate: (db, version) async {
-          await _createDB(db, version);
-          await _seedGstCategories(db);
-        },
-        onUpgrade: _upgradeDB,
-      );
-
-      // 🔥 ADD THIS LINE (VERY IMPORTANT)
-      await _seedGstCategories(db);
-      await _ensureAllTables(db);
-      await _ensurePurchaseMasterReportingColumns(db);
-      await _createIndexes(db);
-      await _fixReqCloseRemarks(db);
-
-      return db;
+  void _endBulkMutation({bool suppressActivityLog = false}) {
+    if (_bulkMutationDepth > 0) {
+      _bulkMutationDepth--;
     }
+    if (_bulkMutationDepth == 0 && _bulkMutationDirty) {
+      _bulkMutationDirty = false;
+      dataVersion.value++;
+    }
+    if (suppressActivityLog && _suppressActivityLogDepth > 0) {
+      _suppressActivityLogDepth--;
+    }
+  }
+
+  void _markDataChanged() {
+    if (_bulkMutationDepth > 0) {
+      _bulkMutationDirty = true;
+      return;
+    }
+    dataVersion.value++;
+  }
+
+  bool get _shouldWriteActivityLog => _suppressActivityLogDepth == 0;
+
+  // ================= DATABASE INSTANCE =================
+  Future<Database> get database async {
+    if (_db != null) return _db!;
+    _db = await _initDB();
+    return _db!;
+  }
+
+  // ================= INIT DB =================
+  Future<Database> _initDB() async {
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, 'erp.db');
+
+    final db = await openDatabase(
+      path,
+      version: 25,
+      onCreate: (db, version) async {
+        await _createDB(db, version);
+        await _seedGstCategories(db);
+      },
+      onUpgrade: _upgradeDB,
+    );
+
+    // ðŸ”¥ ADD THIS LINE (VERY IMPORTANT)
+    await _seedGstCategories(db);
+    await _ensureAllTables(db);
+    await _ensureStockLedgerColumns(db);
+    await _ensurePurchaseMasterReportingColumns(db);
+    await _ensurePurchaseMasterOrderNoColumn(db);
+    await _createIndexes(db);
+    await _fixReqCloseRemarks(db);
+    await _cleanupOrphanOrderPurchaseLedgerEntries(db);
+    await _reopenOrphanCompletedProgramCards(db);
+
+    return db;
+  }
   // Only keep the first definition block above. Remove all duplicate static fields, constructors, and methods below this point.
 
   /// Delete all attendance records for a given period
@@ -68,22 +100,42 @@ class ErpDatabase {
     );
   }
 
+  /// Latest production entry id. Used for fast incremental attendance sync.
+  Future<int> getMaxProductionEntryId() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT COALESCE(MAX(id), 0) AS max_id FROM production_entries',
+    );
+    final raw = rows.first['max_id'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return 0;
+  }
+
   /// Update attendance for production entries since [sinceMs].
   /// Optionally restrict to a date range [from] to [to].
-  Future<void> updateAttendanceFromProductionSince(int? sinceMs, {DateTime? from, DateTime? to}) async {
+  Future<void> updateAttendanceFromProductionSince(
+    int? sinceProductionId, {
+    DateTime? from,
+    DateTime? to,
+  }) async {
     // ...existing code...
     final db = await database;
     final cols = await db.rawQuery("PRAGMA table_info(stock_ledger)");
     final hasIsDeleted = cols.any((c) => c['name'] == 'is_deleted');
     if (!hasIsDeleted) {
-      await db.execute("ALTER TABLE stock_ledger ADD COLUMN is_deleted INTEGER DEFAULT 0");
+      await db.execute(
+          "ALTER TABLE stock_ledger ADD COLUMN is_deleted INTEGER DEFAULT 0");
     }
-    debugPrint('SYNC: updateAttendanceFromProductionSince called with sinceMs=[1m$sinceMs[22m, from=$from, to=$to');
+    debugPrint(
+        'SYNC: updateAttendanceFromProductionSince called with sinceProductionId=$sinceProductionId, from=$from, to=$to');
     String where = 'employee_id IS NOT NULL AND date IS NOT NULL';
     List whereArgs = [];
-    if (sinceMs != null) {
-      where += ' AND date > ?';
-      whereArgs.add(sinceMs);
+    if (sinceProductionId != null) {
+      // Use production entry id for incremental sync.
+      // Date can be backdated and would miss rows when compared to "last sync time".
+      where += ' AND id > ?';
+      whereArgs.add(sinceProductionId);
     }
     if (from != null) {
       where += ' AND date >= ?';
@@ -94,7 +146,8 @@ class ErpDatabase {
       whereArgs.add(to.millisecondsSinceEpoch);
     }
     debugPrint('SYNC: where=$where, whereArgs=$whereArgs');
-    final prodRows = await db.query('production_entries',
+    final prodRows = await db.query(
+      'production_entries',
       distinct: true,
       columns: ['employee_id', 'date'],
       where: where,
@@ -103,26 +156,35 @@ class ErpDatabase {
     debugPrint('SYNC: Found ${prodRows.length} production entries to sync');
 
     // Optimization: Fetch all attendance records for the relevant dates in one query
-    final empDates = prodRows.map((row) {
-      final empId = row['employee_id'];
-      final date = row['date'];
-      if (empId == null || date == null) return null;
-      final normDate = DateTime.fromMillisecondsSinceEpoch(date is int ? date : (date as num).toInt());
-      final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
-      return {'employee_id': empId, 'date': dayStart};
-    }).whereType<Map<String, dynamic>>().toList();
+    final empDates = prodRows
+        .map((row) {
+          final empId = row['employee_id'];
+          final date = row['date'];
+          if (empId == null || date == null) return null;
+          final normDate = DateTime.fromMillisecondsSinceEpoch(
+              date is int ? date : (date as num).toInt());
+          final dayStart = DateTime(normDate.year, normDate.month, normDate.day)
+              .millisecondsSinceEpoch;
+          return {'employee_id': empId, 'date': dayStart};
+        })
+        .whereType<Map<String, dynamic>>()
+        .toList();
 
     // Build a set of all (employee_id, date) pairs
-    final empDateSet = empDates.map((e) => "${e['employee_id']}_${e['date']}").toSet();
+    final empDateSet =
+        empDates.map((e) => "${e['employee_id']}_${e['date']}").toSet();
     List<Map<String, dynamic>> existingAttendance = [];
     if (empDateSet.isNotEmpty) {
       final empIds = empDates.map((e) => e['employee_id']).toSet().toList();
-      final minDate = empDates.map((e) => e['date'] as int).reduce((a, b) => a < b ? a : b);
-      final maxDate = empDates.map((e) => e['date'] as int).reduce((a, b) => a > b ? a : b);
+      final minDate =
+          empDates.map((e) => e['date'] as int).reduce((a, b) => a < b ? a : b);
+      final maxDate =
+          empDates.map((e) => e['date'] as int).reduce((a, b) => a > b ? a : b);
       existingAttendance = await db.query(
         'attendance',
         columns: ['id', 'employee_id', 'date'],
-        where: 'employee_id IN (${List.filled(empIds.length, '?').join(',')}) AND date >= ? AND date <= ?',
+        where:
+            'employee_id IN (${List.filled(empIds.length, '?').join(',')}) AND date >= ? AND date <= ?',
         whereArgs: [...empIds, minDate, maxDate],
       );
     }
@@ -133,41 +195,40 @@ class ErpDatabase {
     };
 
     // Batch insert/update in a transaction
-    await db.transaction((txn) async {
-      for (final row in prodRows) {
-        final empId = row['employee_id'];
-        final date = row['date'];
-        if (empId == null || date == null) continue;
-        final normDate = DateTime.fromMillisecondsSinceEpoch(date is int ? date : (date as num).toInt());
-        final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
-        final key = "${empId}_$dayStart";
-        final existing = attendanceMap[key];
-        if (existing == null) {
-          await txn.insert('attendance', {
-            'employee_id': empId,
-            'date': dayStart,
-            'status': 'present',
-            'shift': 'day',
-            'remarks': 'Auto: Production (update new)',
-          });
-        } else {
-          // Only update if needed (optional, can skip if always same)
-          await txn.update('attendance', {
-            'employee_id': empId,
-            'date': dayStart,
-            'status': 'present',
-            'shift': 'day',
-            'remarks': 'Auto: Production (update new)',
-          }, where: 'id = ?', whereArgs: [existing['id']]);
+    final sync = FirebaseSyncService.instance;
+    await sync.beginLocalDbWrite();
+    try {
+      await db.transaction((txn) async {
+        for (final row in prodRows) {
+          final empId = row['employee_id'];
+          final date = row['date'];
+          if (empId == null || date == null) continue;
+          final normDate = DateTime.fromMillisecondsSinceEpoch(
+              date is int ? date : (date as num).toInt());
+          final dayStart = DateTime(normDate.year, normDate.month, normDate.day)
+              .millisecondsSinceEpoch;
+          final key = "${empId}_$dayStart";
+          final existing = attendanceMap[key];
+          if (existing == null) {
+            await txn.insert('attendance', {
+              'employee_id': empId,
+              'date': dayStart,
+              'status': 'present',
+              'shift': 'day',
+              'remarks': 'Auto: Production (update new)',
+            });
+          }
         }
-      }
-    });
+      });
+    } finally {
+      await sync.endLocalDbWrite();
+    }
   }
 
   /// Update attendance for all employees who have production entries.
   /// For every (employee, date) in production, set attendance to 'present'.
   Future<void> updateAttendanceFromAllProduction() async {
-      debugPrint('--- SYNC: updateAttendanceFromAllProduction START ---');
+    debugPrint('--- SYNC: updateAttendanceFromAllProduction START ---');
     final db = await database;
     final prodRows = await db.rawQuery('''
       SELECT DISTINCT employee_id, date FROM production_entries
@@ -178,14 +239,17 @@ class ErpDatabase {
       final date = row['date'];
       if (empId == null || date == null) continue;
       // Normalize date to start of day
-      final normDate = DateTime.fromMillisecondsSinceEpoch(date is int ? date : (date as num).toInt());
-      final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
-        debugPrint('SYNC: Employee $empId, Date $dayStart (${normDate.year}-${normDate.month}-${normDate.day})');
+      final normDate = DateTime.fromMillisecondsSinceEpoch(
+          date is int ? date : (date as num).toInt());
+      final dayStart = DateTime(normDate.year, normDate.month, normDate.day)
+          .millisecondsSinceEpoch;
+      debugPrint(
+          'SYNC: Employee $empId, Date $dayStart (${normDate.year}-${normDate.month}-${normDate.day})');
       final existing = await db.query('attendance',
-        columns: ['id'],
-        where: 'employee_id = ? AND date = ?',
-        whereArgs: [empId, dayStart],
-        limit: 1);
+          columns: ['id'],
+          where: 'employee_id = ? AND date = ?',
+          whereArgs: [empId, dayStart],
+          limit: 1);
       if (existing.isEmpty) {
         await _syncInsert('attendance', {
           'employee_id': empId,
@@ -194,57 +258,44 @@ class ErpDatabase {
           'shift': 'day',
           'remarks': 'Auto: Production (update all)',
         });
-      } else {
-        await _syncUpdate('attendance', {
-          'employee_id': empId,
-          'date': dayStart,
-          'status': 'present',
-          'shift': 'day',
-          'remarks': 'Auto: Production (update all)',
-        }, existing.first['id'] as int);
       }
     }
     debugPrint('--- SYNC: updateAttendanceFromAllProduction END ---');
   }
 
-    /// Sync all production entries to attendance: for every production entry, ensure attendance is present for that employee/date.
-    Future<void> syncAllProductionToAttendance() async {
-      final db = await database;
-      // Get all unique (employee_id, date) pairs from production_entries
-      final prodRows = await db.rawQuery('''
+  /// Sync all production entries to attendance: for every production entry, ensure attendance is present for that employee/date.
+  Future<void> syncAllProductionToAttendance() async {
+    final db = await database;
+    // Get all unique (employee_id, date) pairs from production_entries
+    final prodRows = await db.rawQuery('''
         SELECT DISTINCT employee_id, date FROM production_entries
         WHERE employee_id IS NOT NULL AND date IS NOT NULL
       ''');
-      for (final row in prodRows) {
-        final empId = row['employee_id'];
-        final date = row['date'];
-        if (empId == null || date == null) continue;
-        // Normalize date to start of day
-        final normDate = DateTime.fromMillisecondsSinceEpoch(date is int ? date : (date as num).toInt());
-        final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
-        final existing = await db.query('attendance',
+    for (final row in prodRows) {
+      final empId = row['employee_id'];
+      final date = row['date'];
+      if (empId == null || date == null) continue;
+      // Normalize date to start of day
+      final normDate = DateTime.fromMillisecondsSinceEpoch(
+          date is int ? date : (date as num).toInt());
+      final dayStart = DateTime(normDate.year, normDate.month, normDate.day)
+          .millisecondsSinceEpoch;
+      final existing = await db.query('attendance',
           columns: ['id'],
           where: 'employee_id = ? AND date = ?',
           whereArgs: [empId, dayStart],
           limit: 1);
-        if (existing.isEmpty) {
-          await _syncInsert('attendance', {
-            'employee_id': empId,
-            'date': dayStart,
-            'status': 'present',
-            'shift': 'day',
-            'remarks': 'Auto: Production (sync)',
-          });
-        } else {
-          await _syncUpdate('attendance', {
-            'status': 'present',
-            'shift': 'day',
-            'remarks': 'Auto: Production (sync)',
-          }, existing.first['id'] as int);
-        }
+      if (existing.isEmpty) {
+        await _syncInsert('attendance', {
+          'employee_id': empId,
+          'date': dayStart,
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production (sync)',
+        });
       }
     }
-
+  }
 
   /// Ensure every table exists (safe to call on every startup).
   Future<void> _ensureAllTables(Database db) async {
@@ -262,12 +313,20 @@ class ErpDatabase {
       '''CREATE TABLE IF NOT EXISTS purchase_master (
         id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_no INTEGER,
         firm_id INTEGER, purchase_date INTEGER, invoice_no TEXT,
-        party_id INTEGER, gross_amount REAL, discount_amount REAL,
+        party_id INTEGER, order_no INTEGER, gross_amount REAL, discount_amount REAL,
         cgst REAL, sgst REAL, igst REAL, total_amount REAL)''',
       '''CREATE TABLE IF NOT EXISTS purchase_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT, purchase_no INTEGER,
         product_id INTEGER, shade_id INTEGER, qty REAL, rate REAL,
         amount REAL)''',
+      '''CREATE TABLE IF NOT EXISTS order_master (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, order_no INTEGER,
+        firm_id INTEGER, order_date INTEGER, party_id INTEGER,
+        remarks TEXT, status TEXT DEFAULT 'open',
+        total_qty REAL DEFAULT 0, closed_at INTEGER, created_at INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, order_no INTEGER,
+        product_id INTEGER, shade_id INTEGER, qty REAL)''',
       '''CREATE TABLE IF NOT EXISTS machines (
         id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT, name TEXT,
         unit_name TEXT, status TEXT,
@@ -301,7 +360,8 @@ class ErpDatabase {
       '''CREATE TABLE IF NOT EXISTS stock_ledger (
         id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER,
         fabric_shade_id INTEGER, qty REAL, type TEXT, date INTEGER,
-        reference TEXT, remarks TEXT, is_deleted INTEGER DEFAULT 0
+        reference TEXT, remarks TEXT, is_deleted INTEGER DEFAULT 0,
+        order_no INTEGER
       )''',
       '''CREATE TABLE IF NOT EXISTS challan_requirements (
         id INTEGER PRIMARY KEY AUTOINCREMENT, challan_no TEXT,
@@ -382,6 +442,44 @@ class ErpDatabase {
         details TEXT,
         user_name TEXT,
         timestamp INTEGER NOT NULL)''',
+      '''CREATE TABLE IF NOT EXISTS program_cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        program_date INTEGER,
+        company TEXT,
+        party_id INTEGER,
+        product_id INTEGER,
+        design_no TEXT,
+        card_no TEXT,
+        tp REAL DEFAULT 0,
+        line_no TEXT,
+        status TEXT,
+        status_dhaga_cutting INTEGER,
+        status_alter INTEGER,
+        status_stiching INTEGER,
+        status_cutting INTEGER,
+        status_checking INTEGER,
+        status_shoulder_cutting INTEGER,
+        status_ready_dispatch INTEGER,
+        remarks TEXT,
+        created_at INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS dispatch_bills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bill_date INTEGER,
+        bill_no TEXT,
+        party_id INTEGER,
+        remarks TEXT,
+        created_at INTEGER)''',
+      '''CREATE TABLE IF NOT EXISTS dispatch_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bill_id INTEGER,
+        program_card_id INTEGER,
+        company TEXT,
+        product_id INTEGER,
+        design_no TEXT,
+        card_no TEXT,
+        qty REAL DEFAULT 0,
+        pcs REAL DEFAULT 0,
+        created_at INTEGER)''',
       '''CREATE TABLE IF NOT EXISTS _pending_sync (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         table_name TEXT NOT NULL,
@@ -394,7 +492,7 @@ class ErpDatabase {
       try {
         await db.execute(sql);
       } catch (e) {
-        debugPrint('⚠ _ensureAllTables: $e');
+        debugPrint('âš  _ensureAllTables: $e');
       }
     }
 
@@ -402,6 +500,8 @@ class ErpDatabase {
     const alterMap = {
       'employees': ['salary_base_days', 'unit_name'],
       'machines': ['incentive_amount', 'bonus'],
+      'program_cards': ['product_id'],
+      'dispatch_items': ['product_id'],
     };
     for (final entry in alterMap.entries) {
       try {
@@ -414,7 +514,9 @@ class ErpDatabase {
                 ? 'REAL DEFAULT 0'
                 : col.contains('days')
                     ? 'INTEGER DEFAULT 30'
-                    : 'TEXT';
+                    : col.endsWith('_id')
+                        ? 'INTEGER'
+                        : 'TEXT';
             await db.execute('ALTER TABLE ${entry.key} ADD COLUMN $col $type');
           }
         }
@@ -442,6 +544,39 @@ class ErpDatabase {
       }
     } catch (_) {
       // Ignore if table does not exist yet or migration is in progress.
+    }
+  }
+
+  Future<void> _ensurePurchaseMasterOrderNoColumn(Database db) async {
+    try {
+      final cols = await db.rawQuery('PRAGMA table_info(purchase_master)');
+      final names =
+          cols.map((e) => (e['name'] ?? '').toString().toLowerCase()).toSet();
+      if (!names.contains('order_no')) {
+        await db
+            .execute('ALTER TABLE purchase_master ADD COLUMN order_no INTEGER');
+      }
+    } catch (_) {
+      // Ignore if table does not exist yet or migration is in progress.
+    }
+  }
+
+  Future<void> _ensureStockLedgerColumns(Database db) async {
+    try {
+      final cols = await db.rawQuery('PRAGMA table_info(stock_ledger)');
+      final names =
+          cols.map((e) => (e['name'] ?? '').toString().toLowerCase()).toSet();
+
+      if (!names.contains('is_deleted')) {
+        await db.execute(
+            'ALTER TABLE stock_ledger ADD COLUMN is_deleted INTEGER DEFAULT 0');
+      }
+      if (!names.contains('order_no')) {
+        await db
+            .execute('ALTER TABLE stock_ledger ADD COLUMN order_no INTEGER');
+      }
+    } catch (_) {
+      // Ignore if the table is being created/migrated; _ensureAllTables runs first.
     }
   }
 
@@ -491,6 +626,7 @@ class ErpDatabase {
       purchase_date INTEGER,
       invoice_no TEXT,
       party_id INTEGER,
+      order_no INTEGER,
       gross_amount REAL,
       discount_amount REAL,
       cgst REAL,
@@ -509,6 +645,31 @@ class ErpDatabase {
       qty REAL,
       rate REAL,
       amount REAL
+    )
+    ''');
+
+    await db.execute('''
+    CREATE TABLE order_master (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_no INTEGER,
+      firm_id INTEGER,
+      order_date INTEGER,
+      party_id INTEGER,
+      remarks TEXT,
+      status TEXT DEFAULT 'open',
+      total_qty REAL DEFAULT 0,
+      closed_at INTEGER,
+      created_at INTEGER
+    )
+    ''');
+
+    await db.execute('''
+    CREATE TABLE order_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_no INTEGER,
+      product_id INTEGER,
+      shade_id INTEGER,
+      qty REAL
     )
     ''');
 
@@ -608,7 +769,8 @@ class ErpDatabase {
       date INTEGER,
       reference TEXT,
       remarks TEXT,
-      is_deleted INTEGER DEFAULT 0
+      is_deleted INTEGER DEFAULT 0,
+      order_no INTEGER
     )
     ''');
 
@@ -714,6 +876,15 @@ class ErpDatabase {
       'CREATE INDEX IF NOT EXISTS idx_purchase_master_party ON purchase_master(party_id)',
       'CREATE INDEX IF NOT EXISTS idx_purchase_master_firm ON purchase_master(firm_id)',
       'CREATE INDEX IF NOT EXISTS idx_purchase_master_date ON purchase_master(purchase_date)',
+      'CREATE INDEX IF NOT EXISTS idx_purchase_master_order_no ON purchase_master(order_no)',
+      'CREATE INDEX IF NOT EXISTS idx_order_master_order_no ON order_master(order_no)',
+      'CREATE INDEX IF NOT EXISTS idx_order_master_status ON order_master(status)',
+      'CREATE INDEX IF NOT EXISTS idx_order_master_party ON order_master(party_id)',
+      'CREATE INDEX IF NOT EXISTS idx_order_master_firm ON order_master(firm_id)',
+      'CREATE INDEX IF NOT EXISTS idx_order_master_date ON order_master(order_date)',
+      'CREATE INDEX IF NOT EXISTS idx_order_items_order_no ON order_items(order_no)',
+      'CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id)',
+      'CREATE INDEX IF NOT EXISTS idx_order_items_shade ON order_items(shade_id)',
       'CREATE INDEX IF NOT EXISTS idx_challan_req_party ON challan_requirements(party_id)',
       'CREATE INDEX IF NOT EXISTS idx_challan_req_product ON challan_requirements(product_id)',
       'CREATE INDEX IF NOT EXISTS idx_challan_req_shade ON challan_requirements(fabric_shade_id)',
@@ -748,9 +919,10 @@ class ErpDatabase {
       // Find REQ-CLOSE entries missing 'Party:' in remarks
       final rows = await db.rawQuery('''
         SELECT id, remarks, date FROM stock_ledger
-        WHERE reference = 'REQ-CLOSE'
+        WHERE reference LIKE 'REQ-CLOSE%'
           AND (remarks NOT LIKE '%Party:%' OR remarks LIKE '%Requirement closed%')
           AND (is_deleted IS NULL OR is_deleted = 0)
+        LIMIT 100
       ''');
       if (rows.isEmpty) return;
 
@@ -791,9 +963,9 @@ class ErpDatabase {
         await db.update('stock_ledger', {'remarks': newRemarks},
             where: 'id=?', whereArgs: [id]);
       }
-      debugPrint('✅ Fixed ${rows.length} REQ-CLOSE remarks');
+      debugPrint('âœ… Fixed ${rows.length} REQ-CLOSE remarks');
     } catch (e) {
-      debugPrint('⚠ _fixReqCloseRemarks: $e');
+      debugPrint('âš  _fixReqCloseRemarks: $e');
     }
   }
 
@@ -1053,9 +1225,198 @@ class ErpDatabase {
       // Fix: REQ-CLOSE entries were wrongly inserted as 'IN', should be 'OUT'
       try {
         await db.rawUpdate(
-          "UPDATE stock_ledger SET type = 'OUT' WHERE reference = 'REQ-CLOSE' AND UPPER(type) = 'IN'",
+          "UPDATE stock_ledger SET type = 'OUT' WHERE reference LIKE 'REQ-CLOSE%' AND UPPER(type) = 'IN'",
         );
       } catch (_) {}
+    }
+
+    if (oldVersion < 22) {
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS order_master (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          order_no INTEGER,
+          firm_id INTEGER,
+          order_date INTEGER,
+          party_id INTEGER,
+          remarks TEXT,
+          status TEXT DEFAULT 'open',
+          total_qty REAL DEFAULT 0,
+          closed_at INTEGER,
+          created_at INTEGER)''');
+      } catch (_) {}
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS order_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          order_no INTEGER,
+          product_id INTEGER,
+          shade_id INTEGER,
+          qty REAL)''');
+      } catch (_) {}
+      try {
+        await db
+            .execute('ALTER TABLE purchase_master ADD COLUMN order_no INTEGER');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 23) {
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS program_cards (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          program_date INTEGER,
+          company TEXT,
+          party_id INTEGER,
+          design_no TEXT,
+          card_no TEXT,
+          tp REAL DEFAULT 0,
+          line_no TEXT,
+          status TEXT,
+          status_dhaga_cutting INTEGER,
+          status_alter INTEGER,
+          status_stiching INTEGER,
+          status_cutting INTEGER,
+          status_checking INTEGER,
+          status_shoulder_cutting INTEGER,
+          status_ready_dispatch INTEGER,
+          remarks TEXT,
+          created_at INTEGER)''');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 24) {
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS dispatch_bills (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bill_date INTEGER,
+          bill_no TEXT,
+          party_id INTEGER,
+          remarks TEXT,
+          created_at INTEGER)''');
+      } catch (_) {}
+      try {
+        await db.execute('''CREATE TABLE IF NOT EXISTS dispatch_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bill_id INTEGER,
+          program_card_id INTEGER,
+          company TEXT,
+          design_no TEXT,
+          card_no TEXT,
+          qty REAL DEFAULT 0,
+          pcs REAL DEFAULT 0,
+          created_at INTEGER)''');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 25) {
+      try {
+        await db.execute(
+            'ALTER TABLE program_cards ADD COLUMN product_id INTEGER');
+      } catch (_) {}
+      try {
+        await db.execute(
+            'ALTER TABLE dispatch_items ADD COLUMN product_id INTEGER');
+      } catch (_) {}
+    }
+  }
+
+  /// One-time startup cleanup for legacy rows where order-linked purchases were
+  /// deleted but their stock_ledger IN rows remained.
+  Future<void> _cleanupOrphanOrderPurchaseLedgerEntries(
+    Database db, {
+    int limit = 500,
+  }) async {
+    try {
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      var fixed = 0;
+      var lastId = 0;
+      while (true) {
+        final candidates = await db.rawQuery(
+          '''
+          SELECT id,
+                 product_id,
+                 COALESCE(fabric_shade_id, 0) AS shade_id,
+                 COALESCE(qty, 0) AS qty,
+                 remarks,
+                 order_no
+          FROM stock_ledger
+          WHERE UPPER(type) = 'IN'
+            AND id > ?
+            AND (
+              (order_no IS NOT NULL AND order_no > 0)
+              OR remarks LIKE 'Purchase against Order #%'
+            )
+            AND (is_deleted IS NULL OR is_deleted = 0)
+          ORDER BY id
+          LIMIT ?
+          ''',
+          [lastId, limit],
+        );
+        if (candidates.isEmpty) break;
+
+        for (final row in candidates) {
+          final id = row['id'] as int?;
+          final productId = row['product_id'] as int?;
+          final shadeId = (row['shade_id'] as num?)?.toInt() ?? 0;
+          final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+          final remarks = (row['remarks'] ?? '').toString();
+          final explicitOrderNo = (row['order_no'] as num?)?.toInt();
+
+          if (id == null) continue;
+          if (id > lastId) lastId = id;
+          if (productId == null || qty <= 0) continue;
+
+          final match = RegExp(r'Order\s*#\s*(\d+)', caseSensitive: false)
+              .firstMatch(remarks);
+          final orderNo = explicitOrderNo ??
+              (match == null ? null : int.tryParse(match.group(1) ?? ''));
+          if (orderNo == null) continue;
+
+          final linked = await db.rawQuery(
+            '''
+            SELECT 1
+            FROM purchase_master pm
+            JOIN purchase_items pi ON pi.purchase_no = pm.purchase_no
+            WHERE pm.order_no = ?
+              AND pi.product_id = ?
+              AND COALESCE(pi.shade_id, 0) = ?
+              AND ABS(COALESCE(pi.qty, 0) - ?) < 0.0001
+            LIMIT 1
+            ''',
+            [orderNo, productId, shadeId, qty],
+          );
+          if (linked.isNotEmpty) continue;
+
+          await db.update(
+            'stock_ledger',
+            {'is_deleted': 1},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+
+          // Queue remote delete so legacy rows are removed from Firebase too.
+          try {
+            await db.delete(
+              '_pending_sync',
+              where: 'table_name=? AND record_id=? AND action=?',
+              whereArgs: ['stock_ledger', id, 'delete'],
+            );
+            await db.insert('_pending_sync', {
+              'table_name': 'stock_ledger',
+              'record_id': id,
+              'action': 'delete',
+              'data': '',
+              'created_at': nowMs,
+            });
+          } catch (_) {}
+
+          fixed++;
+        }
+      }
+
+      if (fixed > 0) {
+        debugPrint('Fixed $fixed orphan order-purchase stock rows');
+      }
+    } catch (e) {
+      debugPrint('cleanup orphan order ledger failed: $e');
     }
   }
 
@@ -1081,7 +1442,7 @@ class ErpDatabase {
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       });
     } catch (e) {
-      debugPrint('⚠ logActivity: $e');
+      debugPrint('âš  logActivity: $e');
     }
   }
 
@@ -1134,7 +1495,7 @@ class ErpDatabase {
         offset: offset,
       );
     } catch (e) {
-      debugPrint('⚠ getActivityLogs: $e');
+      debugPrint('âš  getActivityLogs: $e');
       return [];
     }
   }
@@ -1174,8 +1535,8 @@ class ErpDatabase {
       try {
         firebaseId = await sync.getNextId(table);
       } catch (e) {
-        debugPrint('⚠ _syncInsert getNextId ($table): $e');
-        // No network — fall through to local-only insert
+        debugPrint('âš  _syncInsert getNextId ($table): $e');
+        // No network â€” fall through to local-only insert
       }
       if (firebaseId != null) {
         id = firebaseId;
@@ -1184,16 +1545,16 @@ class ErpDatabase {
           await db.insert(table, data,
               conflictAlgorithm: ConflictAlgorithm.replace);
         } catch (e) {
-          debugPrint('⚠ _syncInsert local insert ($table/$id): $e');
-          // Local failed but we have a Firebase ID — still push to Firebase
+          debugPrint('âš  _syncInsert local insert ($table/$id): $e');
+          // Local failed but we have a Firebase ID â€” still push to Firebase
           // so the data is at least saved remotely
           await sync.pushRecord(table, id, data);
           rethrow;
         }
         // pushRecord queues for retry internally if it fails
         await sync.pushRecord(table, id, data);
-        dataVersion.value++;
-        if (table != 'activity_log') {
+        _markDataChanged();
+        if (table != 'activity_log' && _shouldWriteActivityLog) {
           logActivity(
               action: 'INSERT',
               tableName: table,
@@ -1209,8 +1570,8 @@ class ErpDatabase {
       data['id'] = id;
       await sync.queuePush(table, id, data);
     }
-    dataVersion.value++;
-    if (table != 'activity_log') {
+    _markDataChanged();
+    if (table != 'activity_log' && _shouldWriteActivityLog) {
       logActivity(
           action: 'INSERT',
           tableName: table,
@@ -1223,24 +1584,36 @@ class ErpDatabase {
   Future<void> _syncUpdate(
       String table, Map<String, dynamic> data, int id) async {
     final db = await database;
-    // Local FIRST, then push to Firebase (if local fails, don't push stale data)
-    data['id'] = id;
-    await db.update(table, data, where: 'id=?', whereArgs: [id]);
-    dataVersion.value++;
+    // Local FIRST, then push the merged full row to Firebase.
+    // Pushing only partial update payload can overwrite remote fields with null.
+    final updatedData = Map<String, dynamic>.from(data)..['id'] = id;
+    await db.update(table, updatedData, where: 'id=?', whereArgs: [id]);
+
+    final rows = await db.query(
+      table,
+      where: 'id=?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    final payload = rows.isNotEmpty
+        ? Map<String, dynamic>.from(rows.first)
+        : Map<String, dynamic>.from(updatedData);
+
+    _markDataChanged();
     final sync = FirebaseSyncService.instance;
     if (syncEnabled) {
       if (sync.isInitialized) {
-        await sync.pushRecord(table, id, data);
+        await sync.pushRecord(table, id, payload);
       } else {
-        await sync.queuePush(table, id, data);
+        await sync.queuePush(table, id, payload);
       }
     }
-    if (table != 'activity_log') {
+    if (table != 'activity_log' && _shouldWriteActivityLog) {
       logActivity(
           action: 'UPDATE',
           tableName: table,
           recordId: id,
-          details: _buildRowDetails(table, data));
+          details: _buildRowDetails(table, payload));
     }
   }
 
@@ -1259,27 +1632,28 @@ class ErpDatabase {
       } catch (_) {}
     }
 
-    if (syncEnabled && sync.isInitialized) {
+    if (syncEnabled) {
       // Mark as pending delete so real-time listeners
       // won't re-insert the record. Cleared by _onRemoteRemove.
-      sync.addPendingDelete(table, id);
+      await sync.addPendingDelete(table, id);
     }
     // Delete locally FIRST (ensures data is removed even if Firebase call fails)
     if (table == 'stock_ledger') {
-      await db.update('stock_ledger', {'is_deleted': 1}, where: 'id=?', whereArgs: [id]);
+      await db.update('stock_ledger', {'is_deleted': 1},
+          where: 'id=?', whereArgs: [id]);
     } else {
       await db.delete(table, where: 'id=?', whereArgs: [id]);
     }
-    dataVersion.value++;
+    _markDataChanged();
     // Then remove from Firebase
     if (syncEnabled && sync.isInitialized) {
       try {
         await sync.deleteRecord(table, id);
       } catch (e) {
-        debugPrint('⚠ _syncDelete Firebase failed ( $table/$id): $e');
+        debugPrint('[WARN] _syncDelete Firebase failed ($table/$id): $e');
       }
     }
-    if (table != 'activity_log') {
+    if (table != 'activity_log' && _shouldWriteActivityLog) {
       logActivity(
           action: 'DELETE',
           tableName: table,
@@ -1311,11 +1685,68 @@ class ErpDatabase {
       case 'production_entries':
         return 'Production: Program ${row['program_no'] ?? ''}, Qty: ${row['quantity'] ?? ''}, Machine: ${row['machine_id'] ?? ''}';
       case 'attendance':
-        return 'Attendance: Employee ID ${row['employee_id'] ?? ''}, Status: ${row['status'] ?? ''}';
+        String dateStr = '';
+        final dateRaw = row['date'];
+        if (dateRaw is num) {
+          try {
+            final d = DateTime.fromMillisecondsSinceEpoch(dateRaw.toInt());
+            dateStr =
+                '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
+          } catch (_) {}
+        }
+        final shift = (row['shift'] ?? '').toString();
+        return 'Attendance: Employee ID ${row['employee_id'] ?? ''}, '
+            'Date: ${dateStr.isNotEmpty ? dateStr : '-'}, '
+            'Status: ${row['status'] ?? ''}'
+            '${shift.isNotEmpty ? ', Shift: $shift' : ''}';
       case 'challan_requirements':
         return 'Challan Req: Challan ${row['challan_no'] ?? ''}, Product ID: ${row['product_id'] ?? ''}, Qty: ${row['required_qty'] ?? ''}';
       case 'purchase_items':
-        return 'Purchase: Product ID ${row['product_id'] ?? ''}, Qty: ${row['qty'] ?? ''}, Rate: ${row['rate'] ?? ''}';
+        final amt = row['amount'];
+        return 'Purchase Item: Purchase #${row['purchase_no'] ?? ''}, '
+            'Product ID ${row['product_id'] ?? ''}'
+            '${row['shade_id'] != null ? ', Shade ID ${row['shade_id']}' : ''}'
+            ', Qty: ${row['qty'] ?? 0}, Rate: ${row['rate'] ?? 0}'
+            '${amt != null ? ', Amount: $amt' : ''}';
+      case 'purchase_master':
+        String pDate = '';
+        final pd = row['purchase_date'];
+        if (pd is num) {
+          try {
+            final d = DateTime.fromMillisecondsSinceEpoch(pd.toInt());
+            pDate =
+                '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
+          } catch (_) {}
+        }
+        return 'Purchase: No ${row['purchase_no'] ?? ''}'
+            '${(row['invoice_no'] ?? '').toString().isNotEmpty ? ', Invoice: ${row['invoice_no']}' : ''}'
+            '${pDate.isNotEmpty ? ', Date: $pDate' : ''}'
+            ', Party ID: ${row['party_id'] ?? ''}'
+            '${row['firm_id'] != null ? ', Firm ID: ${row['firm_id']}' : ''}'
+            '${row['order_no'] != null ? ', Order #${row['order_no']}' : ''}'
+            '${row['total_amount'] != null ? ', Total: ${row['total_amount']}' : ''}';
+      case 'order_master':
+        String oDate = '';
+        final od = row['order_date'];
+        if (od is num) {
+          try {
+            final d = DateTime.fromMillisecondsSinceEpoch(od.toInt());
+            oDate =
+                '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
+          } catch (_) {}
+        }
+        return 'Order: No ${row['order_no'] ?? ''}'
+            '${oDate.isNotEmpty ? ', Date: $oDate' : ''}'
+            ', Party ID: ${row['party_id'] ?? ''}'
+            '${row['firm_id'] != null ? ', Firm ID: ${row['firm_id']}' : ''}'
+            ', Status: ${row['status'] ?? ''}'
+            '${row['total_qty'] != null ? ', Total Qty: ${row['total_qty']}' : ''}'
+            '${(row['remarks'] ?? '').toString().isNotEmpty ? ', Remarks: ${row['remarks']}' : ''}';
+      case 'order_items':
+        return 'Order Item: Order #${row['order_no'] ?? ''}, '
+            'Product ID ${row['product_id'] ?? ''}'
+            '${row['shade_id'] != null ? ', Shade ID ${row['shade_id']}' : ''}'
+            ', Qty: ${row['qty'] ?? 0}';
       case 'salary_advances':
         return 'Advance: Employee ID ${row['employee_id'] ?? ''}, Amount: ${row['amount'] ?? ''}';
       case 'program_master':
@@ -1392,6 +1823,218 @@ class ErpDatabase {
   Future<void> insertFirmRaw(Map<String, dynamic> data) async =>
       _syncInsert('firms', data);
 
+  // ================= PROGRAM CARDS =================
+  /// Returns program cards ordered by date desc.
+  /// [company] filter by company code (SLH/MS/SI/MS-SI). Pass null for all.
+  /// [status] filter by current status. Pass null for all.
+  Future<List<Map<String, dynamic>>> getProgramCards({
+    String? company,
+    String? status,
+    String? search,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <Object?>[];
+    if (company != null && company.isNotEmpty) {
+      where.add('company = ?');
+      args.add(company);
+    }
+    if (status != null && status.isNotEmpty) {
+      where.add('status = ?');
+      args.add(status);
+    }
+    if (search != null && search.isNotEmpty) {
+      where.add(
+          '(card_no LIKE ? OR design_no LIKE ? OR line_no LIKE ?)');
+      final s = '%$search%';
+      args.addAll([s, s, s]);
+    }
+    return db.query(
+      'program_cards',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'program_date DESC, id DESC',
+    );
+  }
+
+  Future<int> insertProgramCard(Map<String, dynamic> data) async {
+    data['created_at'] ??= DateTime.now().millisecondsSinceEpoch;
+    return _syncInsert('program_cards', data);
+  }
+
+  Future<void> updateProgramCard(int id, Map<String, dynamic> data) async {
+    await _syncUpdate('program_cards', data, id);
+  }
+
+  Future<void> deleteProgramCard(int id) async =>
+      _syncDelete('program_cards', id);
+
+  Future<Map<String, dynamic>?> getProgramCardById(int id) async {
+    final db = await database;
+    final r = await db
+        .query('program_cards', where: 'id = ?', whereArgs: [id], limit: 1);
+    return r.isEmpty ? null : r.first;
+  }
+
+  /// Sum of (qty * pcs) already dispatched for a program card,
+  /// optionally excluding a particular bill (the one currently being edited).
+  Future<double> getDispatchedQtyForCard(int programCardId,
+      {int? excludeBillId}) async {
+    final db = await database;
+    final where = <String>['program_card_id = ?'];
+    final args = <Object?>[programCardId];
+    if (excludeBillId != null) {
+      where.add('bill_id != ?');
+      args.add(excludeBillId);
+    }
+    final rows = await db.query(
+      'dispatch_items',
+      columns: ['qty', 'pcs'],
+      where: where.join(' AND '),
+      whereArgs: args,
+    );
+    double total = 0;
+    for (final r in rows) {
+      final q = (r['qty'] as num?)?.toDouble() ?? 0;
+      final p = (r['pcs'] as num?)?.toDouble() ?? 0;
+      total += q * p;
+    }
+    return total;
+  }
+
+  // ================= DISPATCH GOODS =================
+  /// Repairs program cards that were closed (status='Completed') but have no
+  /// dispatch_items referencing them anymore — typically because their bill
+  /// was deleted before the auto-revert was added. Runs once at app start.
+  Future<void> _reopenOrphanCompletedProgramCards(Database db) async {
+    try {
+      // Tables may not exist yet on a brand-new install — guard with PRAGMA.
+      final t1 = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='program_cards'");
+      final t2 = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='dispatch_items'");
+      if (t1.isEmpty || t2.isEmpty) return;
+
+      final orphans = await db.rawQuery('''
+        SELECT pc.id FROM program_cards pc
+        WHERE pc.status = 'Completed'
+          AND NOT EXISTS (
+            SELECT 1 FROM dispatch_items di
+            WHERE di.program_card_id = pc.id
+          )
+      ''');
+      for (final row in orphans) {
+        final id = row['id'] as int?;
+        if (id == null) continue;
+        await db.update(
+          'program_cards',
+          {'status': 'Ready to Dispatch'},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+      if (orphans.isNotEmpty) {
+        debugPrint(
+            'Reopened ${orphans.length} orphan Completed program card(s).');
+      }
+    } catch (e) {
+      debugPrint('⚠ _reopenOrphanCompletedProgramCards: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getDispatchBills({
+    int? fromMs,
+    int? toMs,
+    String? search,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <Object?>[];
+    if (fromMs != null) {
+      where.add('bill_date >= ?');
+      args.add(fromMs);
+    }
+    if (toMs != null) {
+      where.add('bill_date <= ?');
+      args.add(toMs);
+    }
+    if (search != null && search.isNotEmpty) {
+      where.add('bill_no LIKE ?');
+      args.add('%$search%');
+    }
+    return db.query(
+      'dispatch_bills',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'bill_date DESC, id DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getDispatchItems(int billId) async {
+    final db = await database;
+    return db.query('dispatch_items',
+        where: 'bill_id = ?', whereArgs: [billId], orderBy: 'id ASC');
+  }
+
+  Future<int> insertDispatchBill(Map<String, dynamic> data) async {
+    data['created_at'] ??= DateTime.now().millisecondsSinceEpoch;
+    return _syncInsert('dispatch_bills', data);
+  }
+
+  Future<void> updateDispatchBill(int id, Map<String, dynamic> data) async {
+    await _syncUpdate('dispatch_bills', data, id);
+  }
+
+  Future<void> deleteDispatchBill(int id) async {
+    final db = await database;
+    final items = await db
+        .query('dispatch_items', where: 'bill_id = ?', whereArgs: [id]);
+
+    // Collect all program_card ids referenced in this bill so we can
+    // re-open any that were closed (Completed) when this bill was saved.
+    final pcIds = <int>{
+      for (final it in items)
+        if (it['program_card_id'] != null) it['program_card_id'] as int,
+    };
+
+    for (final it in items) {
+      final iid = it['id'] as int?;
+      if (iid != null) await _syncDelete('dispatch_items', iid);
+    }
+    await _syncDelete('dispatch_bills', id);
+
+    // For each card, if it has no remaining dispatch items anywhere AND it is
+    // currently Completed, revert it to "Ready to Dispatch" so it shows up
+    // again in the dispatch picker.
+    for (final pcId in pcIds) {
+      final remaining = await db.query('dispatch_items',
+          where: 'program_card_id = ?',
+          whereArgs: [pcId],
+          limit: 1);
+      if (remaining.isNotEmpty) continue;
+      final card = await db.query('program_cards',
+          where: 'id = ?', whereArgs: [pcId], limit: 1);
+      if (card.isEmpty) continue;
+      final status = (card.first['status'] ?? '').toString();
+      if (status == 'Completed') {
+        await _syncUpdate(
+            'program_cards', {'status': 'Ready to Dispatch'}, pcId);
+      }
+    }
+  }
+
+  Future<int> insertDispatchItem(Map<String, dynamic> data) async {
+    data['created_at'] ??= DateTime.now().millisecondsSinceEpoch;
+    return _syncInsert('dispatch_items', data);
+  }
+
+  Future<void> updateDispatchItem(int id, Map<String, dynamic> data) async {
+    await _syncUpdate('dispatch_items', data, id);
+  }
+
+  Future<void> deleteDispatchItem(int id) async =>
+      _syncDelete('dispatch_items', id);
+
   // ================= FABRIC / THREAD =================
   Future<List<Map<String, dynamic>>> getFabricShades() async =>
       (await database).query('fabric_shades');
@@ -1462,6 +2105,651 @@ class ErpDatabase {
       );
 
   // ================= PURCHASE / STOCK =================
+  Future<int> getNextOrderNo() async {
+    final rows = await (await database)
+        .rawQuery('SELECT COALESCE(MAX(order_no), 0) AS max_no FROM order_master');
+    final raw = rows.first['max_no'];
+    final maxNo = raw is int
+        ? raw
+        : raw is num
+            ? raw.toInt()
+            : 0;
+    return maxNo + 1;
+  }
+
+  Future<void> insertOrderMaster(Map<String, dynamic> data) async =>
+      _syncInsert('order_master', data);
+
+  Future<void> insertOrderItem(Map<String, dynamic> data) async =>
+      _syncInsert('order_items', data);
+
+  Future<Map<String, dynamic>?> getOrderMasterByNo(int orderNo) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT om.*,
+             p.name AS party_name,
+             f.firm_name
+      FROM order_master om
+      LEFT JOIN parties p ON p.id = om.party_id
+      LEFT JOIN firms f ON f.id = om.firm_id
+      WHERE om.order_no = ?
+      ORDER BY om.id DESC
+      LIMIT 1
+      ''',
+      [orderNo],
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<List<Map<String, dynamic>>> getOrderSummaries({
+    String status = 'all',
+    int? fromDateMs,
+    int? toDateMs,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+
+    if (status != 'all') {
+      where.add('LOWER(om.status) = ?');
+      args.add(status.toLowerCase());
+    }
+    if (fromDateMs != null) {
+      where.add('om.order_date >= ?');
+      args.add(fromDateMs);
+    }
+    if (toDateMs != null) {
+      where.add('om.order_date <= ?');
+      args.add(toDateMs);
+    }
+
+    final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
+
+    return db.rawQuery(
+      '''
+      SELECT om.*,
+             p.name AS party_name,
+             f.firm_name,
+             COALESCE(ot.order_qty, 0) AS order_qty,
+             COALESCE(pt.purchase_qty, 0) AS purchase_qty,
+             CASE
+               WHEN COALESCE(ot.order_qty, 0) - COALESCE(pt.purchase_qty, 0) < 0 THEN 0
+               ELSE COALESCE(ot.order_qty, 0) - COALESCE(pt.purchase_qty, 0)
+             END AS pending_qty
+      FROM order_master om
+      LEFT JOIN parties p ON p.id = om.party_id
+      LEFT JOIN firms f ON f.id = om.firm_id
+      LEFT JOIN (
+        SELECT order_no, SUM(COALESCE(qty, 0)) AS order_qty
+        FROM order_items
+        GROUP BY order_no
+      ) ot ON ot.order_no = om.order_no
+      LEFT JOIN (
+        SELECT pm.order_no, SUM(COALESCE(pi.qty, 0)) AS purchase_qty
+        FROM purchase_master pm
+        JOIN purchase_items pi ON pi.purchase_no = pm.purchase_no
+        WHERE pm.order_no IS NOT NULL
+        GROUP BY pm.order_no
+      ) pt ON pt.order_no = om.order_no
+      $whereClause
+      ORDER BY om.order_date DESC, om.order_no DESC
+      ''',
+      args,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getOrderShadeWiseSummaries({
+    String status = 'all',
+    int? fromDateMs,
+    int? toDateMs,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+
+    if (status != 'all') {
+      where.add('LOWER(om.status) = ?');
+      args.add(status.toLowerCase());
+    }
+    if (fromDateMs != null) {
+      where.add('om.order_date >= ?');
+      args.add(fromDateMs);
+    }
+    if (toDateMs != null) {
+      where.add('om.order_date <= ?');
+      args.add(toDateMs);
+    }
+
+    final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
+
+    return db.rawQuery(
+      '''
+      SELECT
+        om.order_no,
+        om.order_date,
+        om.status,
+        p.name AS party_name,
+        f.firm_name,
+        oi.product_id,
+        pr.name AS product_name,
+        COALESCE(pr.unit, 'Mtr') AS product_unit,
+        oi.shade_id,
+        COALESCE(fs.shade_no, 'NO SHADE') AS shade_no,
+        COALESCE(oi.qty, 0) AS order_qty,
+        COALESCE(pp.purchase_qty, 0) AS purchase_qty,
+        CASE
+          WHEN COALESCE(oi.qty, 0) - COALESCE(pp.purchase_qty, 0) < 0 THEN 0
+          ELSE COALESCE(oi.qty, 0) - COALESCE(pp.purchase_qty, 0)
+        END AS pending_qty
+      FROM order_master om
+      JOIN order_items oi ON oi.order_no = om.order_no
+      LEFT JOIN parties p ON p.id = om.party_id
+      LEFT JOIN firms f ON f.id = om.firm_id
+      LEFT JOIN products pr ON pr.id = oi.product_id
+      LEFT JOIN fabric_shades fs ON fs.id = oi.shade_id
+      LEFT JOIN (
+        SELECT
+          pm.order_no,
+          pi.product_id,
+          COALESCE(pi.shade_id, 0) AS shade_key,
+          SUM(COALESCE(pi.qty, 0)) AS purchase_qty
+        FROM purchase_master pm
+        JOIN purchase_items pi ON pi.purchase_no = pm.purchase_no
+        WHERE pm.order_no IS NOT NULL
+        GROUP BY pm.order_no, pi.product_id, COALESCE(pi.shade_id, 0)
+      ) pp ON pp.order_no = oi.order_no
+           AND pp.product_id = oi.product_id
+           AND pp.shade_key = COALESCE(oi.shade_id, 0)
+      $whereClause
+      ORDER BY om.order_date DESC, om.order_no DESC, pr.name, fs.shade_no, oi.id
+      ''',
+      args,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getOrderLineProgress(int orderNo) async {
+    final db = await database;
+    return db.rawQuery(
+      '''
+      SELECT oi.id,
+             oi.order_no,
+             oi.product_id,
+             oi.shade_id,
+             COALESCE(oi.qty, 0) AS order_qty,
+             COALESCE(pp.purchase_qty, 0) AS purchase_qty,
+             CASE
+               WHEN COALESCE(oi.qty, 0) - COALESCE(pp.purchase_qty, 0) < 0 THEN 0
+               ELSE COALESCE(oi.qty, 0) - COALESCE(pp.purchase_qty, 0)
+             END AS pending_qty,
+             pr.name AS product_name,
+             COALESCE(pr.unit, 'Mtr') AS product_unit,
+             COALESCE(fs.shade_no, 'NO SHADE') AS shade_no
+      FROM order_items oi
+      LEFT JOIN products pr ON pr.id = oi.product_id
+      LEFT JOIN fabric_shades fs ON fs.id = oi.shade_id
+      LEFT JOIN (
+        SELECT pm.order_no,
+               pi.product_id,
+               COALESCE(pi.shade_id, 0) AS shade_key,
+               SUM(COALESCE(pi.qty, 0)) AS purchase_qty
+        FROM purchase_master pm
+        JOIN purchase_items pi ON pi.purchase_no = pm.purchase_no
+        WHERE pm.order_no = ?
+        GROUP BY pm.order_no, pi.product_id, COALESCE(pi.shade_id, 0)
+      ) pp ON pp.order_no = oi.order_no
+          AND pp.product_id = oi.product_id
+          AND pp.shade_key = COALESCE(oi.shade_id, 0)
+      WHERE oi.order_no = ?
+      ORDER BY pr.name, fs.shade_no, oi.id
+      ''',
+      [orderNo, orderNo],
+    );
+  }
+
+  Future<void> refreshOrderStatusByNo(int orderNo) async {
+    final rows = await getOrderLineProgress(orderNo);
+    final hasPending = rows.any(
+      (r) => ((r['pending_qty'] as num?)?.toDouble() ?? 0) > 0.0001,
+    );
+    final nextStatus = hasPending ? 'open' : 'closed';
+
+    final db = await database;
+    final masters = await db.query(
+      'order_master',
+      columns: ['id', 'status', 'closed_at'],
+      where: 'order_no = ?',
+      whereArgs: [orderNo],
+    );
+
+    for (final row in masters) {
+      final id = row['id'] as int?;
+      if (id == null) continue;
+      final oldStatus = (row['status'] ?? '').toString().toLowerCase();
+      final oldClosedAt = row['closed_at'];
+      final nextClosedAt = hasPending
+          ? null
+          : (oldClosedAt is int
+              ? oldClosedAt
+              : DateTime.now().millisecondsSinceEpoch);
+      if (oldStatus == nextStatus && oldClosedAt == nextClosedAt) continue;
+      await _syncUpdate(
+        'order_master',
+        {'status': nextStatus, 'closed_at': nextClosedAt},
+        id,
+      );
+    }
+  }
+
+  Future<int> createPurchaseFromOrder({
+    required int orderNo,
+    required int firmId,
+    required int partyId,
+    required int purchaseDateMs,
+    required String invoiceNo,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    final purchaseNo = DateTime.now().millisecondsSinceEpoch;
+
+    await insertPurchaseMaster({
+      'purchase_no': purchaseNo,
+      'firm_id': firmId,
+      'party_id': partyId,
+      'purchase_date': purchaseDateMs,
+      'invoice_no': invoiceNo,
+      'order_no': orderNo,
+      'gross_amount': 0,
+      'discount_amount': 0,
+      'cgst': 0,
+      'sgst': 0,
+      'igst': 0,
+      'total_amount': 0,
+    });
+
+    for (final item in items) {
+      final productId = item['product_id'] as int?;
+      final qty = (item['qty'] as num?)?.toDouble() ?? 0;
+      if (productId == null || qty <= 0) continue;
+      final shadeId = item['shade_id'] as int?;
+
+      await insertPurchaseItem({
+        'purchase_no': purchaseNo,
+        'product_id': productId,
+        'shade_id': shadeId,
+        'qty': qty,
+        'rate': 0,
+        'amount': 0,
+      });
+
+      await insertLedger({
+        'product_id': productId,
+        'fabric_shade_id': shadeId,
+        'qty': qty,
+        'type': 'IN',
+        'date': purchaseDateMs,
+        'reference': invoiceNo,
+        'order_no': orderNo,
+        'remarks': 'Purchase against Order #$orderNo',
+      });
+    }
+
+    await refreshOrderStatusByNo(orderNo);
+    return purchaseNo;
+  }
+
+  Future<int> getOrderPurchaseCount(int orderNo) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM purchase_master WHERE order_no = ?',
+      [orderNo],
+    );
+    final raw = rows.first['cnt'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return 0;
+  }
+
+  Future<void> updateOrderByNo({
+    required int orderNo,
+    required int firmId,
+    required int partyId,
+    required int orderDateMs,
+    required String remarks,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    if (items.isEmpty) {
+      throw Exception('Order must have at least one item.');
+    }
+
+    final normalized = <String, Map<String, dynamic>>{};
+    for (final item in items) {
+      final productId = item['product_id'] as int?;
+      final shadeId = item['shade_id'] as int?;
+      final shadeKey = shadeId ?? 0;
+      final qty = (item['qty'] as num?)?.toDouble() ?? 0;
+      if (productId == null || qty <= 0) continue;
+
+      final key = '$productId:$shadeKey';
+      final existing = normalized[key];
+      if (existing == null) {
+        normalized[key] = {
+          'product_id': productId,
+          'shade_id': shadeId,
+          'qty': qty,
+        };
+      } else {
+        existing['qty'] = ((existing['qty'] as num?)?.toDouble() ?? 0) + qty;
+      }
+    }
+
+    if (normalized.isEmpty) {
+      throw Exception('Order must have at least one valid item.');
+    }
+
+    final db = await database;
+
+    final purchasedRows = await db.rawQuery(
+      '''
+      SELECT
+        pi.product_id,
+        COALESCE(pi.shade_id, 0) AS shade_key,
+        SUM(COALESCE(pi.qty, 0)) AS purchase_qty
+      FROM purchase_master pm
+      JOIN purchase_items pi ON pi.purchase_no = pm.purchase_no
+      WHERE pm.order_no = ?
+      GROUP BY pi.product_id, COALESCE(pi.shade_id, 0)
+      ''',
+      [orderNo],
+    );
+
+    final purchasedByKey = <String, double>{};
+    for (final row in purchasedRows) {
+      final productId = row['product_id'] as int?;
+      final shadeKey = (row['shade_key'] as num?)?.toInt() ?? 0;
+      final purchaseQty = (row['purchase_qty'] as num?)?.toDouble() ?? 0;
+      if (productId == null || purchaseQty <= 0) continue;
+      purchasedByKey['$productId:$shadeKey'] = purchaseQty;
+    }
+
+    for (final entry in purchasedByKey.entries) {
+      final current = normalized[entry.key];
+      if (current == null) {
+        throw Exception(
+          'Cannot remove purchased line from order. Add it back before saving.',
+        );
+      }
+      final currentQty = (current['qty'] as num?)?.toDouble() ?? 0;
+      if (currentQty + 0.0001 < entry.value) {
+        throw Exception(
+          'Order qty cannot be less than purchased qty for one or more lines.',
+        );
+      }
+    }
+
+    final masters = await db.query(
+      'order_master',
+      columns: ['id'],
+      where: 'order_no = ?',
+      whereArgs: [orderNo],
+    );
+    if (masters.isEmpty) {
+      throw Exception('Order not found.');
+    }
+
+    final totalQty = normalized.values.fold<double>(
+      0,
+      (sum, row) => sum + ((row['qty'] as num?)?.toDouble() ?? 0),
+    );
+
+    for (final master in masters) {
+      final id = master['id'] as int?;
+      if (id == null) continue;
+      await _syncUpdate(
+        'order_master',
+        {
+          'firm_id': firmId,
+          'party_id': partyId,
+          'order_date': orderDateMs,
+          'remarks': remarks.trim(),
+          'total_qty': totalQty,
+        },
+        id,
+      );
+    }
+
+    final oldItems = await db.query(
+      'order_items',
+      columns: ['id'],
+      where: 'order_no = ?',
+      whereArgs: [orderNo],
+    );
+    for (final row in oldItems) {
+      final id = row['id'] as int?;
+      if (id == null) continue;
+      await _syncDelete('order_items', id);
+    }
+
+    for (final row in normalized.values) {
+      await _syncInsert('order_items', {
+        'order_no': orderNo,
+        'product_id': row['product_id'],
+        'shade_id': row['shade_id'],
+        'qty': row['qty'],
+      });
+    }
+
+    await refreshOrderStatusByNo(orderNo);
+  }
+
+  Future<void> deleteOrderByNo(
+    int orderNo, {
+    bool removeLinkedPurchases = true,
+  }) async {
+    final db = await database;
+    final orderRemark = 'Purchase against Order #$orderNo';
+    final orderRemarkLike = '$orderRemark%';
+    final stockLedgerCols = await db.rawQuery('PRAGMA table_info(stock_ledger)');
+    final hasStockLedgerOrderNo = stockLedgerCols.any(
+      (c) => (c['name'] ?? '').toString().toLowerCase() == 'order_no',
+    );
+    _beginBulkMutation(suppressActivityLog: true);
+    try {
+      if (removeLinkedPurchases) {
+        final purchaseMasters = await db.query(
+          'purchase_master',
+          columns: ['id', 'purchase_no', 'invoice_no', 'purchase_date'],
+          where: 'order_no = ?',
+          whereArgs: [orderNo],
+        );
+        final ledgerIdsToDelete = <int>{};
+
+        final explicitOrderLedgers = await db.rawQuery(
+          '''
+          SELECT id
+          FROM stock_ledger
+          WHERE UPPER(type) = 'IN'
+            AND (is_deleted IS NULL OR is_deleted = 0)
+            AND (
+              ${hasStockLedgerOrderNo ? 'order_no = ? OR' : ''}
+              COALESCE(TRIM(remarks), '') = ?
+              OR UPPER(COALESCE(remarks, '')) LIKE UPPER(?)
+            )
+          ''',
+          [
+            if (hasStockLedgerOrderNo) orderNo,
+            orderRemark,
+            orderRemarkLike,
+          ],
+        );
+        for (final row in explicitOrderLedgers) {
+          final id = row['id'] as int?;
+          if (id != null) ledgerIdsToDelete.add(id);
+        }
+
+        for (final row in purchaseMasters) {
+          final purchaseMasterId = row['id'] as int?;
+          final purchaseNo = row['purchase_no'] as int?;
+          final invoiceNo = (row['invoice_no'] ?? '').toString().trim();
+          final purchaseDateMs = (row['purchase_date'] as num?)?.toInt() ?? 0;
+          if (purchaseNo == null) {
+            if (purchaseMasterId != null) {
+              await _syncDelete('purchase_master', purchaseMasterId);
+            }
+            continue;
+          }
+
+          final purchaseItems = await db.query(
+            'purchase_items',
+            where: 'purchase_no = ?',
+            whereArgs: [purchaseNo],
+          );
+
+          for (final item in purchaseItems) {
+            final purchaseItemId = item['id'] as int?;
+            final productId = item['product_id'] as int?;
+            final shadeId = item['shade_id'] as int?;
+            final shadeKey = shadeId ?? 0;
+            final qty = (item['qty'] as num?)?.toDouble() ?? 0;
+
+            if (productId != null && qty > 0) {
+              final ledgerArgs = <dynamic>[
+                productId,
+                shadeKey,
+                qty,
+                if (invoiceNo.isNotEmpty) invoiceNo,
+                orderRemark,
+                purchaseDateMs,
+              ];
+
+              final ledgerRows = await db.rawQuery(
+                '''
+                SELECT id
+                FROM stock_ledger
+                WHERE product_id = ?
+                  AND COALESCE(fabric_shade_id, 0) = ?
+                  AND UPPER(type) = 'IN'
+                  AND ABS(COALESCE(qty, 0) - ?) < 0.0001
+                  AND (is_deleted IS NULL OR is_deleted = 0)
+                  ${invoiceNo.isNotEmpty ? 'AND reference = ?' : ''}
+                ORDER BY
+                  CASE WHEN remarks = ? THEN 0 ELSE 1 END,
+                  ABS(COALESCE(date, 0) - ?),
+                  id DESC
+                LIMIT 25
+                ''',
+                ledgerArgs,
+              );
+
+              if (ledgerRows.isNotEmpty) {
+                for (final lr in ledgerRows) {
+                  final ledgerId = lr['id'] as int?;
+                  if (ledgerId != null) {
+                    ledgerIdsToDelete.add(ledgerId);
+                  }
+                }
+              } else if (invoiceNo.isNotEmpty) {
+                final relaxedRows = await db.rawQuery(
+                  '''
+                  SELECT id
+                  FROM stock_ledger
+                  WHERE product_id = ?
+                    AND COALESCE(fabric_shade_id, 0) = ?
+                    AND UPPER(type) = 'IN'
+                    AND (is_deleted IS NULL OR is_deleted = 0)
+                    AND reference = ?
+                    AND ABS(COALESCE(date, 0) - ?) <= ?
+                  ORDER BY ABS(COALESCE(date, 0) - ?), id DESC
+                  LIMIT 25
+                  ''',
+                  [
+                    productId,
+                    shadeKey,
+                    invoiceNo,
+                    purchaseDateMs,
+                    const Duration(days: 7).inMilliseconds,
+                    purchaseDateMs,
+                  ],
+                );
+                for (final lr in relaxedRows) {
+                  final ledgerId = lr['id'] as int?;
+                  if (ledgerId != null) {
+                    ledgerIdsToDelete.add(ledgerId);
+                  }
+                }
+              }
+            }
+
+            if (purchaseItemId != null) {
+              await _syncDelete('purchase_items', purchaseItemId);
+            }
+          }
+
+          if (purchaseMasterId != null) {
+            await _syncDelete('purchase_master', purchaseMasterId);
+          }
+        }
+
+        // Final sweep for any lingering rows with explicit order remarks.
+        final lingeringOrderLedgers = await db.rawQuery(
+          '''
+          SELECT id
+          FROM stock_ledger
+          WHERE UPPER(type) = 'IN'
+            AND (is_deleted IS NULL OR is_deleted = 0)
+            AND (
+              ${hasStockLedgerOrderNo ? 'order_no = ? OR' : ''}
+              UPPER(COALESCE(remarks, '')) LIKE UPPER(?)
+            )
+          ''',
+          [
+            if (hasStockLedgerOrderNo) orderNo,
+            orderRemarkLike,
+          ],
+        );
+        for (final row in lingeringOrderLedgers) {
+          final id = row['id'] as int?;
+          if (id != null) ledgerIdsToDelete.add(id);
+        }
+
+        for (final ledgerId in ledgerIdsToDelete) {
+          await _syncDelete('stock_ledger', ledgerId);
+        }
+      }
+
+      final orderItems = await db.query(
+        'order_items',
+        columns: ['id'],
+        where: 'order_no = ?',
+        whereArgs: [orderNo],
+      );
+      for (final row in orderItems) {
+        final id = row['id'] as int?;
+        if (id == null) continue;
+        await _syncDelete('order_items', id);
+      }
+
+      final orderMasters = await db.query(
+        'order_master',
+        columns: ['id'],
+        where: 'order_no = ?',
+        whereArgs: [orderNo],
+      );
+      for (final row in orderMasters) {
+        final id = row['id'] as int?;
+        if (id == null) continue;
+        await _syncDelete('order_master', id);
+      }
+    } finally {
+      _endBulkMutation(suppressActivityLog: true);
+    }
+
+    await logActivity(
+      action: 'DELETE',
+      tableName: 'order_master',
+      details: 'Bulk delete order #$orderNo with linked purchases and stock',
+    );
+  }
+
   Future<void> insertPurchaseMaster(Map<String, dynamic> data) async =>
       _syncInsert('purchase_master', data);
 
@@ -1559,9 +2847,45 @@ class ErpDatabase {
       JOIN products p ON p.id = l.product_id
       LEFT JOIN fabric_shades f ON f.id = l.fabric_shade_id
       WHERE (l.fabric_shade_id IS NULL OR l.fabric_shade_id = 0 OR f.id IS NOT NULL)
+        AND (l.is_deleted IS NULL OR l.is_deleted = 0)
       GROUP BY l.product_id, COALESCE(l.fabric_shade_id, 0)
       ORDER BY p.name, f.shade_no
     ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getStockTickerBalances({
+    int limit = 80,
+  }) async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT *
+      FROM (
+        SELECT
+          l.product_id,
+          COALESCE(l.fabric_shade_id, 0) AS shade_id,
+          p.name AS product_name,
+          COALESCE(p.unit, 'Mtr') AS product_unit,
+          COALESCE(f.shade_no, 'NO SHADE') AS shade_no,
+          COALESCE(
+            SUM(
+              CASE
+                WHEN UPPER(l.type) = 'OUT' THEN -l.qty
+                ELSE l.qty
+              END
+            ),
+            0
+          ) AS balance
+        FROM stock_ledger l
+        JOIN products p ON p.id = l.product_id
+        LEFT JOIN fabric_shades f ON f.id = l.fabric_shade_id
+        WHERE (l.fabric_shade_id IS NULL OR l.fabric_shade_id = 0 OR f.id IS NOT NULL)
+          AND (l.is_deleted IS NULL OR l.is_deleted = 0)
+        GROUP BY l.product_id, COALESCE(l.fabric_shade_id, 0)
+      ) x
+      WHERE ABS(x.balance) > 0.0001
+      ORDER BY x.product_name, x.shade_no
+      LIMIT ?
+    ''', [limit]);
   }
 
   Future<void> updateLedgerFull({
@@ -1583,22 +2907,7 @@ class ErpDatabase {
   }
 
   Future<void> deleteLedgerEntry(int id) async {
-    final db = await database;
-    // Soft delete: set is_deleted = 1
-    await db.update('stock_ledger', {'is_deleted': 1}, where: 'id=?', whereArgs: [id]);
-    // Sync to Firebase as deleted
-    if (syncEnabled && FirebaseSyncService.instance.isInitialized) {
-      try {
-        await FirebaseSyncService.instance.pushRecord(
-          'stock_ledger',
-          id,
-          {'is_deleted': 1},
-        );
-      } catch (e) {
-        debugPrint('⚠ Failed to push soft delete for stock_ledger/ $id: $e');
-      }
-    }
-    dataVersion.value++;
+    await _syncDelete('stock_ledger', id);
   }
 
   // ================= MACHINE / OPERATOR =================
@@ -1835,52 +3144,491 @@ class ErpDatabase {
   }
 
   Future<void> closeChallanRequirement(int id) async {
-    final data = {
-      'status': 'closed',
-      'closed_date': DateTime.now().millisecondsSinceEpoch,
-    };
-    await _syncUpdate('challan_requirements', data, id);
+    final db = await database;
+    final rows = await db.query(
+      'challan_requirements',
+      where: "id = ? AND status = 'pending'",
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    await closeChallanRequirementWithLedger(rows.first);
   }
 
   Future<void> closeChallanRequirementsByChallan(String challanNo) async {
     final db = await database;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final updateData = {'status': 'closed', 'closed_date': now};
-
-    // Find affected rows so we can sync each one
-    final affected = await db.query(
+    final pendingRows = await db.query(
       'challan_requirements',
       where: "challan_no = ? AND status = 'pending'",
       whereArgs: [challanNo],
     );
 
-    if (affected.isEmpty) return;
+    for (final row in pendingRows) {
+      await closeChallanRequirementWithLedger(row);
+    }
+  }
 
-    await db.update(
+  Future<void> closeChallanRequirementWithLedger(
+    Map<String, dynamic> requirement,
+  ) async {
+    final id = requirement['id'] as int?;
+    if (id == null) return;
+
+    final db = await database;
+    final currentRows = await db.query(
       'challan_requirements',
-      updateData,
-      where: "challan_no = ? AND status = 'pending'",
-      whereArgs: [challanNo],
+      where: "id = ? AND status = 'pending'",
+      whereArgs: [id],
+      limit: 1,
     );
+    if (currentRows.isEmpty) return;
 
-    dataVersion.value++;
+    final row = currentRows.first;
+    final productId = row['product_id'] as int?;
+    final shadeId = row['fabric_shade_id'] as int?;
+    final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+    final challanNo = (row['challan_no'] ?? '').toString();
+    final partyName = (row['party_name'] ?? '').toString();
+    final now = DateTime.now();
+    final nowMs = now.millisecondsSinceEpoch;
+    final today = '${now.day.toString().padLeft(2, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-${now.year}';
+    final ledgerReference = 'REQ-CLOSE-$id';
 
-    // Push each affected row to Firebase
-    final sync = FirebaseSyncService.instance;
-    if (syncEnabled && sync.isInitialized && !sync.isSyncing) {
-      for (final row in affected) {
-        final id = row['id'] as int?;
-        if (id == null) continue;
-        final fullRow = Map<String, dynamic>.from(row);
-        fullRow.addAll(updateData);
-        await sync.pushRecord('challan_requirements', id, fullRow);
+    if (productId != null && qty > 0) {
+      final existingLedger = await db.query(
+        'stock_ledger',
+        columns: ['id'],
+        where: 'reference = ? AND (is_deleted IS NULL OR is_deleted = 0)',
+        whereArgs: [ledgerReference],
+        limit: 1,
+      );
+
+      if (existingLedger.isEmpty) {
+        await insertLedger({
+          'product_id': productId,
+          'fabric_shade_id': shadeId,
+          'qty': qty,
+          'type': 'OUT',
+          'date': nowMs,
+          'reference': ledgerReference,
+          'remarks':
+              'Party: $partyName | ChNo: $challanNo | Req completed on: $today',
+        });
       }
     }
 
-    logActivity(
-        action: 'UPDATE',
-        tableName: 'challan_requirements',
-        details: 'Batch close challan $challanNo (${affected.length} rows)');
+    await _syncUpdate(
+      'challan_requirements',
+      {
+        'status': 'closed',
+        'closed_date': nowMs,
+      },
+      id,
+    );
+  }
+
+  Future<int> _countClosedRequirementRowsNeedingLedgerRepair(Database db) async {
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS cnt
+      FROM challan_requirements cr
+      WHERE cr.status = 'closed'
+        AND cr.product_id IS NOT NULL
+        AND COALESCE(cr.qty, 0) > 0
+        AND NOT EXISTS (
+          SELECT 1
+          FROM stock_ledger sl
+          WHERE sl.reference = ('REQ-CLOSE-' || cr.id)
+            AND (sl.is_deleted IS NULL OR sl.is_deleted = 0)
+        )
+    ''');
+    final raw = rows.first['cnt'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return 0;
+  }
+
+  Future<int> _countBrokenClosedRequirementRows(Database db) async {
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS cnt
+      FROM challan_requirements
+      WHERE status = 'closed'
+        AND (
+          challan_no IS NULL OR TRIM(challan_no) = '' OR
+          party_name IS NULL OR TRIM(party_name) = '' OR
+          product_id IS NULL OR qty IS NULL OR qty <= 0 OR date IS NULL
+        )
+    ''');
+    final raw = rows.first['cnt'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return 0;
+  }
+
+  Map<String, String?> _parseReqCloseRemarks(String remarks) {
+    if (remarks.trim().isEmpty) {
+      return const {'party': null, 'challan': null};
+    }
+    final partyMatch = RegExp(
+      r'Party:\s*(.*?)\s*(?:\||$)',
+      caseSensitive: false,
+    ).firstMatch(remarks);
+    final challanMatch = RegExp(
+      r'ChNo:\s*(.*?)\s*(?:\||$)',
+      caseSensitive: false,
+    ).firstMatch(remarks);
+
+    final party = (partyMatch?.group(1) ?? '').trim();
+    final challan = (challanMatch?.group(1) ?? '').trim();
+    return {
+      'party': party.isEmpty ? null : party,
+      'challan': challan.isEmpty ? null : challan,
+    };
+  }
+
+  Future<int?> _findPartyIdByName(Database db, String partyName) async {
+    final normalized = partyName.trim();
+    if (normalized.isEmpty) return null;
+    final rows = await db.query(
+      'parties',
+      columns: ['id'],
+      where: 'LOWER(name) = LOWER(?)',
+      whereArgs: [normalized],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final raw = rows.first['id'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> _findFallbackCloseLedgerForBrokenRequirement(
+    Database db,
+    Map<String, dynamic> requirementRow,
+    Set<int> usedLedgerIds,
+  ) async {
+    final productId = requirementRow['product_id'] as int?;
+    final shadeId = requirementRow['fabric_shade_id'] as int?;
+    final closedDateMs = (requirementRow['closed_date'] as num?)?.toInt();
+    final challanNo = (requirementRow['challan_no'] ?? '').toString().trim();
+    final partyName = (requirementRow['party_name'] ?? '').toString().trim();
+
+    final where = <String>[
+      "UPPER(type) = 'OUT'",
+      "reference LIKE 'REQ-CLOSE%'",
+      '(is_deleted IS NULL OR is_deleted = 0)',
+      'COALESCE(qty, 0) > 0',
+    ];
+    final args = <dynamic>[];
+
+    if (productId != null) {
+      where.add('product_id = ?');
+      args.add(productId);
+    }
+    if (shadeId != null) {
+      where.add('COALESCE(fabric_shade_id, 0) = ?');
+      args.add(shadeId);
+    }
+    if (closedDateMs != null && closedDateMs > 0) {
+      final fromMs =
+          closedDateMs - const Duration(days: 10).inMilliseconds;
+      final toMs = closedDateMs + const Duration(days: 10).inMilliseconds;
+      where.add('COALESCE(date, 0) BETWEEN ? AND ?');
+      args.add(fromMs);
+      args.add(toMs);
+    }
+
+    final orderBy = (closedDateMs != null && closedDateMs > 0)
+        ? 'ABS(COALESCE(date, 0) - $closedDateMs), id DESC'
+        : 'id DESC';
+
+    Future<Map<String, dynamic>?> pickBest({
+      required bool enforceRemarkHints,
+    }) async {
+      final rows = await db.query(
+        'stock_ledger',
+        columns: ['id', 'product_id', 'fabric_shade_id', 'qty', 'date', 'remarks'],
+        where: where.join(' AND '),
+        whereArgs: args,
+        orderBy: orderBy,
+        limit: 80,
+      );
+      if (rows.isEmpty) return null;
+
+      for (final row in rows) {
+        final id = (row['id'] as num?)?.toInt();
+        if (id == null || usedLedgerIds.contains(id)) continue;
+
+        if (!enforceRemarkHints) {
+          return row;
+        }
+
+        final parsed = _parseReqCloseRemarks((row['remarks'] ?? '').toString());
+        final parsedParty = (parsed['party'] ?? '').trim().toLowerCase();
+        final parsedChallan = (parsed['challan'] ?? '').trim().toLowerCase();
+        final needParty = partyName.isNotEmpty;
+        final needChallan = challanNo.isNotEmpty;
+        final partyOk =
+            !needParty || parsedParty == partyName.toLowerCase();
+        final challanOk =
+            !needChallan || parsedChallan == challanNo.toLowerCase();
+        if (partyOk && challanOk) {
+          return row;
+        }
+      }
+      return null;
+    }
+
+    // Pass 1: strict match if we have party/challan hints.
+    final hasHints = challanNo.isNotEmpty || partyName.isNotEmpty;
+    if (hasHints) {
+      final strict = await pickBest(enforceRemarkHints: true);
+      if (strict != null) return strict;
+    }
+
+    // Pass 2: relaxed nearest candidate in date/product/shade space.
+    return pickBest(enforceRemarkHints: false);
+  }
+
+  Future<int> repairClosedRequirementLedgers({int limit = 200}) async {
+    final db = await database;
+    if (_closedRequirementLedgerRepairDone) {
+      final remaining = await _countClosedRequirementRowsNeedingLedgerRepair(db);
+      if (remaining <= 0) return 0;
+    }
+
+    final rows = await db.rawQuery('''
+      SELECT id, challan_no, party_name, product_id, fabric_shade_id,
+             qty, date, closed_date
+      FROM challan_requirements
+      WHERE status = 'closed'
+        AND product_id IS NOT NULL
+        AND qty IS NOT NULL
+      ORDER BY id
+      LIMIT ?
+    ''', [limit]);
+
+    var fixed = 0;
+    _beginBulkMutation(suppressActivityLog: true);
+    try {
+      for (final row in rows) {
+        final id = row['id'] as int?;
+        final productId = row['product_id'] as int?;
+        final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+        if (id == null || productId == null || qty <= 0) continue;
+
+        final shadeId = row['fabric_shade_id'] as int?;
+        final challanNo = (row['challan_no'] ?? '').toString();
+        final partyName = (row['party_name'] ?? '').toString();
+        final ledgerReference = 'REQ-CLOSE-$id';
+
+        final existingNew = await db.query(
+          'stock_ledger',
+          columns: ['id'],
+          where: 'reference = ? AND (is_deleted IS NULL OR is_deleted = 0)',
+          whereArgs: [ledgerReference],
+          limit: 1,
+        );
+        if (existingNew.isNotEmpty) continue;
+
+        final legacyRows = await db.rawQuery('''
+        SELECT id FROM stock_ledger
+        WHERE reference LIKE 'REQ-CLOSE%'
+          AND reference != ?
+          AND product_id = ?
+          AND qty = ?
+          AND (is_deleted IS NULL OR is_deleted = 0)
+          AND (${shadeId == null ? 'fabric_shade_id IS NULL' : 'fabric_shade_id = ?'})
+          AND (? = '' OR remarks LIKE ?)
+        LIMIT 2
+        ''', [
+          ledgerReference,
+          productId,
+          qty,
+          if (shadeId != null) shadeId,
+          challanNo,
+          '%$challanNo%',
+        ]);
+
+        final repairedDateMs = (row['closed_date'] as int?) ??
+            (row['date'] as int?) ??
+            DateTime.now().millisecondsSinceEpoch;
+        final repairedDate =
+            DateTime.fromMillisecondsSinceEpoch(repairedDateMs);
+        final dateText = '${repairedDate.day.toString().padLeft(2, '0')}-'
+            '${repairedDate.month.toString().padLeft(2, '0')}-'
+            '${repairedDate.year}';
+        final remarks =
+            'Party: $partyName | ChNo: $challanNo | Req completed on: $dateText';
+
+        if (legacyRows.length == 1) {
+          final ledgerId = legacyRows.first['id'] as int?;
+          if (ledgerId == null) continue;
+          await _syncUpdate(
+            'stock_ledger',
+            {
+              'reference': ledgerReference,
+              'remarks': remarks,
+              'type': 'OUT',
+            },
+            ledgerId,
+          );
+          fixed++;
+          continue;
+        }
+
+        if (legacyRows.length > 1) continue;
+
+        await _syncInsert('stock_ledger', {
+          'product_id': productId,
+          'fabric_shade_id': shadeId,
+          'qty': qty,
+          'type': 'OUT',
+          'date': repairedDateMs,
+          'reference': ledgerReference,
+          'remarks': remarks,
+        });
+        fixed++;
+      }
+    } finally {
+      _endBulkMutation(suppressActivityLog: true);
+    }
+
+    if (fixed > 0) {
+      debugPrint('Fixed $fixed old closed requirement ledger entries');
+    }
+    final remaining = await _countClosedRequirementRowsNeedingLedgerRepair(db);
+    _closedRequirementLedgerRepairDone = remaining <= 0;
+    return fixed;
+  }
+
+  /// Restore old closed requirement rows that were overwritten with partial data
+  /// during sync updates. It backfills qty/product/shade/date using REQ-CLOSE
+  /// stock_ledger entries.
+  Future<int> repairClosedRequirementDataFromLedger({int limit = 500}) async {
+    final db = await database;
+    if (_closedRequirementDataRepairDone) {
+      final remaining = await _countBrokenClosedRequirementRows(db);
+      if (remaining <= 0) return 0;
+    }
+
+    final brokenRows = await db.rawQuery('''
+      SELECT id, challan_no, party_name, product_id, fabric_shade_id,
+             qty, date, closed_date
+      FROM challan_requirements
+      WHERE status = 'closed'
+        AND (
+          challan_no IS NULL OR TRIM(challan_no) = '' OR
+          party_name IS NULL OR TRIM(party_name) = '' OR
+          product_id IS NULL OR qty IS NULL OR qty <= 0 OR date IS NULL
+        )
+      ORDER BY id
+      LIMIT ?
+    ''', [limit]);
+
+    if (brokenRows.isEmpty) {
+      _closedRequirementDataRepairDone = true;
+      return 0;
+    }
+
+    var fixed = 0;
+    final usedLedgerIds = <int>{};
+    _beginBulkMutation(suppressActivityLog: true);
+    try {
+      for (final row in brokenRows) {
+        final id = row['id'] as int?;
+        if (id == null) continue;
+
+        Map<String, dynamic>? ledger;
+        final directRows = await db.query(
+          'stock_ledger',
+          columns: [
+            'id',
+            'product_id',
+            'fabric_shade_id',
+            'qty',
+            'date',
+            'remarks',
+          ],
+          where: 'reference = ? AND (is_deleted IS NULL OR is_deleted = 0)',
+          whereArgs: ['REQ-CLOSE-$id'],
+          orderBy: 'id DESC',
+          limit: 1,
+        );
+        if (directRows.isNotEmpty) {
+          ledger = Map<String, dynamic>.from(directRows.first);
+        } else {
+          ledger = await _findFallbackCloseLedgerForBrokenRequirement(
+            db,
+            row,
+            usedLedgerIds,
+          );
+        }
+        if (ledger == null) continue;
+
+        final ledgerId = (ledger['id'] as num?)?.toInt();
+        if (ledgerId != null) usedLedgerIds.add(ledgerId);
+
+        final updateData = <String, dynamic>{};
+
+        if (row['product_id'] == null && ledger['product_id'] != null) {
+          updateData['product_id'] = ledger['product_id'];
+        }
+        if (row['fabric_shade_id'] == null && ledger['fabric_shade_id'] != null) {
+          updateData['fabric_shade_id'] = ledger['fabric_shade_id'];
+        }
+
+        final challanNo = (row['challan_no'] ?? '').toString().trim();
+        final partyName = (row['party_name'] ?? '').toString().trim();
+        final parsed = _parseReqCloseRemarks((ledger['remarks'] ?? '').toString());
+        final parsedParty = (parsed['party'] ?? '').trim();
+        final parsedChallan = (parsed['challan'] ?? '').trim();
+
+        if (partyName.isEmpty && parsedParty.isNotEmpty) {
+          updateData['party_name'] = parsedParty;
+        }
+        if (challanNo.isEmpty && parsedChallan.isNotEmpty) {
+          updateData['challan_no'] = parsedChallan;
+        }
+        if (row['party_id'] == null) {
+          final effectiveParty = partyName.isNotEmpty ? partyName : parsedParty;
+          if (effectiveParty.isNotEmpty) {
+            final partyId = await _findPartyIdByName(db, effectiveParty);
+            if (partyId != null) {
+              updateData['party_id'] = partyId;
+            }
+          }
+        }
+
+        final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+        final ledgerQty = (ledger['qty'] as num?)?.toDouble() ?? 0;
+        if (qty <= 0 && ledgerQty > 0) {
+          updateData['qty'] = ledgerQty;
+        }
+
+        final rowDate = (row['date'] as num?)?.toInt();
+        if (rowDate == null || rowDate <= 0) {
+          final closedDate = (row['closed_date'] as num?)?.toInt();
+          final ledgerDate = (ledger['date'] as num?)?.toInt();
+          updateData['date'] =
+              closedDate ?? ledgerDate ?? DateTime.now().millisecondsSinceEpoch;
+        }
+
+        if (updateData.isEmpty) continue;
+        await _syncUpdate('challan_requirements', updateData, id);
+        fixed++;
+      }
+    } finally {
+      _endBulkMutation(suppressActivityLog: true);
+    }
+
+    if (fixed > 0) {
+      debugPrint('Repaired $fixed closed requirement rows from ledger');
+    }
+    final remaining = await _countBrokenClosedRequirementRows(db);
+    _closedRequirementDataRepairDone = remaining <= 0;
+    return fixed;
   }
 
   // ================= EMPLOYEES =================
@@ -1991,22 +3739,46 @@ class ErpDatabase {
     ''', args);
   }
 
+  Future<void> _deleteAutoProductionAttendanceIfNoProduction(
+    Database db,
+    Object empId,
+    Object date,
+  ) async {
+    final rawDate = date is int ? date : (date as num).toInt();
+    final normDate = DateTime.fromMillisecondsSinceEpoch(rawDate);
+    final dayStart = DateTime(normDate.year, normDate.month, normDate.day)
+        .millisecondsSinceEpoch;
+    final otherProd = await db.query('production_entries',
+        where: 'employee_id = ? AND date = ?',
+        whereArgs: [empId, rawDate],
+        limit: 1);
+    if (otherProd.isNotEmpty) return;
+
+    await db.delete(
+      'attendance',
+      where:
+          "employee_id = ? AND date = ? AND remarks LIKE 'Auto: Production%'",
+      whereArgs: [empId, dayStart],
+    );
+  }
 
   Future<int> insertProductionEntry(Map<String, dynamic> data) async {
     final db = await database;
     final id = await _syncInsert('production_entries', data);
-    // Insert or update attendance for this employee/date
+    // Production can create a missing attendance row, but must not rewrite
+    // manually marked attendance.
     final empId = data['employee_id'];
     final date = data['date'];
     if (empId != null && date != null) {
       // Normalize date to start of day
       final normDate = DateTime.fromMillisecondsSinceEpoch(date);
-      final dayStart = DateTime(normDate.year, normDate.month, normDate.day).millisecondsSinceEpoch;
+      final dayStart = DateTime(normDate.year, normDate.month, normDate.day)
+          .millisecondsSinceEpoch;
       final existing = await db.query('attendance',
-        columns: ['id'],
-        where: 'employee_id = ? AND date = ?',
-        whereArgs: [empId, dayStart],
-        limit: 1);
+          columns: ['id'],
+          where: 'employee_id = ? AND date = ?',
+          whereArgs: [empId, dayStart],
+          limit: 1);
       if (existing.isEmpty) {
         await _syncInsert('attendance', {
           'employee_id': empId,
@@ -2015,12 +3787,6 @@ class ErpDatabase {
           'shift': 'day',
           'remarks': 'Auto: Production',
         });
-      } else {
-        await _syncUpdate('attendance', {
-          'status': 'present',
-          'shift': 'day',
-          'remarks': 'Auto: Production',
-        }, existing.first['id'] as int);
       }
     }
     return id;
@@ -2029,39 +3795,45 @@ class ErpDatabase {
   Future<void> updateProductionEntry(Map<String, dynamic> data, int id) async {
     final db = await database;
     // Get the old production entry to check if employee/date changed
-    final oldProd = await db.query('production_entries', where: 'id = ?', whereArgs: [id], limit: 1);
+    final oldProd = await db.query('production_entries',
+        where: 'id = ?', whereArgs: [id], limit: 1);
     await _syncUpdate('production_entries', data, id);
     final newEmpId = data['employee_id'];
     final newDate = data['date'];
     if (oldProd.isNotEmpty) {
       final oldEmpId = oldProd.first['employee_id'];
       final oldDate = oldProd.first['date'];
-      // If employee or date changed, remove old attendance
-      if ((oldEmpId != newEmpId || oldDate != newDate) && oldEmpId != null && oldDate != null) {
-        await db.delete('attendance', where: 'employee_id = ? AND date = ?', whereArgs: [oldEmpId, oldDate]);
+      // If employee or date changed, remove only the old auto-generated row.
+      if ((oldEmpId != newEmpId || oldDate != newDate) &&
+          oldEmpId != null &&
+          oldDate != null) {
+        await _deleteAutoProductionAttendanceIfNoProduction(
+          db,
+          oldEmpId,
+          oldDate,
+        );
       }
     }
-    // Insert or update attendance for new employee/date
+    // Insert missing attendance for new employee/date. Existing attendance is
+    // manual data and should not be overwritten by production.
     if (newEmpId != null && newDate != null) {
+      final normDate = DateTime.fromMillisecondsSinceEpoch(
+          newDate is int ? newDate : (newDate as num).toInt());
+      final dayStart = DateTime(normDate.year, normDate.month, normDate.day)
+          .millisecondsSinceEpoch;
       final existing = await db.query('attendance',
-        columns: ['id'],
-        where: 'employee_id = ? AND date = ?',
-        whereArgs: [newEmpId, newDate],
-        limit: 1);
+          columns: ['id'],
+          where: 'employee_id = ? AND date = ?',
+          whereArgs: [newEmpId, dayStart],
+          limit: 1);
       if (existing.isEmpty) {
         await _syncInsert('attendance', {
           'employee_id': newEmpId,
-          'date': newDate,
+          'date': dayStart,
           'status': 'present',
           'shift': 'day',
           'remarks': 'Auto: Production',
         });
-      } else {
-        await _syncUpdate('attendance', {
-          'status': 'present',
-          'shift': 'day',
-          'remarks': 'Auto: Production',
-        }, existing.first['id'] as int);
       }
     }
   }
@@ -2069,7 +3841,8 @@ class ErpDatabase {
   Future<void> deleteProductionEntry(int id) async {
     final db = await database;
     // Get the production entry to find employee_id and date
-    final prod = await db.query('production_entries', where: 'id = ?', whereArgs: [id], limit: 1);
+    final prod = await db.query('production_entries',
+        where: 'id = ?', whereArgs: [id], limit: 1);
     int? empId;
     int? date;
     if (prod.isNotEmpty) {
@@ -2079,25 +3852,7 @@ class ErpDatabase {
     await _syncDelete('production_entries', id);
     // After deleting, check if any other production exists for this employee/date
     if (empId != null && date != null) {
-      final otherProd = await db.query('production_entries',
-        where: 'employee_id = ? AND date = ?',
-        whereArgs: [empId, date],
-        limit: 1);
-      if (otherProd.isEmpty) {
-        // Set attendance to absent (if exists)
-        final attRows = await db.query('attendance',
-          columns: ['id'],
-          where: 'employee_id = ? AND date = ?',
-          whereArgs: [empId, date],
-          limit: 1);
-        if (attRows.isNotEmpty) {
-          await _syncUpdate('attendance', {
-            'status': 'absent',
-            'shift': 'day',
-            'remarks': 'Auto: No Production',
-          }, attRows.first['id'] as int);
-        }
-      }
+      await _deleteAutoProductionAttendanceIfNoProduction(db, empId, date);
     }
   }
 
@@ -2112,7 +3867,7 @@ class ErpDatabase {
     // Mark all as pending delete first to block listeners
     if (syncEnabled && sync.isInitialized) {
       for (final id in ids) {
-        sync.addPendingDelete('production_entries', id);
+        await sync.addPendingDelete('production_entries', id);
       }
     }
     // Delete from Firebase
@@ -2121,39 +3876,24 @@ class ErpDatabase {
         try {
           await sync.deleteRecord('production_entries', id);
         } catch (e) {
-          debugPrint('⚠ bulk delete Firebase (production_entries/$id): $e');
+          debugPrint('âš  bulk delete Firebase (production_entries/$id): $e');
         }
       }
     }
     // Delete all from SQLite in one batch
     final placeholders = ids.map((_) => '?').join(',');
     // Also update attendance for these production entries
-    final prodRows = await db.query('production_entries', columns: ['employee_id', 'date'], where: 'id IN ($placeholders)', whereArgs: ids);
-    await db.delete('production_entries', where: 'id IN ($placeholders)', whereArgs: ids);
+    final prodRows = await db.query('production_entries',
+        columns: ['employee_id', 'date'],
+        where: 'id IN ($placeholders)',
+        whereArgs: ids);
+    await db.delete('production_entries',
+        where: 'id IN ($placeholders)', whereArgs: ids);
     for (final row in prodRows) {
       final empId = row['employee_id'];
       final date = row['date'];
       if (empId != null && date != null) {
-        // Check if any other production exists for this employee/date
-        final otherProd = await db.query('production_entries',
-          where: 'employee_id = ? AND date = ?',
-          whereArgs: [empId, date],
-          limit: 1);
-        if (otherProd.isEmpty) {
-          // Set attendance to absent (if exists)
-          final attRows = await db.query('attendance',
-            columns: ['id'],
-            where: 'employee_id = ? AND date = ?',
-            whereArgs: [empId, date],
-            limit: 1);
-          if (attRows.isNotEmpty) {
-            await _syncUpdate('attendance', {
-              'status': 'absent',
-              'shift': 'day',
-              'remarks': 'Auto: No Production',
-            }, attRows.first['id'] as int);
-          }
-        }
+        await _deleteAutoProductionAttendanceIfNoProduction(db, empId, date);
       }
     }
     dataVersion.value++;
@@ -2178,7 +3918,7 @@ class ErpDatabase {
     // Mark all as pending delete first to block listeners
     if (syncEnabled && sync.isInitialized) {
       for (final id in ids) {
-        sync.addPendingDelete('production_entries', id);
+        await sync.addPendingDelete('production_entries', id);
       }
     }
     // Delete from Firebase
@@ -2187,39 +3927,24 @@ class ErpDatabase {
         try {
           await sync.deleteRecord('production_entries', id);
         } catch (e) {
-          debugPrint('⚠ bulk delete Firebase (production_entries/$id): $e');
+          debugPrint('âš  bulk delete Firebase (production_entries/$id): $e');
         }
       }
     }
     // Delete all from SQLite in one batch
     final placeholders = ids.map((_) => '?').join(',');
     // Also update attendance for these production entries
-    final prodRows = await db.query('production_entries', columns: ['employee_id', 'date'], where: 'id IN ($placeholders)', whereArgs: ids);
-    await db.delete('production_entries', where: 'id IN ($placeholders)', whereArgs: ids);
+    final prodRows = await db.query('production_entries',
+        columns: ['employee_id', 'date'],
+        where: 'id IN ($placeholders)',
+        whereArgs: ids);
+    await db.delete('production_entries',
+        where: 'id IN ($placeholders)', whereArgs: ids);
     for (final row in prodRows) {
       final empId = row['employee_id'];
       final date = row['date'];
       if (empId != null && date != null) {
-        // Check if any other production exists for this employee/date
-        final otherProd = await db.query('production_entries',
-          where: 'employee_id = ? AND date = ?',
-          whereArgs: [empId, date],
-          limit: 1);
-        if (otherProd.isEmpty) {
-          // Set attendance to absent (if exists)
-          final attRows = await db.query('attendance',
-            columns: ['id'],
-            where: 'employee_id = ? AND date = ?',
-            whereArgs: [empId, date],
-            limit: 1);
-          if (attRows.isNotEmpty) {
-            await _syncUpdate('attendance', {
-              'status': 'absent',
-              'shift': 'day',
-              'remarks': 'Auto: No Production',
-            }, attRows.first['id'] as int);
-          }
-        }
+        await _deleteAutoProductionAttendanceIfNoProduction(db, empId, date);
       }
     }
     dataVersion.value++;
@@ -2355,7 +4080,6 @@ class ErpDatabase {
       SELECT DISTINCT employee_id, date FROM production_entries
       WHERE date >= ? AND date < ? AND employee_id IS NOT NULL
     ''', [fromMs, toMs]);
-    bool autoInserted = false;
     for (final row in prodDates) {
       final empId = row['employee_id'] as int;
       final date = row['date'] as int;
@@ -2372,7 +4096,6 @@ class ErpDatabase {
           'shift': 'day',
           'remarks': 'Auto: Production',
         });
-        autoInserted = true;
       }
     }
     // dataVersion already bumped by _syncInsert for each record
@@ -2804,6 +4527,35 @@ class ErpDatabase {
   }
 }
 
+class _DebouncedIntNotifier extends ChangeNotifier
+    implements ValueListenable<int> {
+  _DebouncedIntNotifier(this._value);
+
+  static const Duration _delay = Duration(milliseconds: 120);
+  int _value;
+  Timer? _timer;
+  bool _disposed = false;
+
+  @override
+  int get value => _value;
+
+  set value(int newValue) {
+    _value = newValue;
+    _timer?.cancel();
+    _timer = Timer(_delay, () {
+      if (_disposed) return;
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _timer?.cancel();
+    super.dispose();
+  }
+}
+
 /// Cleanup duplicate attendance records: keep only the latest per employee per day.
 extension AttendanceCleanup on ErpDatabase {
   Future<void> cleanupDuplicateAttendance() async {
@@ -2819,7 +4571,8 @@ extension AttendanceCleanup on ErpDatabase {
       final empId = dup['employee_id'];
       final date = dup['date'];
       // Get all ids for this employee/date, order by id DESC (keep latest)
-      final rows = await db.query('attendance',
+      final rows = await db.query(
+        'attendance',
         columns: ['id'],
         where: 'employee_id = ? AND date = ?',
         whereArgs: [empId, date],

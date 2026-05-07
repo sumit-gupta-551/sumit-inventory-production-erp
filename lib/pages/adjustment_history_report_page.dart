@@ -1,5 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -31,25 +33,35 @@ class _AdjustmentHistoryReportPageState
   String typeFilter = 'all'; // all, IN, OUT
   bool loading = true;
   bool reportGenerated = false;
+  Timer? _reloadDebounce;
+  int _loadVersion = 0;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _load(showLoader: true);
     ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     super.dispose();
   }
 
   void _onDataChanged() {
-    if (mounted) _load();
+    if (!mounted) return;
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _load(showLoader: false),
+    );
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool showLoader = false}) async {
+    final loadVersion = ++_loadVersion;
+    if (mounted && showLoader) setState(() => loading = true);
     final db = await ErpDatabase.instance.database;
 
     final nextRows = await db.rawQuery('''
@@ -68,6 +80,7 @@ class _AdjustmentHistoryReportPageState
       LEFT JOIN products p ON p.id = sl.product_id
       LEFT JOIN fabric_shades fs ON fs.id = sl.fabric_shade_id
       WHERE sl.reference = 'ADJUSTMENT'
+        AND (sl.is_deleted IS NULL OR sl.is_deleted = 0)
       ORDER BY sl.date DESC, sl.id DESC
     ''');
 
@@ -76,7 +89,7 @@ class _AdjustmentHistoryReportPageState
     final nextShades = await db.query('fabric_shades',
         columns: ['id', 'shade_no', 'shade_name'], orderBy: 'shade_no');
 
-    if (!mounted) return;
+    if (!mounted || loadVersion != _loadVersion) return;
     setState(() {
       allRows = nextRows;
       products = nextProducts;

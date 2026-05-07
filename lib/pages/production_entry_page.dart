@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
-import '../data/firebase_sync_service.dart';
+import 'package:sssj/data/firebase_sync_service.dart';
 import '../widgets/inventory_form_card.dart';
 
 class ProductionEntryPage extends StatefulWidget {
@@ -377,8 +377,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Unit Entries?'),
-        content: Text(
-            'Delete all $count entries for "$unitName" on $dateStr?'),
+        content: Text('Delete all $count entries for "$unitName" on $dateStr?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -386,15 +385,15 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
-            child:
-                const Text('Delete', style: TextStyle(color: Colors.white)),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
     if (ok != true) return;
     final dbUnit = unitName == 'No Unit' ? '' : unitName;
-    await ErpDatabase.instance.deleteProductionEntriesByDateAndUnit(_dateMs, dbUnit);
+    await ErpDatabase.instance
+        .deleteProductionEntriesByDateAndUnit(_dateMs, dbUnit);
     if (!mounted) return;
     _msg('$count entries for "$unitName" deleted');
     await _loadSavedEntries();
@@ -500,7 +499,9 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                   child: Text(
                     unitName,
                     style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF4E342E)),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF4E342E)),
                   ),
                 ),
                 Text(
@@ -511,7 +512,9 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                 Text(
                   'St: $unitStitch',
                   style: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF424242)),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF424242)),
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -547,12 +550,15 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                 title: Text(
                   '${_empName(e['employee_id'] as int?)}  |  ${_machineName(e['machine_id'] as int?)}',
                   style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF4E342E)),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF4E342E)),
                 ),
                 subtitle: Text(
                   'St: ${e['stitch']}  |  Bonus: ${totalB.toStringAsFixed(0)}'
                   '${(e['remarks'] ?? '').toString().isNotEmpty ? '  |  ${e['remarks']}' : ''}',
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF616161)),
+                  style:
+                      const TextStyle(fontSize: 11, color: Color(0xFF616161)),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -995,7 +1001,8 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                                 subtitle: Text(
                                   'St: $stitch  |  B: ${bonus.toStringAsFixed(0)}  |  I: ${incentive.toStringAsFixed(0)}  |  T: ${total.toStringAsFixed(0)}'
                                   '${(item['remarks'] ?? '').toString().isNotEmpty ? '  |  ${item['remarks']}' : ''}',
-                                  style: const TextStyle(fontSize: 11, color: Color(0xFF424242)),
+                                  style: const TextStyle(
+                                      fontSize: 11, color: Color(0xFF424242)),
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -1090,7 +1097,9 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                             child: Text(
                               'Stitch: $savedTotalStitch  |  Bonus: ${savedTotalBonus.toStringAsFixed(0)}',
                               style: const TextStyle(
-                                  fontWeight: FontWeight.w600, fontSize: 12, color: Color(0xFF4E342E)),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Color(0xFF4E342E)),
                             ),
                           ),
                           ..._buildGroupedSaved(),

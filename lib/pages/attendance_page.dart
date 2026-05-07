@@ -1,9 +1,12 @@
 // ignore_for_file: use_build_context_synchronously
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/erp_database.dart';
 import 'package:month_picker_dialog/month_picker_dialog.dart';
 import '../data/sync_helper.dart';
+import '../data/permission_service.dart';
 
 class AttendancePage extends StatefulWidget {
   const AttendancePage({super.key});
@@ -13,30 +16,6 @@ class AttendancePage extends StatefulWidget {
 }
 
 class _AttendancePageState extends State<AttendancePage> {
-    /// Force full attendance sync: clear local and reload from Firebase for a month
-    Future<void> _forceFullAttendanceSync() async {
-      try {
-        final picked = await showMonthPicker(context: context, initialDate: DateTime.now());
-        if (picked == null) return;
-        final from = DateTime(picked.year, picked.month, 1);
-        final to = DateTime(picked.year, picked.month + 1, 1).subtract(const Duration(milliseconds: 1));
-        setState(() => loading = true);
-        // Clear local attendance for this month
-        await ErpDatabase.instance.deleteAttendanceForPeriod(from.millisecondsSinceEpoch, to.millisecondsSinceEpoch);
-        // Reset last sync so all entries are pulled
-        await SyncHelper.setLastAttendanceSync(0);
-        // Reload from Firebase
-        await ErpDatabase.instance.updateAttendanceFromProductionSince(null, from: from, to: to);
-        await SyncHelper.setLastAttendanceSync(DateTime.now().millisecondsSinceEpoch);
-        setState(() => loading = false);
-        _msg('Force full sync for [1m${picked.year}-${picked.month.toString().padLeft(2, '0')}[22m complete!');
-        _load();
-      } catch (e, st) {
-        debugPrint('ForceFullAttendanceSync: ERROR: $e\n$st');
-        setState(() => loading = false);
-        _msg('Error during force sync: $e');
-      }
-    }
   /// Debug: Cleanup duplicate attendance and enforce unique index
   Future<void> _cleanupAttendanceDuplicates() async {
     await ErpDatabase.instance.cleanupDuplicateAttendance();
@@ -45,7 +24,6 @@ class _AttendancePageState extends State<AttendancePage> {
         'Attendance cleanup done. Duplicates removed and unique index enforced.');
     _load();
   }
-
 
   bool _syncingProductionAttendance = false;
   DateTime _selectedDate = DateTime.now();
@@ -56,9 +34,13 @@ class _AttendancePageState extends State<AttendancePage> {
   Map<int, Map<String, dynamic>> _pending =
       {}; // empId -> {status, shift, remarks}
   bool loading = true;
+  bool _hasLoadedOnce = false;
+  bool _loadingData = false;
   bool _saving = false;
   bool _hasChanges = false;
   String? _selectedUnit; // null = All
+  Timer? _reloadDebounce;
+  int _editVersion = 0;
 
   static const statusOptions = ['present', 'absent', 'half_day', 'double'];
 
@@ -82,10 +64,18 @@ class _AttendancePageState extends State<AttendancePage> {
   };
 
   List<Map<String, dynamic>> get _filteredEmployees {
-    if (_selectedUnit == null) return allEmployees;
-    return allEmployees
-        .where((e) => (e['unit_name'] ?? '').toString() == _selectedUnit)
-        .toList();
+    final allowed = PermissionService.instance.allowedAttendanceUnits;
+    Iterable<Map<String, dynamic>> list = allEmployees;
+    if (allowed != null) {
+      // Restrict to allowed units only.
+      list = list.where(
+          (e) => allowed.contains((e['unit_name'] ?? '').toString()));
+    }
+    if (_selectedUnit != null) {
+      list = list
+          .where((e) => (e['unit_name'] ?? '').toString() == _selectedUnit);
+    }
+    return list.toList();
   }
 
   @override
@@ -97,55 +87,88 @@ class _AttendancePageState extends State<AttendancePage> {
 
   /// Automatically cleanup duplicates and load attendance
   Future<void> _autoCleanupAndLoad() async {
-    await ErpDatabase.instance.cleanupDuplicateAttendance();
-    await ErpDatabase.instance.ensureAttendanceUniqueIndex();
-    // Only sync new entries since last sync
-    final lastSync = await SyncHelper.getLastAttendanceSync();
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await ErpDatabase.instance.updateAttendanceFromProductionSince(lastSync);
-    await SyncHelper.setLastAttendanceSync(now);
-    _load();
+    if (!mounted) return;
+    setState(() => loading = true);
+    try {
+      await ErpDatabase.instance.cleanupDuplicateAttendance();
+      await ErpDatabase.instance.ensureAttendanceUniqueIndex();
+      // Only sync new production rows since last processed production id.
+      final lastSyncProdId = await SyncHelper.getLastAttendanceSync() ?? 0;
+      final maxProdId = await ErpDatabase.instance.getMaxProductionEntryId();
+      await ErpDatabase.instance
+          .updateAttendanceFromProductionSince(lastSyncProdId);
+      await SyncHelper.setLastAttendanceSync(maxProdId);
+    } catch (e) {
+      debugPrint('Attendance startup sync error: $e');
+    }
+    await _load(showLoading: true);
   }
 
   Future<void> _fullMonthSync() async {
     debugPrint('FullMonthSync: Button pressed');
     try {
-      final picked = await showMonthPicker(context: context, initialDate: DateTime.now());
-      debugPrint('FullMonthSync: Picked month: \\${picked?.year}-\\${picked?.month}');
+      final picked =
+          await showMonthPicker(context: context, initialDate: DateTime.now());
+      debugPrint(
+          'FullMonthSync: Picked month: \\${picked?.year}-\\${picked?.month}');
       if (picked == null) return;
       final from = DateTime(picked.year, picked.month, 1);
-      final to = DateTime(picked.year, picked.month + 1, 1).subtract(const Duration(milliseconds: 1));
+      final to = DateTime(picked.year, picked.month + 1, 1)
+          .subtract(const Duration(milliseconds: 1));
       if (!mounted) return;
-      setState(() => loading = true);
-      await ErpDatabase.instance.updateAttendanceFromProductionSince(null, from: from, to: to);
-      await SyncHelper.setLastAttendanceSync(DateTime.now().millisecondsSinceEpoch);
+      setState(() {
+        loading = true;
+        _syncingProductionAttendance = true;
+      });
+      await ErpDatabase.instance
+          .updateAttendanceFromProductionSince(null, from: from, to: to);
+      final maxProdId = await ErpDatabase.instance.getMaxProductionEntryId();
+      await SyncHelper.setLastAttendanceSync(maxProdId);
       if (!mounted) return;
-      setState(() => loading = false);
-      _msg('Full sync for ${picked.year}-${picked.month.toString().padLeft(2, '0')} complete!');
-      _load();
+      setState(() {
+        loading = false;
+        _syncingProductionAttendance = false;
+      });
+      _msg(
+          'Full sync for ${picked.year}-${picked.month.toString().padLeft(2, '0')} complete!');
+      await _load();
     } catch (e, st) {
       debugPrint('FullMonthSync: ERROR: $e\n$st');
       if (!mounted) return;
-      setState(() => loading = false);
+      setState(() {
+        loading = false;
+        _syncingProductionAttendance = false;
+      });
       _msg('Error during month sync: $e');
     }
   }
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     super.dispose();
   }
 
   void _onDataChanged() {
-    if (!mounted) return;
-    _load();
+    if (!mounted || _syncingProductionAttendance || loading || _saving) return;
+    if (_hasChanges || _loadingData) return;
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 500),
+      () => _load(showLoading: false),
+    );
   }
 
-
-  Future<void> _load() async {
-    if (_syncingProductionAttendance) return;
-    setState(() => loading = true);
+  Future<void> _load({bool showLoading = false}) async {
+    if (_syncingProductionAttendance || _loadingData) return;
+    final loadEditVersion = _editVersion;
+    final shouldKeepPending = !showLoading && _pending.isNotEmpty;
+    _loadingData = true;
+    final shouldShowLoading = showLoading || !_hasLoadedOnce;
+    if (shouldShowLoading && mounted) {
+      setState(() => loading = true);
+    }
     try {
       final empList = await ErpDatabase.instance.getEmployees(status: 'active');
       final unitList = await ErpDatabase.instance.getUnits();
@@ -168,18 +191,40 @@ class _AttendancePageState extends State<AttendancePage> {
       final combinedEmployees = {for (var e in empList) e['id']: e};
 
       if (!mounted) return;
+      if (_hasChanges && loadEditVersion != _editVersion) {
+        return;
+      }
       setState(() {
-        allEmployees = combinedEmployees.values.toList().cast<Map<String, dynamic>>();
-        units = unitList;
+        allEmployees =
+            combinedEmployees.values.toList().cast<Map<String, dynamic>>();
+        // Restrict the units list to those this user is allowed to see.
+        final allowed = PermissionService.instance.allowedAttendanceUnits;
+        if (allowed == null) {
+          units = unitList;
+        } else {
+          units = unitList
+              .where((u) => allowed.contains((u['name'] ?? '').toString()))
+              .toList();
+        }
+        // If the current unit filter is no longer allowed, reset it.
+        if (_selectedUnit != null &&
+            !units.any((u) => (u['name'] ?? '').toString() == _selectedUnit)) {
+          _selectedUnit = null;
+        }
         attendance = attMap;
-        _pending = {};
-        _hasChanges = false;
+        if (!shouldKeepPending) {
+          _pending = {};
+          _hasChanges = false;
+        }
+        _hasLoadedOnce = true;
         loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => loading = false);
       _msg('Error loading attendance: $e');
+    } finally {
+      _loadingData = false;
     }
   }
 
@@ -196,19 +241,19 @@ class _AttendancePageState extends State<AttendancePage> {
     );
     if (d != null) {
       setState(() => _selectedDate = d);
-      _load();
+      _load(showLoading: true);
     }
   }
 
   void _prevDay() {
     setState(
         () => _selectedDate = _selectedDate.subtract(const Duration(days: 1)));
-    _load();
+    _load(showLoading: true);
   }
 
   void _nextDay() {
     setState(() => _selectedDate = _selectedDate.add(const Duration(days: 1)));
-    _load();
+    _load(showLoading: true);
   }
 
   int get _dateMs =>
@@ -236,8 +281,15 @@ class _AttendancePageState extends State<AttendancePage> {
   // Local-only changes (no DB write)
   void _setStatus(int empId, String status) {
     setState(() {
+      _editVersion++;
       _pending[empId] = {
         ...(_pending[empId] ?? {}),
+        'status': status,
+      };
+      attendance[empId] = {
+        ...attendance[empId] ?? {},
+        'employee_id': empId,
+        'date': _dateMs,
         'status': status,
       };
       _hasChanges = true;
@@ -248,6 +300,7 @@ class _AttendancePageState extends State<AttendancePage> {
     final current = _getShift(empId);
     final next = current == 'day' ? 'night' : 'day';
     setState(() {
+      _editVersion++;
       _pending[empId] = {
         ...(_pending[empId] ?? {}),
         'shift': next,
@@ -286,6 +339,7 @@ class _AttendancePageState extends State<AttendancePage> {
     if (saved != true) return;
 
     setState(() {
+      _editVersion++;
       _pending[empId] = {
         ...(_pending[empId] ?? {}),
         'remarks': ctrl.text.trim(),
@@ -297,6 +351,7 @@ class _AttendancePageState extends State<AttendancePage> {
   void _markAll(String status) {
     final emps = _filteredEmployees;
     setState(() {
+      _editVersion++;
       for (final emp in emps) {
         final empId = emp['id'] as int;
         _pending[empId] = {
@@ -402,12 +457,6 @@ class _AttendancePageState extends State<AttendancePage> {
             icon: const Icon(Icons.sync),
             tooltip: 'Full Sync by Month',
             onPressed: _fullMonthSync,
-          ),
-
-          IconButton(
-            icon: const Icon(Icons.sync_problem),
-            tooltip: 'Force Full Sync (Clear & Reload)',
-            onPressed: _forceFullAttendanceSync,
           ),
 
 // ...existing code...
@@ -721,6 +770,8 @@ class _AttendancePageState extends State<AttendancePage> {
                                                     const EdgeInsets.symmetric(
                                                         horizontal: 2),
                                                 child: GestureDetector(
+                                                  behavior:
+                                                      HitTestBehavior.opaque,
                                                   onDoubleTap: () =>
                                                       _setStatus(empId, s),
                                                   child: Container(

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
-import '../data/firebase_sync_service.dart';
+import 'package:sssj/data/firebase_sync_service.dart';
 
 class FirmInventoryHistoryPage extends StatefulWidget {
   final int firmId;
@@ -460,86 +460,91 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
     }
 
     final db = await ErpDatabase.instance.database;
+    final sync = FirebaseSyncService.instance;
+    await sync.beginLocalDbWrite();
+    try {
+      await db.transaction((txn) async {
+        await txn.update(
+          'purchase_master',
+          {
+            'party_id': partyId,
+            'invoice_no': invoiceCtrl.text.trim(),
+            'purchase_date': newPurchaseDate,
+          },
+          where: 'purchase_no=?',
+          whereArgs: [purchaseNo],
+        );
 
-    await db.transaction((txn) async {
-      await txn.update(
-        'purchase_master',
-        {
-          'party_id': partyId,
-          'invoice_no': invoiceCtrl.text.trim(),
-          'purchase_date': newPurchaseDate,
-        },
-        where: 'purchase_no=?',
-        whereArgs: [purchaseNo],
-      );
+        await txn.update(
+          'purchase_items',
+          {
+            'product_id': productId,
+            'shade_id': shadeId,
+            'qty': newQty,
+            'rate': newRate,
+            'amount': newQty * newRate,
+          },
+          where: 'id=?',
+          whereArgs: [purchaseItemId],
+        );
 
-      await txn.update(
-        'purchase_items',
-        {
-          'product_id': productId,
-          'shade_id': shadeId,
-          'qty': newQty,
-          'rate': newRate,
-          'amount': newQty * newRate,
-        },
-        where: 'id=?',
-        whereArgs: [purchaseItemId],
-      );
-
-      final direct = await txn.rawQuery(
-        '''
+        final direct = await txn.rawQuery(
+          '''
         SELECT id FROM stock_ledger
         WHERE product_id=?
           AND fabric_shade_id=?
           AND type='IN'
           AND date=?
           AND reference=?
-          AND remarks='Purchase'
+          AND (remarks='Purchase' OR remarks LIKE 'Purchase against Order #%')
           AND ABS(COALESCE(qty, 0) - ?) < 0.000001
         ORDER BY id DESC
         LIMIT 1
         ''',
-        [oldProductId, oldShadeId, oldPurchaseDate, oldInvoiceNo, oldQty],
-      );
+          [oldProductId, oldShadeId, oldPurchaseDate, oldInvoiceNo, oldQty],
+        );
 
-      int? ledgerId;
-      if (direct.isNotEmpty) {
-        ledgerId = direct.first['id'] as int?;
-      } else {
-        final fallback = await txn.rawQuery(
-          '''
+        int? ledgerId;
+        if (direct.isNotEmpty) {
+          ledgerId = direct.first['id'] as int?;
+        } else {
+          final fallback = await txn.rawQuery(
+            '''
           SELECT id FROM stock_ledger
           WHERE product_id=?
             AND fabric_shade_id=?
             AND type='IN'
             AND date=?
             AND reference=?
-            AND remarks='Purchase'
+            AND (remarks='Purchase' OR remarks LIKE 'Purchase against Order #%')
           ORDER BY id DESC
           LIMIT 1
           ''',
-          [oldProductId, oldShadeId, oldPurchaseDate, oldInvoiceNo],
-        );
-        if (fallback.isNotEmpty) {
-          ledgerId = fallback.first['id'] as int?;
+            [oldProductId, oldShadeId, oldPurchaseDate, oldInvoiceNo],
+          );
+          if (fallback.isNotEmpty) {
+            ledgerId = fallback.first['id'] as int?;
+          }
         }
-      }
 
-      if (ledgerId != null) {
-        await txn.update(
-          'stock_ledger',
-          {
-            'product_id': productId,
-            'fabric_shade_id': shadeId,
-            'qty': newQty,
-            'date': newPurchaseDate,
-            'reference': invoiceCtrl.text.trim(),
-          },
-          where: 'id=?',
-          whereArgs: [ledgerId],
-        );
-      }
-    });
+        if (ledgerId != null) {
+          await txn.update(
+            'stock_ledger',
+            {
+              'product_id': productId,
+              'fabric_shade_id': shadeId,
+              'qty': newQty,
+              'date': newPurchaseDate,
+              'reference': invoiceCtrl.text.trim(),
+            },
+            where: 'id=?',
+            whereArgs: [ledgerId],
+          );
+        }
+      });
+    } finally {
+      await sync.endLocalDbWrite();
+    }
 
     await _load();
 
@@ -668,64 +673,69 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
     final db = await ErpDatabase.instance.database;
     final sync = FirebaseSyncService.instance;
     final ledgerIds = <int>{};
+    await sync.beginLocalDbWrite();
+    try {
+      await db.transaction((txn) async {
+        for (final row in groupRows) {
+          final productId = row['product_id'] as int?;
+          final shadeId = row['shade_id'] as int?;
+          final date = row['purchase_date'] as int?;
+          final ref = (row['invoice_no'] ?? '').toString();
+          final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+          if (productId == null || shadeId == null || date == null) continue;
 
-    await db.transaction((txn) async {
-      for (final row in groupRows) {
-        final productId = row['product_id'] as int?;
-        final shadeId = row['shade_id'] as int?;
-        final date = row['purchase_date'] as int?;
-        final ref = (row['invoice_no'] ?? '').toString();
-        final qty = (row['qty'] as num?)?.toDouble() ?? 0;
-        if (productId == null || shadeId == null || date == null) continue;
-
-        final matches = await txn.rawQuery('''
+          final matches = await txn.rawQuery('''
           SELECT id FROM stock_ledger
           WHERE product_id=?
             AND fabric_shade_id=?
             AND type='IN'
             AND date=?
             AND reference=?
-            AND remarks='Purchase'
+            AND (remarks='Purchase' OR remarks LIKE 'Purchase against Order #%')
             AND ABS(COALESCE(qty,0) - ?) < 0.001
         ''', [productId, shadeId, date, ref, qty]);
 
-        for (final match in matches) {
-          final id = match['id'] as int?;
-          if (id != null) ledgerIds.add(id);
+          for (final match in matches) {
+            final id = match['id'] as int?;
+            if (id != null) ledgerIds.add(id);
+          }
         }
-      }
 
-      if (ledgerIds.isNotEmpty) {
-        final placeholders = List.filled(ledgerIds.length, '?').join(',');
+        if (ledgerIds.isNotEmpty) {
+          final placeholders = List.filled(ledgerIds.length, '?').join(',');
+          await txn.delete(
+            'stock_ledger',
+            where: 'id IN ($placeholders)',
+            whereArgs: ledgerIds.toList(),
+          );
+        }
+
+        final purchasePlaceholders =
+            List.filled(purchaseNos.length, '?').join(',');
         await txn.delete(
-          'stock_ledger',
-          where: 'id IN ($placeholders)',
-          whereArgs: ledgerIds.toList(),
+          'purchase_items',
+          where: 'purchase_no IN ($purchasePlaceholders)',
+          whereArgs: purchaseNos,
         );
-      }
-
-      final purchasePlaceholders = List.filled(purchaseNos.length, '?').join(',');
-      await txn.delete(
-        'purchase_items',
-        where: 'purchase_no IN ($purchasePlaceholders)',
-        whereArgs: purchaseNos,
-      );
-      await txn.delete(
-        'purchase_master',
-        where: 'firm_id=? AND purchase_no IN ($purchasePlaceholders)',
-        whereArgs: [widget.firmId, ...purchaseNos],
-      );
-    });
+        await txn.delete(
+          'purchase_master',
+          where: 'firm_id=? AND purchase_no IN ($purchasePlaceholders)',
+          whereArgs: [widget.firmId, ...purchaseNos],
+        );
+      });
+    } finally {
+      await sync.endLocalDbWrite();
+    }
 
     if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
       for (final id in purchaseMasterIds) {
-        sync.addPendingDelete('purchase_master', id);
+        await sync.addPendingDelete('purchase_master', id);
       }
       for (final id in purchaseItemIds) {
-        sync.addPendingDelete('purchase_items', id);
+        await sync.addPendingDelete('purchase_items', id);
       }
       for (final id in ledgerIds) {
-        sync.addPendingDelete('stock_ledger', id);
+        await sync.addPendingDelete('stock_ledger', id);
       }
 
       for (final id in purchaseItemIds) {
@@ -1101,163 +1111,173 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
       if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
         for (final d in deleted) {
           final itemId = d['purchase_item_id'] as int?;
-          if (itemId != null) sync.addPendingDelete('purchase_items', itemId);
+          if (itemId != null)
+            await sync.addPendingDelete('purchase_items', itemId);
         }
       }
 
-      await db.transaction((txn) async {
-        // 1. Update purchase_master header
-        final headerData = {
-          'party_id': partyId,
-          'invoice_no': inv,
-          'purchase_date': newDateMs,
-        };
-        await txn.update(
-          'purchase_master',
-          headerData,
-          where: 'purchase_no=?',
-          whereArgs: [widget.purchaseNo],
-        );
-        updatedPurchaseItems[-1] = {
-          ...headerData,
-          if (widget.purchaseMasterId != null) 'id': widget.purchaseMasterId,
-          'purchase_no': widget.purchaseNo,
-        };
-
-        // 2. Delete removed rows
-        for (final d in deleted) {
-          final itemId = d['purchase_item_id'] as int?;
-          if (itemId == null) continue;
-
-          // Delete purchase_item
-          await txn
-              .delete('purchase_items', where: 'id=?', whereArgs: [itemId]);
-          deletedPurchaseItemIds.add(itemId);
-
-          // Find and delete matching ledger entry
-          final oldPid = d['old_product_id'] as int?;
-          final oldSid = d['old_shade_id'] as int?;
-          final oldQty = (d['old_qty'] as num?)?.toDouble() ?? 0;
-          final oldDate = d['old_date'] as int?;
-          final oldInv = (d['old_invoice'] ?? '').toString();
-
-          if (oldPid != null && oldSid != null && oldDate != null) {
-            final ledger = await txn.rawQuery('''
-              SELECT id FROM stock_ledger
-              WHERE product_id=? AND fabric_shade_id=? AND type='IN'
-                AND date=? AND reference=? AND remarks='Purchase'
-                AND ABS(COALESCE(qty,0) - ?) < 0.001
-              ORDER BY id DESC LIMIT 1
-            ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
-            if (ledger.isNotEmpty) {
-              final ledgerId = ledger.first['id'] as int;
-              if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
-                sync.addPendingDelete('stock_ledger', ledgerId);
-              }
-              await txn
-                  .delete('stock_ledger', where: 'id=?', whereArgs: [ledgerId]);
-              deletedLedgerIds.add(ledgerId);
-            }
-          }
-        }
-
-        // 3. Update existing rows
-        for (final item in items) {
-          if (item['is_new'] == true) continue;
-          final itemId = item['purchase_item_id'] as int?;
-          if (itemId == null) continue;
-
-          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
-          final newRate = (item['rate'] as num?)?.toDouble() ?? 0;
-          final newShade = item['shade_id'] as int?;
-
-          final piData = {
-            'product_id': productId,
-            'shade_id': newShade,
-            'qty': newQty,
-            'rate': newRate,
-            'amount': newQty * newRate,
+      await sync.beginLocalDbWrite();
+      try {
+        await db.transaction((txn) async {
+          // 1. Update purchase_master header
+          final headerData = {
+            'party_id': partyId,
+            'invoice_no': inv,
+            'purchase_date': newDateMs,
           };
-          await txn.update('purchase_items', piData,
-              where: 'id=?', whereArgs: [itemId]);
-          updatedPurchaseItems[itemId] = {
-            ...piData,
-            'id': itemId,
-            'purchase_no': widget.purchaseNo
-          };
-
-          // Update matching ledger
-          final oldPid = item['old_product_id'] as int?;
-          final oldSid = item['old_shade_id'] as int?;
-          final oldQty = (item['old_qty'] as num?)?.toDouble() ?? 0;
-          final oldDate = item['old_date'] as int?;
-          final oldInv = (item['old_invoice'] ?? '').toString();
-
-          if (oldPid != null && oldSid != null && oldDate != null) {
-            final ledger = await txn.rawQuery('''
-              SELECT id FROM stock_ledger
-              WHERE product_id=? AND fabric_shade_id=? AND type='IN'
-                AND date=? AND reference=? AND remarks='Purchase'
-                AND ABS(COALESCE(qty,0) - ?) < 0.001
-              ORDER BY id DESC LIMIT 1
-            ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
-            if (ledger.isNotEmpty) {
-              final ledgerId = ledger.first['id'] as int;
-              final slData = {
-                'product_id': productId,
-                'fabric_shade_id': newShade,
-                'qty': newQty,
-                'date': newDateMs,
-                'reference': inv,
-              };
-              await txn.update('stock_ledger', slData,
-                  where: 'id=?', whereArgs: [ledgerId]);
-              updatedLedgerItems[ledgerId] = {
-                ...slData,
-                'id': ledgerId,
-                'type': 'IN',
-                'remarks': 'Purchase'
-              };
-            }
-          }
-        }
-
-        // 4. Insert new rows
-        for (final item in items) {
-          if (item['is_new'] != true) continue;
-          final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
-          final newRate = (item['rate'] as num?)?.toDouble() ?? 0;
-          final newShade = item['shade_id'] as int?;
-
-          final piData = {
+          await txn.update(
+            'purchase_master',
+            headerData,
+            where: 'purchase_no=?',
+            whereArgs: [widget.purchaseNo],
+          );
+          updatedPurchaseItems[-1] = {
+            ...headerData,
+            if (widget.purchaseMasterId != null) 'id': widget.purchaseMasterId,
             'purchase_no': widget.purchaseNo,
-            'product_id': productId,
-            'shade_id': newShade,
-            'qty': newQty,
-            'rate': newRate,
-            'amount': newQty * newRate,
           };
-          final piId = await txn.insert('purchase_items', piData);
-          insertedPurchaseItems[piId] = {...piData, 'id': piId};
 
-          final slData = {
-            'product_id': productId,
-            'fabric_shade_id': newShade,
-            'qty': newQty,
-            'type': 'IN',
-            'date': newDateMs,
-            'reference': inv,
-            'remarks': 'Purchase',
-          };
-          final slId = await txn.insert('stock_ledger', slData);
-          insertedLedgerItems[slId] = {...slData, 'id': slId};
-        }
-      });
+          // 2. Delete removed rows
+          for (final d in deleted) {
+            final itemId = d['purchase_item_id'] as int?;
+            if (itemId == null) continue;
+
+            // Delete purchase_item
+            await txn
+                .delete('purchase_items', where: 'id=?', whereArgs: [itemId]);
+            deletedPurchaseItemIds.add(itemId);
+
+            // Find and delete matching ledger entry
+            final oldPid = d['old_product_id'] as int?;
+            final oldSid = d['old_shade_id'] as int?;
+            final oldQty = (d['old_qty'] as num?)?.toDouble() ?? 0;
+            final oldDate = d['old_date'] as int?;
+            final oldInv = (d['old_invoice'] ?? '').toString();
+
+            if (oldPid != null && oldSid != null && oldDate != null) {
+              final ledger = await txn.rawQuery('''
+              SELECT id FROM stock_ledger
+              WHERE product_id=? AND fabric_shade_id=? AND type='IN'
+                AND date=? AND reference=?
+                AND (remarks='Purchase' OR remarks LIKE 'Purchase against Order #%')
+                AND ABS(COALESCE(qty,0) - ?) < 0.001
+              ORDER BY id DESC LIMIT 1
+            ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
+              if (ledger.isNotEmpty) {
+                final ledgerId = ledger.first['id'] as int;
+                await txn.delete('stock_ledger',
+                    where: 'id=?', whereArgs: [ledgerId]);
+                deletedLedgerIds.add(ledgerId);
+              }
+            }
+          }
+
+          // 3. Update existing rows
+          for (final item in items) {
+            if (item['is_new'] == true) continue;
+            final itemId = item['purchase_item_id'] as int?;
+            if (itemId == null) continue;
+
+            final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+            final newRate = (item['rate'] as num?)?.toDouble() ?? 0;
+            final newShade = item['shade_id'] as int?;
+
+            final piData = {
+              'product_id': productId,
+              'shade_id': newShade,
+              'qty': newQty,
+              'rate': newRate,
+              'amount': newQty * newRate,
+            };
+            await txn.update('purchase_items', piData,
+                where: 'id=?', whereArgs: [itemId]);
+            updatedPurchaseItems[itemId] = {
+              ...piData,
+              'id': itemId,
+              'purchase_no': widget.purchaseNo
+            };
+
+            // Update matching ledger
+            final oldPid = item['old_product_id'] as int?;
+            final oldSid = item['old_shade_id'] as int?;
+            final oldQty = (item['old_qty'] as num?)?.toDouble() ?? 0;
+            final oldDate = item['old_date'] as int?;
+            final oldInv = (item['old_invoice'] ?? '').toString();
+
+            if (oldPid != null && oldSid != null && oldDate != null) {
+              final ledger = await txn.rawQuery('''
+              SELECT id, remarks FROM stock_ledger
+              WHERE product_id=? AND fabric_shade_id=? AND type='IN'
+                AND date=? AND reference=?
+                AND (remarks='Purchase' OR remarks LIKE 'Purchase against Order #%')
+                AND ABS(COALESCE(qty,0) - ?) < 0.001
+              ORDER BY id DESC LIMIT 1
+            ''', [oldPid, oldSid, oldDate, oldInv, oldQty]);
+              if (ledger.isNotEmpty) {
+                final ledgerId = ledger.first['id'] as int;
+                final existingRemarks =
+                    (ledger.first['remarks'] ?? 'Purchase').toString();
+                final slData = {
+                  'product_id': productId,
+                  'fabric_shade_id': newShade,
+                  'qty': newQty,
+                  'date': newDateMs,
+                  'reference': inv,
+                };
+                await txn.update('stock_ledger', slData,
+                    where: 'id=?', whereArgs: [ledgerId]);
+                updatedLedgerItems[ledgerId] = {
+                  ...slData,
+                  'id': ledgerId,
+                  'type': 'IN',
+                  'remarks': existingRemarks,
+                };
+              }
+            }
+          }
+
+          // 4. Insert new rows
+          for (final item in items) {
+            if (item['is_new'] != true) continue;
+            final newQty = (item['qty'] as num?)?.toDouble() ?? 0;
+            final newRate = (item['rate'] as num?)?.toDouble() ?? 0;
+            final newShade = item['shade_id'] as int?;
+
+            final piData = {
+              'purchase_no': widget.purchaseNo,
+              'product_id': productId,
+              'shade_id': newShade,
+              'qty': newQty,
+              'rate': newRate,
+              'amount': newQty * newRate,
+            };
+            final piId = await txn.insert('purchase_items', piData);
+            insertedPurchaseItems[piId] = {...piData, 'id': piId};
+
+            final slData = {
+              'product_id': productId,
+              'fabric_shade_id': newShade,
+              'qty': newQty,
+              'type': 'IN',
+              'date': newDateMs,
+              'reference': inv,
+              'remarks': 'Purchase',
+            };
+            final slId = await txn.insert('stock_ledger', slData);
+            insertedLedgerItems[slId] = {...slData, 'id': slId};
+          }
+        });
+      } finally {
+        await sync.endLocalDbWrite();
+      }
 
       ErpDatabase.instance.dataVersion.value++;
 
       // Push changes to Firebase after transaction succeeds
       if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
+        for (final id in deletedLedgerIds) {
+          await sync.addPendingDelete('stock_ledger', id);
+        }
         for (final id in deletedPurchaseItemIds) {
           await sync.deleteRecord('purchase_items', id);
         }
@@ -1267,8 +1287,8 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
         // Push purchase_master update
         if (updatedPurchaseItems.containsKey(-1) &&
             widget.purchaseMasterId != null) {
-          await sync.pushRecord(
-              'purchase_master', widget.purchaseMasterId!, updatedPurchaseItems[-1]!);
+          await sync.pushRecord('purchase_master', widget.purchaseMasterId!,
+              updatedPurchaseItems[-1]!);
         }
         for (final e in updatedPurchaseItems.entries) {
           if (e.key == -1) continue;

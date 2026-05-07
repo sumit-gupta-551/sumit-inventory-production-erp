@@ -1,5 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -7,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../data/erp_database.dart';
+import '../data/permission_service.dart';
 
 class AttendanceReportPage extends StatefulWidget {
   const AttendanceReportPage({super.key});
@@ -20,23 +23,30 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
   List<Map<String, dynamic>> _data = [];
   bool _loading = true;
   String _groupBy = 'unit'; // 'unit' or 'designation'
+  Timer? _reloadDebounce;
+  int _loadVersion = 0;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _load(showLoader: true);
     ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     super.dispose();
   }
 
   void _onDataChanged() {
     if (!mounted) return;
-    _load();
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _load(showLoader: false),
+    );
   }
 
   void _showAttendanceCard(Map<String, dynamic> row) async {
@@ -141,7 +151,8 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         Row(
                           children: [
                             CircleAvatar(
-                              backgroundColor: Colors.white.withValues(alpha: 0.2),
+                              backgroundColor:
+                                  Colors.white.withValues(alpha: 0.2),
                               radius: 22,
                               child: Text(
                                 name.isNotEmpty ? name[0].toUpperCase() : '?',
@@ -162,14 +173,16 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                                           fontSize: 17,
                                           fontWeight: FontWeight.w700,
                                           color: Colors.white)),
-                                  if (designation.isNotEmpty || unitName.isNotEmpty)
+                                  if (designation.isNotEmpty ||
+                                      unitName.isNotEmpty)
                                     Text(
                                       [designation, unitName]
                                           .where((s) => s.isNotEmpty)
                                           .join(' • '),
                                       style: TextStyle(
                                           fontSize: 12,
-                                          color: Colors.white.withValues(alpha: 0.8)),
+                                          color: Colors.white
+                                              .withValues(alpha: 0.8)),
                                     ),
                                 ],
                               ),
@@ -186,10 +199,13 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
-                            _cardStat('Present', present, const Color(0xFF81C784)),
-                            _cardStat('Absent', absent, const Color(0xFFEF9A9A)),
+                            _cardStat(
+                                'Present', present, const Color(0xFF81C784)),
+                            _cardStat(
+                                'Absent', absent, const Color(0xFFEF9A9A)),
                             _cardStat('Half', half, const Color(0xFFFFCC80)),
-                            _cardStat('Double', double_, const Color(0xFFCE93D8)),
+                            _cardStat(
+                                'Double', double_, const Color(0xFFCE93D8)),
                           ],
                         ),
                       ],
@@ -200,17 +216,18 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
-                      children: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-                          .map((d) => Expanded(
-                                child: Center(
-                                  child: Text(d,
-                                      style: const TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF757575))),
-                                ),
-                              ))
-                          .toList(),
+                      children:
+                          ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                              .map((d) => Expanded(
+                                    child: Center(
+                                      child: Text(d,
+                                          style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF757575))),
+                                    ),
+                                  ))
+                              .toList(),
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -244,21 +261,17 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
           ),
           child: Text('$count',
               style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: color)),
+                  fontSize: 18, fontWeight: FontWeight.w800, color: color)),
         ),
         const SizedBox(height: 4),
         Text(label,
             style: TextStyle(
-                fontSize: 10,
-                color: Colors.white.withValues(alpha: 0.7))),
+                fontSize: 10, color: Colors.white.withValues(alpha: 0.7))),
       ],
     );
   }
 
-  List<Widget> _buildCalendarGrid(
-      DateTime monthStart, int daysInMonth,
+  List<Widget> _buildCalendarGrid(DateTime monthStart, int daysInMonth,
       Map<int, String> dayStatus, Map<int, String> dayShift) {
     final firstWeekday = monthStart.weekday % 7; // 0=Sun
     final cells = <Widget>[];
@@ -332,9 +345,10 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                   style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      color: status != null ? textColor : const Color(0xFFBDBDBD))),
-              if (icon != null)
-                Icon(icon, size: 14, color: textColor),
+                      color: status != null
+                          ? textColor
+                          : const Color(0xFFBDBDBD))),
+              if (icon != null) Icon(icon, size: 14, color: textColor),
               if (status != null)
                 Text(shortLabel,
                     style: TextStyle(
@@ -344,8 +358,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
               if (shift.isNotEmpty)
                 Text(shift == 'night' ? 'N' : 'D',
                     style: TextStyle(
-                        fontSize: 8,
-                        color: textColor.withValues(alpha: 0.6))),
+                        fontSize: 8, color: textColor.withValues(alpha: 0.6))),
             ],
           ),
         ),
@@ -413,12 +426,13 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
     );
   }
 
-  Future<void> _load() async {
-    if (_data.isEmpty) setState(() => _loading = true);
+  Future<void> _load({bool showLoader = false}) async {
+    final loadVersion = ++_loadVersion;
+    final shouldShowLoader = showLoader || _data.isEmpty;
+    if (mounted && shouldShowLoader) setState(() => _loading = true);
 
     final from = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
-    final to =
-        DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
+    final to = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
     final fromMs = from.millisecondsSinceEpoch;
     final toMs = to.millisecondsSinceEpoch;
 
@@ -427,11 +441,24 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
       toMs: toMs,
     );
 
-    if (!mounted) return;
+    // Restrict report rows to units the current user is allowed to see
+    // in Attendance (mirrors the per-user unit access on the Attendance page).
+    final allowed = PermissionService.instance.allowedAttendanceUnits;
+    final filtered = allowed == null
+        ? rows
+        : rows
+            .where((r) => allowed.contains((r['unit_name'] ?? '').toString()))
+            .toList();
+
+    if (!mounted || loadVersion != _loadVersion) return;
     setState(() {
-      _data = rows;
+      _data = filtered;
       _loading = false;
     });
+  }
+
+  Future<void> _reloadForFilters() async {
+    await _load(showLoader: _data.isEmpty);
   }
 
   void _pickMonth() async {
@@ -444,9 +471,11 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
       initialEntryMode: DatePickerEntryMode.calendarOnly,
     );
     if (picked != null) {
-      _selectedMonth = DateTime(picked.year, picked.month);
-      _data = [];
-      _load();
+      setState(() {
+        _selectedMonth = DateTime(picked.year, picked.month);
+        _data = [];
+      });
+      _reloadForFilters();
     }
   }
 
@@ -958,103 +987,104 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
             return InkWell(
               onTap: () => _showAttendanceCard(row),
               child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: const Color(0xFF1565C0).withValues(alpha: 0.06),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: const Color(0xFF1565C0).withValues(alpha: 0.06),
+                    ),
                   ),
                 ),
-              ),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 30,
-                    child: Text(
-                      '${idx + 1}',
-                      style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF757575)),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 30,
+                      child: Text(
+                        '${idx + 1}',
+                        style: const TextStyle(
+                            fontSize: 12, color: Color(0xFF757575)),
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    flex: 3,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF212121)),
-                        ),
-                        if (subtitle.isNotEmpty)
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            subtitle,
+                            name,
                             style: const TextStyle(
-                                fontSize: 10, color: Color(0xFF757575)),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF212121)),
                           ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    width: 36,
-                    child: Text(
-                      '$present',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: present > 0
-                            ? const Color(0xFF4CAF50)
-                            : const Color(0xFF757575),
+                          if (subtitle.isNotEmpty)
+                            Text(
+                              subtitle,
+                              style: const TextStyle(
+                                  fontSize: 10, color: Color(0xFF757575)),
+                            ),
+                        ],
                       ),
                     ),
-                  ),
-                  SizedBox(
-                    width: 36,
-                    child: Text(
-                      '$absent',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: absent > 0
-                            ? const Color(0xFFE53935)
-                            : const Color(0xFF757575),
+                    SizedBox(
+                      width: 36,
+                      child: Text(
+                        '$present',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: present > 0
+                              ? const Color(0xFF4CAF50)
+                              : const Color(0xFF757575),
+                        ),
                       ),
                     ),
-                  ),
-                  SizedBox(
-                    width: 36,
-                    child: Text(
-                      '$half',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: half > 0
-                            ? const Color(0xFFFFB74D)
-                            : const Color(0xFF757575),
+                    SizedBox(
+                      width: 36,
+                      child: Text(
+                        '$absent',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: absent > 0
+                              ? const Color(0xFFE53935)
+                              : const Color(0xFF757575),
+                        ),
                       ),
                     ),
-                  ),
-                  SizedBox(
-                    width: 36,
-                    child: Text(
-                      '$double_',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: double_ > 0
-                            ? const Color(0xFF673AB7)
-                            : const Color(0xFF757575),
+                    SizedBox(
+                      width: 36,
+                      child: Text(
+                        '$half',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: half > 0
+                              ? const Color(0xFFFFB74D)
+                              : const Color(0xFF757575),
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    SizedBox(
+                      width: 36,
+                      child: Text(
+                        '$double_',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: double_ > 0
+                              ? const Color(0xFF673AB7)
+                              : const Color(0xFF757575),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           }),

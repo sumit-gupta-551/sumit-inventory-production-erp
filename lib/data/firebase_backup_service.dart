@@ -27,6 +27,8 @@ class FirebaseBackupService {
     'thread_shades',
     'delay_reasons',
     'stock_ledger',
+    'order_master',
+    'order_items',
     'purchase_master',
     'purchase_items',
     'challan_requirements',

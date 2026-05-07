@@ -45,6 +45,9 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
   void _onDataChanged() {
     if (!mounted) return;
     _load();
+    if (showPast) {
+      _loadPastAdjustments();
+    }
   }
 
   Future<void> _load() async {
@@ -60,7 +63,9 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
       db.rawQuery('''
         SELECT DISTINCT product_id, fabric_shade_id AS shade_id
         FROM stock_ledger
-        WHERE product_id IS NOT NULL AND fabric_shade_id IS NOT NULL
+        WHERE product_id IS NOT NULL
+          AND fabric_shade_id IS NOT NULL
+          AND (is_deleted IS NULL OR is_deleted = 0)
       '''),
     ]);
     products = results[0] as List<Map<String, dynamic>>;
@@ -328,6 +333,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
       LEFT JOIN products p ON p.id = sl.product_id
       LEFT JOIN fabric_shades fs ON fs.id = sl.fabric_shade_id
       WHERE sl.reference = 'ADJUSTMENT'
+        AND (sl.is_deleted IS NULL OR sl.is_deleted = 0)
       ORDER BY sl.date DESC, sl.id DESC
     ''');
     if (!mounted) return;
@@ -520,6 +526,9 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     }
 
     await ErpDatabase.instance.deleteLedgerEntry(id);
+    if (!mounted) return;
+    await _loadPastAdjustments();
+    await _refreshBalance();
     if (!mounted) return;
     _msg('Entry deleted from app and Firebase');
   }

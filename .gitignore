@@ -41,3 +41,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local SQLite snapshots and installer output
+*.db
+tmp_*.db
+device_firebase_cache.bin
+Output/
+

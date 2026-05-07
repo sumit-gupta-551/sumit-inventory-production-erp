@@ -8,7 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/erp_database.dart';
-import '../data/firebase_sync_service.dart';
+import 'package:sssj/data/firebase_sync_service.dart';
+import '../data/rest_pull_sync_service.dart';
 import '../data/app_updater.dart';
 import 'login_page.dart';
 import 'add_inventory_page.dart';
@@ -25,6 +26,10 @@ import 'stock_adjustment_page.dart';
 import 'issue_inventory_page.dart';
 import 'machine_allotment_page.dart';
 import 'operator_live_page.dart';
+import 'program_card_page.dart';
+import 'program_card_report_page.dart';
+import 'dispatch_report_page.dart';
+import 'dispatch_goods_page.dart';
 import 'firm_list_page.dart';
 import 'issue_report_page.dart';
 import 'requirement_fabrics_page.dart';
@@ -41,12 +46,15 @@ import 'attendance_page.dart';
 import 'salary_payroll_page.dart';
 import 'employee_advance_page.dart';
 import 'pay_salary_page.dart';
+import 'paid_salary_report_page.dart';
 import 'production_report_page.dart';
 import 'advance_report_page.dart';
 import 'attendance_report_page.dart';
 import 'unit_master_page.dart';
 import 'user_management_page.dart';
 import 'activity_log_page.dart';
+import 'order_management_page.dart';
+import 'sync_diagnostics_page.dart';
 import '../data/permission_service.dart';
 import '../data/firebase_backup_service.dart';
 
@@ -58,6 +66,9 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  static const _dataRefreshDebounce = Duration(milliseconds: 700);
+  static const _dailyHealthCheckPrefKey = 'daily_sync_health_check_date_v1';
+
   int requirementCount = 0;
   bool isOnline = false;
   final _perm = PermissionService.instance;
@@ -65,6 +76,9 @@ class _DashboardPageState extends State<DashboardPage> {
   late ScrollController _tickerScroll;
   bool _tickerRunning = false;
   Timer? _connectivityTimer;
+  Timer? _dataRefreshTimer;
+  bool _dataRefreshInProgress = false;
+  bool _dataRefreshQueued = false;
 
   bool get _hasAnyReport =>
       _perm.isAdmin ||
@@ -82,8 +96,8 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     _tickerScroll = ScrollController();
-    _loadRequirementCount();
-    _loadStockTicker();
+    unawaited(_refreshDashboardData());
+    unawaited(_runDailySyncHealthCheck());
     _checkConnectivity();
     _connectivityTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -95,15 +109,44 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void dispose() {
     _connectivityTimer?.cancel();
+    _dataRefreshTimer?.cancel();
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     _tickerScroll.dispose();
     super.dispose();
   }
 
   void _onDataChanged() {
-    if (mounted) {
-      _loadRequirementCount();
-      _loadStockTicker();
+    if (!mounted) return;
+    _scheduleDashboardRefresh();
+  }
+
+  void _scheduleDashboardRefresh() {
+    _dataRefreshTimer?.cancel();
+    _dataRefreshTimer = Timer(_dataRefreshDebounce, () {
+      _dataRefreshTimer = null;
+      unawaited(_refreshDashboardData());
+    });
+  }
+
+  Future<void> _refreshDashboardData() async {
+    if (_dataRefreshInProgress) {
+      _dataRefreshQueued = true;
+      return;
+    }
+
+    _dataRefreshInProgress = true;
+    try {
+      await Future.wait([
+        _loadRequirementCount(),
+        _loadStockTicker(),
+      ]);
+    } finally {
+      _dataRefreshInProgress = false;
+    }
+
+    if (_dataRefreshQueued) {
+      _dataRefreshQueued = false;
+      _scheduleDashboardRefresh();
     }
   }
 
@@ -129,10 +172,44 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _loadStockTicker() async {
-    final rows = await ErpDatabase.instance.getAllStockBalances();
+    final rows = await ErpDatabase.instance.getStockTickerBalances(limit: 40);
     if (!mounted) return;
     setState(() => _stockItems = rows);
     _startTicker();
+  }
+
+  Future<void> _runDailySyncHealthCheck({bool force = false}) async {
+    // Native FirebaseSyncService isn't available on desktop (Windows/Linux).
+    if (Platform.isWindows || Platform.isLinux) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+      final today =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final last = prefs.getString(_dailyHealthCheckPrefKey) ?? '';
+      if (!force && last == today) return;
+
+      final report = await FirebaseSyncService.instance.runHealthCheck();
+      await prefs.setString(_dailyHealthCheckPrefKey, today);
+
+      if (!mounted) return;
+      if (report.mismatchCount > 0 && _perm.hasPermission('sync_data')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Sync health warning: ${report.mismatchCount} table(s) mismatch',
+            ),
+            behavior: SnackBarBehavior.floating,
+            action: SnackBarAction(
+              label: 'OPEN',
+              onPressed: () => _openPage(const SyncDiagnosticsPage()),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Daily sync health check failed: $e');
+    }
   }
 
   void _startTicker() {
@@ -165,15 +242,21 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
     try {
-      await FirebaseSyncService.instance.fastSync();
-      await _loadRequirementCount();
-      await _loadStockTicker();
-      await _checkConnectivity();
+      if (Platform.isWindows || Platform.isLinux) {
+        await RestPullSyncService.instance.pullNow();
+      } else {
+        await FirebaseSyncService.instance.fastSync();
+      }
+      await Future.wait([
+        _loadRequirementCount(),
+        _loadStockTicker(),
+      ]);
     } catch (e) {
       debugPrint('Sync error: $e');
     }
     if (!mounted) return;
     Navigator.of(context).pop();
+    unawaited(_checkConnectivity());
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Fast sync complete'),
@@ -210,16 +293,22 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
     try {
-      await FirebaseSyncService.instance.fullSync();
-      FirebaseSyncService.instance.startListening();
-      await _loadRequirementCount();
-      await _loadStockTicker();
-      await _checkConnectivity();
+      if (Platform.isWindows || Platform.isLinux) {
+        await RestPullSyncService.instance.pullNow();
+      } else {
+        await FirebaseSyncService.instance.fullSync();
+        FirebaseSyncService.instance.startListening();
+      }
+      await Future.wait([
+        _loadRequirementCount(),
+        _loadStockTicker(),
+      ]);
     } catch (e) {
       debugPrint('Load backup error: $e');
     }
     if (!mounted) return;
     Navigator.of(context).pop();
+    unawaited(_checkConnectivity());
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Backup loaded from server'),
@@ -542,7 +631,7 @@ class _DashboardPageState extends State<DashboardPage> {
           final rows = await db.query(table, columns: ['id']);
           for (final r in rows) {
             final id = r['id'] as int?;
-            if (id != null) sync.addPendingDelete(table, id);
+            if (id != null) await sync.addPendingDelete(table, id);
           }
         }
       }
@@ -550,6 +639,8 @@ class _DashboardPageState extends State<DashboardPage> {
       if (choice == 'all') {
         for (final table in [
           'stock_ledger',
+          'order_master',
+          'order_items',
           'purchase_master',
           'purchase_items',
           'challan_requirements',
@@ -563,6 +654,8 @@ class _DashboardPageState extends State<DashboardPage> {
         // Clear local DB tables
         for (final table in [
           'stock_ledger',
+          'order_master',
+          'order_items',
           'purchase_master',
           'purchase_items',
           'challan_requirements',
@@ -581,8 +674,14 @@ class _DashboardPageState extends State<DashboardPage> {
         await db.delete('stock_ledger');
         await db.delete('challan_requirements');
       } else if (choice == 'purchase') {
+        await markAllPendingDelete('order_master');
+        await markAllPendingDelete('order_items');
         await markAllPendingDelete('purchase_master');
         await markAllPendingDelete('purchase_items');
+        await ref.child('sync/order_master').remove();
+        await ref.child('sync/order_items').remove();
+        await ref.child('sync/_counters/order_master').remove();
+        await ref.child('sync/_counters/order_items').remove();
         await ref.child('sync/purchase_master').remove();
         await ref.child('sync/purchase_items').remove();
         await ref.child('sync/_counters/purchase_master').remove();
@@ -590,6 +689,8 @@ class _DashboardPageState extends State<DashboardPage> {
         await ref.child('purchases').remove();
         await ref.child('inventory').remove();
         // Clear local
+        await db.delete('order_master');
+        await db.delete('order_items');
         await db.delete('purchase_master');
         await db.delete('purchase_items');
       }
@@ -645,59 +746,65 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (_) {
         final items = <_ReportItem>[
           _ReportItem(
-              'Employee Master',
-              Icons.people_rounded,
-              const Color(0xFF7C3AED),
-              const EmployeeMasterPage(),
-              'payroll_employee_master'),
+            'Employee Master',
+            Icons.people_rounded,
+            const Color(0xFF7C3AED),
+            const EmployeeMasterPage(),
+            'payroll_employee_master'),
           _ReportItem(
-              'Production Entry',
-              Icons.factory_rounded,
-              const Color(0xFFE11D48),
-              const ProductionEntryPage(),
-              'payroll_production_entry'),
+            'Production Entry',
+            Icons.factory_rounded,
+            const Color(0xFFE11D48),
+            const ProductionEntryPage(),
+            'payroll_production_entry'),
           _ReportItem(
-              'Attendance',
-              Icons.calendar_month_rounded,
-              const Color(0xFF0EA5E9),
-              const AttendancePage(),
-              'payroll_attendance'),
+            'Attendance',
+            Icons.calendar_month_rounded,
+            const Color(0xFF0EA5E9),
+            const AttendancePage(),
+            'payroll_attendance'),
           _ReportItem(
-              'Salary / Payroll',
-              Icons.account_balance_wallet_rounded,
-              const Color(0xFF22C55E),
-              const SalaryPayrollPage(),
-              'payroll_salary'),
+            'Salary / Payroll',
+            Icons.account_balance_wallet_rounded,
+            const Color(0xFF22C55E),
+            const SalaryPayrollPage(),
+            'payroll_salary'),
           _ReportItem(
-              'Employee Advance',
-              Icons.money_off_rounded,
-              const Color(0xFFF59E0B),
-              const EmployeeAdvancePage(),
-              'payroll_advance'),
+            'Employee Advance',
+            Icons.money_off_rounded,
+            const Color(0xFFF59E0B),
+            const EmployeeAdvancePage(),
+            'payroll_advance'),
           _ReportItem(
-              'Pay Salary',
-              Icons.payments_rounded,
-              const Color(0xFF6366F1),
-              const PaySalaryPage(),
-              'payroll_pay_salary'),
+            'Pay Salary',
+            Icons.payments_rounded,
+            const Color(0xFF6366F1),
+            const PaySalaryPage(),
+            'payroll_pay_salary'),
           _ReportItem(
-              'Production Report',
-              Icons.assessment_rounded,
-              const Color(0xFF0EA5E9),
-              const ProductionReportPage(),
-              'payroll_production_report'),
+            'Paid Salary',
+            Icons.payments_rounded,
+            const Color(0xFF16A34A),
+            const PaidSalaryReportPage(),
+            'payroll_paid_salary'),
           _ReportItem(
-              'Advance Report',
-              Icons.summarize_rounded,
-              const Color(0xFFE11D48),
-              const AdvanceReportPage(),
-              'payroll_advance_report'),
+            'Production Report',
+            Icons.assessment_rounded,
+            const Color(0xFF0EA5E9),
+            const ProductionReportPage(),
+            'payroll_production_report'),
           _ReportItem(
-              'Attendance Report',
-              Icons.fact_check_rounded,
-              const Color(0xFF1565C0),
-              const AttendanceReportPage(),
-              'payroll_attendance'),
+            'Advance Report',
+            Icons.summarize_rounded,
+            const Color(0xFFE11D48),
+            const AdvanceReportPage(),
+            'payroll_advance_report'),
+          _ReportItem(
+            'Attendance Report',
+            Icons.fact_check_rounded,
+            const Color(0xFF1565C0),
+            const AttendanceReportPage(),
+            'payroll_attendance'),
         ].where((r) => _perm.hasPermission(r.permKey)).toList();
 
         return DraggableScrollableSheet(
@@ -781,6 +888,12 @@ class _DashboardPageState extends State<DashboardPage> {
               const Color(0xFFDAA520),
               const StockSummaryPage(),
               'report_purchase'),
+          _ReportItem(
+              'Order Report',
+              Icons.receipt_long_rounded,
+              const Color(0xFF1565C0),
+              const OrderManagementPage(initialTab: 2),
+              'report_order'),
           _ReportItem('Issue Report', Icons.assessment_rounded,
               const Color(0xFF8B5CF6), const IssueReportPage(), 'report_issue'),
           _ReportItem(
@@ -813,6 +926,30 @@ class _DashboardPageState extends State<DashboardPage> {
               const Color(0xFFD97706),
               const AdjustmentHistoryReportPage(),
               'report_adjustment_history'),
+          _ReportItem(
+              'Program Card Report',
+              Icons.style_rounded,
+              const Color(0xFF0F766E),
+              const ProgramCardReportPage(),
+              'report_program_card'),
+          _ReportItem(
+              'Dispatch Report',
+              Icons.local_shipping_rounded,
+              const Color(0xFF0EA5E9),
+              const DispatchReportPage(),
+              'report_dispatch'),
+            // _ReportItem(
+            //     'Paid Salary',
+            //     Icons.payments_rounded,
+            //     const Color(0xFF16A34A),
+            //     const PaidSalaryReportPage(),
+            //     'report_paid_salary'), // Moved to Payroll section
+                  // _ReportItem(
+                  //       'Paid Salary',
+                  //       Icons.payments_rounded,
+                  //       const Color(0xFF16A34A),
+                  //       const PaidSalaryReportPage(),
+                  //       'payroll_paid_salary'), // Only in Payroll section
         ].where((r) => _perm.hasPermission(r.permKey)).toList();
 
         return Padding(
@@ -1388,8 +1525,23 @@ class _DashboardPageState extends State<DashboardPage> {
                       delegate: SliverChildListDelegate([
                         const _SectionTitle('Modules'),
                         const SizedBox(height: 14),
-                        GridView.count(
-                          crossAxisCount: 3,
+                        Builder(builder: (context) {
+                          final w = MediaQuery.of(context).size.width;
+                          // Phone: 3, small tablet/wide phone: 4, tablet: 5,
+                          // desktop / large window: 6-8 columns.
+                          final cols = w >= 1600
+                              ? 8
+                              : w >= 1300
+                                  ? 7
+                                  : w >= 1050
+                                      ? 6
+                                      : w >= 850
+                                          ? 5
+                                          : w >= 650
+                                              ? 4
+                                              : 3;
+                          return GridView.count(
+                          crossAxisCount: cols,
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           crossAxisSpacing: 12,
@@ -1402,6 +1554,13 @@ class _DashboardPageState extends State<DashboardPage> {
                                   Icons.shopping_cart_rounded,
                                   const Color(0xFFDAA520),
                                   () => _openQuickPurchase(context)),
+                            if (_perm.hasPermission('order_management'))
+                              _moduleCard(
+                                  'Order\nMgmt',
+                                  Icons.assignment_rounded,
+                                  const Color(0xFF1D4ED8),
+                                  () =>
+                                      _openPage(const OrderManagementPage())),
                             if (_perm.hasPermission('issue_entry'))
                               _moduleCard(
                                   'Issue\nEntry',
@@ -1450,11 +1609,24 @@ class _DashboardPageState extends State<DashboardPage> {
                                   Icons.play_circle_fill_rounded,
                                   const Color(0xFF22C55E),
                                   () => _openPage(const OperatorLivePage())),
+                            if (_perm.hasPermission('program_card'))
+                              _moduleCard(
+                                  'Program\nCard',
+                                  Icons.style_rounded,
+                                  const Color(0xFF0F766E),
+                                  () => _openPage(const ProgramCardPage())),
+                            if (_perm.hasPermission('dispatch_goods'))
+                              _moduleCard(
+                                  'Dispatch\nGoods',
+                                  Icons.local_shipping_rounded,
+                                  const Color(0xFF0EA5E9),
+                                  () => _openPage(const DispatchGoodsPage())),
                             if (_hasAnyPayroll)
                               _moduleCard('Payroll', Icons.payments_rounded,
                                   const Color(0xFF7C3AED), _openPayrollList),
                           ],
-                        ),
+                        );
+                        }),
                         const SizedBox(height: 28),
                       ]),
                     ),
@@ -1532,6 +1704,8 @@ class _DashboardPageState extends State<DashboardPage> {
             _runCloudBackup();
           case 'load_backup':
             _loadBackupFromServer();
+          case 'sync_diagnostics':
+            _openPage(const SyncDiagnosticsPage());
           case 'clear_firebase':
             _clearFirebaseData();
           case 'activity_log':
@@ -1587,6 +1761,11 @@ class _DashboardPageState extends State<DashboardPage> {
               value: 'load_backup',
               child: _MenuRow(
                   Icons.cloud_download_rounded, 'Load Backup From Server')),
+        if (_perm.hasPermission('sync_data'))
+          const PopupMenuItem(
+              value: 'sync_diagnostics',
+              child: _MenuRow(
+                  Icons.monitor_heart_rounded, 'Sync Diagnostics')),
         if (_perm.hasPermission('update_app'))
           const PopupMenuItem(
               value: 'update_app',

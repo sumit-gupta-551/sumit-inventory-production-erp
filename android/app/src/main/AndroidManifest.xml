@@ -13,7 +13,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="SSSJ"
+        android:label="MS"
         android:icon="@mipmap/ic_launcher"
         android:enableOnBackInvokedCallback="true"
         android:requestLegacyExternalStorage="true">

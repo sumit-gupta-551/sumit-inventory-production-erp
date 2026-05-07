@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
 
 import '../data/erp_database.dart';
 
@@ -13,6 +14,7 @@ class PaySalaryPage extends StatefulWidget {
 }
 
 class _PaySalaryPageState extends State<PaySalaryPage> {
+    Timer? _debounceTimer;
   List<Map<String, dynamic>> employees = [];
   List<Map<String, dynamic>> payments = [];
   bool loading = true;
@@ -37,6 +39,7 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
     'neft': Colors.purple,
   };
 
+
   @override
   void initState() {
     super.initState();
@@ -47,15 +50,24 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
   @override
   void dispose() {
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
   void _onDataChanged() {
+    debugPrint('PaySalaryPage: _onDataChanged called (debounced)');
     if (!mounted) return;
-    _load();
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        debugPrint('PaySalaryPage: _load called (debounced)');
+        _load();
+      }
+    });
   }
 
   Future<void> _load() async {
+    debugPrint('PaySalaryPage: _load called');
     setState(() => loading = true);
     try {
       final empList = await ErpDatabase.instance.getEmployees(status: 'active');

@@ -26,7 +26,7 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
-    _load();
+    _repairOldEntriesAndLoad();
     ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
   }
 
@@ -39,6 +39,12 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
 
   void _onDataChanged() {
     if (mounted) _load();
+  }
+
+  Future<void> _repairOldEntriesAndLoad() async {
+    await ErpDatabase.instance.repairClosedRequirementLedgers();
+    await ErpDatabase.instance.repairClosedRequirementDataFromLedger();
+    await _load();
   }
 
   Future<void> _load() async {
@@ -100,27 +106,7 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
   }
 
   Future<void> _closeItem(Map<String, dynamic> row) async {
-    final id = row['id'] as int;
-    final productId = row['product_id'] as int?;
-    final shadeId = row['fabric_shade_id'] as int?;
-    final qty = (row['qty'] as num?)?.toDouble() ?? 0;
-    final challanNo = (row['challan_no'] ?? '').toString();
-    final partyName = (row['party_name'] ?? '').toString();
-
-    if (productId != null && qty > 0) {
-      final today = DateFormat('dd-MM-yyyy').format(DateTime.now());
-      await ErpDatabase.instance.insertLedger({
-        'product_id': productId,
-        'fabric_shade_id': shadeId,
-        'qty': qty,
-        'type': 'OUT',
-        'date': DateTime.now().millisecondsSinceEpoch,
-        'reference': 'REQ-CLOSE',
-        'remarks':
-            'Party: $partyName | ChNo: $challanNo | Req completed on: $today',
-      });
-    }
-    await ErpDatabase.instance.closeChallanRequirement(id);
+    await ErpDatabase.instance.closeChallanRequirementWithLedger(row);
     setState(() => loading = true);
     _load();
   }
@@ -146,32 +132,6 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
       ),
     );
     if (confirm != true) return;
-
-    // Insert stock IN ledger for each pending requirement before closing
-    final pendingRows = challanRows
-        .where((r) =>
-            (r['challan_no'] ?? '').toString() == challanNo &&
-            (r['status'] ?? '') == 'pending')
-        .toList();
-    for (final row in pendingRows) {
-      final productId = row['product_id'] as int?;
-      final shadeId = row['fabric_shade_id'] as int?;
-      final qty = (row['qty'] as num?)?.toDouble() ?? 0;
-      final partyName = (row['party_name'] ?? '').toString();
-      if (productId != null && qty > 0) {
-        final today = DateFormat('dd-MM-yyyy').format(DateTime.now());
-        await ErpDatabase.instance.insertLedger({
-          'product_id': productId,
-          'fabric_shade_id': shadeId,
-          'qty': qty,
-          'type': 'OUT',
-          'date': DateTime.now().millisecondsSinceEpoch,
-          'reference': 'REQ-CLOSE',
-          'remarks':
-              'Party: $partyName | ChNo: $challanNo | Req completed on: $today',
-        });
-      }
-    }
 
     await ErpDatabase.instance.closeChallanRequirementsByChallan(challanNo);
     if (!mounted) return;

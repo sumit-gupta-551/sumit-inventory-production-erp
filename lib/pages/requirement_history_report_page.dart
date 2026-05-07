@@ -1,5 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -19,6 +21,8 @@ class RequirementHistoryReportPage extends StatefulWidget {
 
 class _RequirementHistoryReportPageState
     extends State<RequirementHistoryReportPage> {
+  static const int _rowsPerPage = 100;
+
   List<Map<String, dynamic>> allRows = [];
   List<Map<String, dynamic>> filteredRows = [];
   List<Map<String, dynamic>> parties = [];
@@ -33,25 +37,46 @@ class _RequirementHistoryReportPageState
   String statusFilter = 'all'; // all, pending, closed
   bool loading = true;
   bool reportGenerated = false;
+  Timer? _reloadDebounce;
+  int _loadVersion = 0;
+  int _currentPage = 1;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _bootstrapAndLoad();
     ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
+    _reloadDebounce?.cancel();
     ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
     super.dispose();
   }
 
   void _onDataChanged() {
-    if (mounted) _load();
+    if (!mounted) return;
+    _reloadDebounce?.cancel();
+    _reloadDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () async {
+        await ErpDatabase.instance.repairClosedRequirementLedgers();
+        await ErpDatabase.instance.repairClosedRequirementDataFromLedger();
+        await _load(showLoader: false);
+      },
+    );
   }
 
-  Future<void> _load() async {
+  Future<void> _bootstrapAndLoad() async {
+    await ErpDatabase.instance.repairClosedRequirementLedgers();
+    await ErpDatabase.instance.repairClosedRequirementDataFromLedger();
+    await _load(showLoader: true);
+  }
+
+  Future<void> _load({bool showLoader = false}) async {
+    final loadVersion = ++_loadVersion;
+    if (mounted && showLoader) setState(() => loading = true);
     final db = await ErpDatabase.instance.database;
 
     final nextRows = await db.rawQuery('''
@@ -60,18 +85,33 @@ class _RequirementHistoryReportPageState
         cr.challan_no,
         cr.party_id,
         cr.party_name,
-        cr.product_id,
-        cr.fabric_shade_id,
-        cr.qty,
-        cr.date,
+        COALESCE(cr.product_id, sl.product_id) AS product_id,
+        COALESCE(cr.fabric_shade_id, sl.fabric_shade_id) AS fabric_shade_id,
+        CASE
+          WHEN COALESCE(cr.qty, 0) > 0 THEN cr.qty
+          ELSE COALESCE(sl.qty, 0)
+        END AS qty,
+        COALESCE(cr.date, sl.date, cr.closed_date) AS date,
         cr.status,
         cr.closed_date,
+        sl.remarks AS close_ledger_remarks,
         p.name AS product_name,
         COALESCE(p.unit, 'Mtr') AS product_unit,
         COALESCE(fs.shade_no, 'NO SHADE') AS shade_no
       FROM challan_requirements cr
-      LEFT JOIN products p ON p.id = cr.product_id
-      LEFT JOIN fabric_shades fs ON fs.id = cr.fabric_shade_id
+      LEFT JOIN stock_ledger sl
+        ON sl.id = (
+          SELECT sl2.id
+          FROM stock_ledger sl2
+          WHERE sl2.reference = ('REQ-CLOSE-' || cr.id)
+            AND UPPER(sl2.type) = 'OUT'
+            AND (sl2.is_deleted IS NULL OR sl2.is_deleted = 0)
+          ORDER BY sl2.id DESC
+          LIMIT 1
+        )
+      LEFT JOIN products p ON p.id = COALESCE(cr.product_id, sl.product_id)
+      LEFT JOIN fabric_shades fs
+        ON fs.id = COALESCE(cr.fabric_shade_id, sl.fabric_shade_id)
       ORDER BY cr.date DESC, cr.id DESC
     ''');
 
@@ -82,7 +122,7 @@ class _RequirementHistoryReportPageState
     final nextShades = await db.query('fabric_shades',
         columns: ['id', 'shade_no', 'shade_name'], orderBy: 'shade_no');
 
-    if (!mounted) return;
+    if (!mounted || loadVersion != _loadVersion) return;
     setState(() {
       allRows = nextRows;
       parties = nextParties;
@@ -95,10 +135,30 @@ class _RequirementHistoryReportPageState
 
   // ---- helpers ----
 
-  String _fmtDate(int? ms) {
-    if (ms == null) return '-';
+  int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    final asString = value.toString().trim();
+    final direct = int.tryParse(asString);
+    if (direct != null) return direct;
+    final asDouble = double.tryParse(asString);
+    return asDouble?.toInt();
+  }
+
+  double _toDouble(dynamic value) {
+    if (value == null) return 0;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString().trim()) ?? 0;
+  }
+
+  String _status(dynamic value) => (value ?? '').toString().trim().toLowerCase();
+
+  String _fmtDate(dynamic ms) {
+    final value = _toInt(ms);
+    if (value == null) return '-';
     return DateFormat('dd-MM-yyyy')
-        .format(DateTime.fromMillisecondsSinceEpoch(ms));
+        .format(DateTime.fromMillisecondsSinceEpoch(value));
   }
 
   String _fmtDateChip(DateTime? d) {
@@ -106,31 +166,9 @@ class _RequirementHistoryReportPageState
     return DateFormat('dd-MM-yyyy').format(d);
   }
 
-  String _partyNameById(int? id) {
-    if (id == null) return '';
-    final found = parties.cast<Map<String, dynamic>?>().firstWhere(
-          (p) => p?['id'] == id,
-          orElse: () => null,
-        );
-    return (found?['name'] ?? '').toString();
-  }
-
-  String _productNameById(int? id) {
-    if (id == null) return '';
-    final found = products.cast<Map<String, dynamic>?>().firstWhere(
-          (p) => p?['id'] == id,
-          orElse: () => null,
-        );
-    return (found?['name'] ?? '').toString();
-  }
-
-  String _shadeNoById(int? id) {
-    if (id == null) return '';
-    final found = shades.cast<Map<String, dynamic>?>().firstWhere(
-          (s) => s?['id'] == id,
-          orElse: () => null,
-        );
-    return (found?['shade_no'] ?? '').toString();
+  String _displayText(dynamic value, {String fallback = '-'}) {
+    final text = (value ?? '').toString().trim();
+    return text.isEmpty ? fallback : text;
   }
 
   int _daysBetween(int? createMs, int? closeMs) {
@@ -154,29 +192,36 @@ class _RequirementHistoryReportPageState
 
     final rows = allRows.where((row) {
       // Date filter — use closed_date for closed, date for pending
-      final dateMs = row['status'] == 'closed'
-          ? (row['closed_date'] as int? ?? row['date'] as int?)
-          : (row['date'] as int?);
-      if (fromMs != null && dateMs != null && dateMs < fromMs) return false;
-      if (toMs != null && dateMs != null && dateMs > toMs) return false;
+      final status = _status(row['status']);
+      final dateMs = status == 'closed'
+          ? (_toInt(row['closed_date']) ?? _toInt(row['date']))
+          : _toInt(row['date']);
+      if (fromMs != null && (dateMs == null || dateMs < fromMs)) return false;
+      if (toMs != null && (dateMs == null || dateMs > toMs)) return false;
 
-      if (selectedPartyId != null && row['party_id'] != selectedPartyId) {
+      if (selectedPartyId != null && _toInt(row['party_id']) != selectedPartyId) {
         return false;
       }
-      if (selectedProductId != null && row['product_id'] != selectedProductId) {
+      if (selectedProductId != null &&
+          _toInt(row['product_id']) != selectedProductId) {
         return false;
       }
       if (selectedShadeId != null &&
-          row['fabric_shade_id'] != selectedShadeId) {
+          _toInt(row['fabric_shade_id']) != selectedShadeId) {
         return false;
       }
-      if (statusFilter != 'all' && row['status'] != statusFilter) {
+      if (statusFilter != 'all' && status != statusFilter) {
         return false;
       }
       return true;
     }).toList();
 
-    setState(() => filteredRows = rows);
+    final totalPages = rows.isEmpty ? 1 : ((rows.length - 1) ~/ _rowsPerPage) + 1;
+    final safePage = _currentPage > totalPages ? totalPages : _currentPage;
+    setState(() {
+      filteredRows = rows;
+      _currentPage = safePage;
+    });
   }
 
   Future<void> _pickFromDate() async {
@@ -212,10 +257,13 @@ class _RequirementHistoryReportPageState
       selectedShadeId = null;
       statusFilter = 'all';
       reportGenerated = false;
+      _currentPage = 1;
     });
+    _applyFilters();
   }
 
   void _showReport() {
+    _currentPage = 1;
     _applyFilters();
     setState(() => reportGenerated = true);
   }
@@ -234,15 +282,15 @@ class _RequirementHistoryReportPageState
     final monthlyMap = <String, Map<String, dynamic>>{};
 
     for (final row in filteredRows) {
-      final status = (row['status'] ?? '').toString();
-      final qty = (row['qty'] as num?)?.toDouble() ?? 0;
+      final status = _status(row['status']);
+      final qty = _toDouble(row['qty']);
 
       if (status == 'closed') {
         totalClosed++;
         closedQty += qty;
 
-        final closeMs = row['closed_date'] as int?;
-        final createMs = row['date'] as int?;
+        final closeMs = _toInt(row['closed_date']);
+        final createMs = _toInt(row['date']);
         if (closeMs != null) {
           final closeDate = DateTime.fromMillisecondsSinceEpoch(closeMs);
           final monthKey = DateFormat('MMM yyyy').format(closeDate);
@@ -395,9 +443,9 @@ class _RequirementHistoryReportPageState
               style:
                   pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)));
           final data = filteredRows.map((r) {
-            final status = (r['status'] ?? '').toString();
+            final status = _status(r['status']);
             final days = status == 'closed'
-                ? _daysBetween(r['date'] as int?, r['closed_date'] as int?)
+                ? _daysBetween(_toInt(r['date']), _toInt(r['closed_date']))
                     .toString()
                 : '-';
             return [
@@ -405,9 +453,9 @@ class _RequirementHistoryReportPageState
               (r['party_name'] ?? '-').toString(),
               (r['product_name'] ?? '-').toString(),
               (r['shade_no'] ?? '-').toString(),
-              ((r['qty'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
-              _fmtDate(r['date'] as int?),
-              status == 'closed' ? _fmtDate(r['closed_date'] as int?) : '-',
+              _toDouble(r['qty']).toStringAsFixed(2),
+              _fmtDate(r['date']),
+              status == 'closed' ? _fmtDate(r['closed_date']) : '-',
               status.toUpperCase(),
               days,
             ];
@@ -465,7 +513,7 @@ class _RequirementHistoryReportPageState
         actions: [
           IconButton(
             tooltip: 'Export PDF',
-            onPressed: loading ? null : _exportPdf,
+            onPressed: (loading || !reportGenerated) ? null : _exportPdf,
             icon: const Icon(Icons.picture_as_pdf),
           ),
         ],
@@ -685,6 +733,15 @@ class _RequirementHistoryReportPageState
         ? (filteredRows.first['product_unit'] ?? 'Mtr').toString()
         : 'Mtr';
     final monthly = summary['monthly'] as Map<String, Map<String, dynamic>>;
+    final totalRows = filteredRows.length;
+    final totalPages =
+        totalRows == 0 ? 1 : ((totalRows - 1) ~/ _rowsPerPage) + 1;
+    final currentPage = _currentPage.clamp(1, totalPages);
+    final startIndex = (currentPage - 1) * _rowsPerPage;
+    final endIndex = (startIndex + _rowsPerPage) > totalRows
+        ? totalRows
+        : (startIndex + _rowsPerPage);
+    final pageRows = filteredRows.sublist(startIndex, endIndex);
 
     return [
       // Summary card
@@ -769,6 +826,42 @@ class _RequirementHistoryReportPageState
       Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Text(
+                'Rows ${startIndex + 1}-$endIndex of $totalRows',
+                style:
+                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Previous Page',
+                onPressed: currentPage > 1
+                    ? () => setState(() => _currentPage = currentPage - 1)
+                    : null,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Text(
+                '$currentPage / $totalPages',
+                style:
+                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              IconButton(
+                tooltip: 'Next Page',
+                onPressed: currentPage < totalPages
+                    ? () => setState(() => _currentPage = currentPage + 1)
+                    : null,
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+      Card(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
           padding: const EdgeInsets.all(8),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -788,29 +881,29 @@ class _RequirementHistoryReportPageState
                 DataColumn(label: Text('Status')),
                 DataColumn(label: Text('Days')),
               ],
-              rows: filteredRows.map((r) {
-                final status = (r['status'] ?? '').toString();
+              rows: pageRows.map((r) {
+                final status = _status(r['status']);
                 final isClosed = status == 'closed';
                 final days = isClosed
-                    ? _daysBetween(r['date'] as int?, r['closed_date'] as int?)
+                    ? _daysBetween(_toInt(r['date']), _toInt(r['closed_date']))
                         .toString()
                     : '-';
                 return DataRow(cells: [
-                  DataCell(Text((r['challan_no'] ?? '-').toString(),
+                  DataCell(Text(_displayText(r['challan_no']),
                       style: const TextStyle(fontSize: 12))),
-                  DataCell(Text((r['party_name'] ?? '-').toString(),
+                  DataCell(Text(_displayText(r['party_name']),
                       style: const TextStyle(fontSize: 12))),
-                  DataCell(Text((r['product_name'] ?? '-').toString(),
+                  DataCell(Text(_displayText(r['product_name']),
                       style: const TextStyle(fontSize: 12))),
-                  DataCell(Text((r['shade_no'] ?? '-').toString(),
-                      style: const TextStyle(fontSize: 12))),
-                  DataCell(Text(
-                      ((r['qty'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
-                      style: const TextStyle(fontSize: 12))),
-                  DataCell(Text(_fmtDate(r['date'] as int?),
+                  DataCell(Text(_displayText(r['shade_no']),
                       style: const TextStyle(fontSize: 12))),
                   DataCell(Text(
-                      isClosed ? _fmtDate(r['closed_date'] as int?) : '-',
+                      _toDouble(r['qty']).toStringAsFixed(2),
+                      style: const TextStyle(fontSize: 12))),
+                  DataCell(Text(_fmtDate(r['date']),
+                      style: const TextStyle(fontSize: 12))),
+                  DataCell(Text(
+                      isClosed ? _fmtDate(r['closed_date']) : '-',
                       style: const TextStyle(fontSize: 12))),
                   DataCell(
                     Container(
