@@ -234,25 +234,33 @@ class _ProductionReportPageState extends State<ProductionReportPage> {
 
   int _totalStitch(List<Map<String, dynamic>> rows) {
     int s = 0;
-    for (final r in rows) s += (r['stitch'] as int?) ?? 0;
+    for (final r in rows) {
+      s += (r['stitch'] as int?) ?? 0;
+    }
     return s;
   }
 
   double _totalBonus(List<Map<String, dynamic>> rows) {
     double b = 0;
-    for (final r in rows) b += (r['bonus'] as num?)?.toDouble() ?? 0;
+    for (final r in rows) {
+      b += (r['bonus'] as num?)?.toDouble() ?? 0;
+    }
     return b;
   }
 
   double _totalIncentive(List<Map<String, dynamic>> rows) {
     double b = 0;
-    for (final r in rows) b += (r['incentive_bonus'] as num?)?.toDouble() ?? 0;
+    for (final r in rows) {
+      b += (r['incentive_bonus'] as num?)?.toDouble() ?? 0;
+    }
     return b;
   }
 
   double _totalAllBonus(List<Map<String, dynamic>> rows) {
     double b = 0;
-    for (final r in rows) b += (r['total_bonus'] as num?)?.toDouble() ?? 0;
+    for (final r in rows) {
+      b += (r['total_bonus'] as num?)?.toDouble() ?? 0;
+    }
     return b;
   }
 
@@ -968,7 +976,7 @@ class _ProductionReportPageState extends State<ProductionReportPage> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       child: DropdownButtonFormField<int?>(
-        value: _selectedEmployeeId,
+        initialValue: _selectedEmployeeId,
         isExpanded: true,
         decoration: const InputDecoration(
           labelText: 'Employee',

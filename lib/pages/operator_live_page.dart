@@ -96,7 +96,7 @@ class _OperatorLivePageState extends State<OperatorLivePage> {
             return AlertDialog(
               title: const Text('Select Delay Reason'),
               content: DropdownButtonFormField<String>(
-                value: selected,
+                initialValue: selected,
                 items: reasons
                     .map(
                       (r) => DropdownMenuItem<String>(

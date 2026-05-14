@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:month_picker_dialog/month_picker_dialog.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -22,8 +23,7 @@ class _PaidSalaryReportPageState extends State<PaidSalaryReportPage> {
   final _df = DateFormat('dd-MM-yyyy');
   final _mf = DateFormat('MMM yyyy');
 
-  DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month);
-  DateTime _toDate = DateTime.now();
+  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   String _groupBy = 'employee';
   String? _modeFilter;
   int? _selectedEmployeeId;
@@ -62,12 +62,12 @@ class _PaidSalaryReportPageState extends State<PaidSalaryReportPage> {
     );
   }
 
-  int get _fromMs => DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
-      .millisecondsSinceEpoch;
-
-  int get _toMs => DateTime(_toDate.year, _toDate.month, _toDate.day)
-      .add(const Duration(days: 1))
-      .millisecondsSinceEpoch;
+  DateTime get _monthStart =>
+      DateTime(_selectedMonth.year, _selectedMonth.month, 1);
+  DateTime get _nextMonthStart =>
+      DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
+  int get _fromMs => _monthStart.millisecondsSinceEpoch;
+  int get _toMs => _nextMonthStart.millisecondsSinceEpoch;
 
   List<Map<String, dynamic>> get _visiblePayments {
     return _payments.where((payment) {
@@ -118,27 +118,15 @@ class _PaidSalaryReportPageState extends State<PaidSalaryReportPage> {
     await _load(showLoader: _payments.isEmpty);
   }
 
-  Future<void> _pickFrom() async {
-    final picked = await showDatePicker(
+  Future<void> _pickMonth() async {
+    final picked = await showMonthPicker(
       context: context,
-      initialDate: _fromDate,
+      initialDate: _selectedMonth,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
     );
     if (picked == null) return;
-    setState(() => _fromDate = picked);
-    _reloadForFilters();
-  }
-
-  Future<void> _pickTo() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _toDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-    if (picked == null) return;
-    setState(() => _toDate = picked);
+    setState(() => _selectedMonth = DateTime(picked.year, picked.month));
     _reloadForFilters();
   }
 
@@ -274,7 +262,7 @@ class _PaidSalaryReportPageState extends State<PaidSalaryReportPage> {
             ],
             pw.Text('Paid Salary Report',
                 style: pw.TextStyle(font: bold, fontSize: 14)),
-            pw.Text('${_df.format(_fromDate)} - ${_df.format(_toDate)}',
+            pw.Text(_mf.format(_selectedMonth),
                 style: pw.TextStyle(font: font, fontSize: 9)),
             pw.Divider(),
           ],
@@ -305,7 +293,7 @@ class _PaidSalaryReportPageState extends State<PaidSalaryReportPage> {
 
     await Printing.layoutPdf(
       onLayout: (_) => doc.save(),
-      name: 'Paid_Salary_Report.pdf',
+      name: 'Paid_Salary_Report_${DateFormat('yyyyMM').format(_selectedMonth)}.pdf',
     );
   }
 
@@ -360,28 +348,17 @@ class _PaidSalaryReportPageState extends State<PaidSalaryReportPage> {
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _pickFrom,
-                  icon: const Icon(Icons.date_range),
-                  label: Text('From: ${_df.format(_fromDate)}'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _pickTo,
-                  icon: const Icon(Icons.date_range),
-                  label: Text('To: ${_df.format(_toDate)}'),
-                ),
-              ),
-            ],
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _pickMonth,
+              icon: const Icon(Icons.date_range),
+              label: Text('Month: ${_mf.format(_selectedMonth)}'),
+            ),
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<int?>(
-            value: _selectedEmployeeId,
+            initialValue: _selectedEmployeeId,
             isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Employee',
@@ -408,7 +385,7 @@ class _PaidSalaryReportPageState extends State<PaidSalaryReportPage> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _groupBy,
+                  initialValue: _groupBy,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Group By',
@@ -432,7 +409,7 @@ class _PaidSalaryReportPageState extends State<PaidSalaryReportPage> {
               const SizedBox(width: 8),
               Expanded(
                 child: DropdownButtonFormField<String?>(
-                  value: _modeFilter,
+                  initialValue: _modeFilter,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Mode',

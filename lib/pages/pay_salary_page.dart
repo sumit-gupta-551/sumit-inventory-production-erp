@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:month_picker_dialog/month_picker_dialog.dart';
 import 'dart:async';
 
 import '../data/erp_database.dart';
@@ -14,13 +15,15 @@ class PaySalaryPage extends StatefulWidget {
 }
 
 class _PaySalaryPageState extends State<PaySalaryPage> {
-    Timer? _debounceTimer;
+  Timer? _debounceTimer;
   List<Map<String, dynamic>> employees = [];
   List<Map<String, dynamic>> payments = [];
+  List<Map<String, dynamic>> employeeStatuses = [];
   bool loading = true;
+  bool _unpaidOnlyReport = true;
 
-  DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month);
-  DateTime _toDate = DateTime.now();
+  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  final DateFormat _monthFmt = DateFormat('MMM yyyy');
 
   static const paymentModes = ['cash', 'transfer', 'neft'];
   static const modeLabels = {
@@ -71,19 +74,55 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
     setState(() => loading = true);
     try {
       final empList = await ErpDatabase.instance.getEmployees(status: 'active');
-      final fromMs = DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
-          .millisecondsSinceEpoch;
-      final toMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-          .add(const Duration(days: 1))
-          .millisecondsSinceEpoch;
       final rows = await ErpDatabase.instance.getSalaryPayments(
-        fromMs: fromMs,
-        toMs: toMs,
+        salaryMonthMs: _periodFromMs,
       );
+      final summaries = await ErpDatabase.instance.getAllEmployeeSalarySummaries(
+        fromMs: _periodFromMs,
+        toMs: _periodToMsExclusive,
+      );
+
+      final paidByEmp = <int, double>{};
+      for (final p in rows) {
+        final empId = (p['employee_id'] as num?)?.toInt();
+        if (empId == null) continue;
+        final amt = (p['amount'] as num?)?.toDouble() ?? 0;
+        paidByEmp[empId] = (paidByEmp[empId] ?? 0) + amt;
+      }
+
+      final statusRows = <Map<String, dynamic>>[];
+      for (final emp in empList) {
+        final empId = (emp['id'] as num?)?.toInt();
+        if (empId == null) continue;
+        final s = summaries[empId];
+        final payable = (s?['net_salary'] as num?)?.toDouble() ?? 0;
+        final paid = paidByEmp[empId] ?? 0;
+        final remaining = payable - paid;
+        final isPaid = paid > 0.5 && remaining <= 0.5;
+        statusRows.add({
+          'employee_id': empId,
+          'employee_name': (emp['name'] ?? '').toString(),
+          'designation': (emp['designation'] ?? '').toString(),
+          'payable': payable,
+          'paid': paid,
+          'remaining': remaining,
+          'is_paid': isPaid,
+        });
+      }
+      statusRows.sort((a, b) {
+        final aPaid = a['is_paid'] == true;
+        final bPaid = b['is_paid'] == true;
+        if (aPaid != bPaid) return aPaid ? 1 : -1;
+        return (a['employee_name'] as String)
+            .toLowerCase()
+            .compareTo((b['employee_name'] as String).toLowerCase());
+      });
+
       if (!mounted) return;
       setState(() {
         employees = empList;
         payments = rows;
+        employeeStatuses = statusRows;
         loading = false;
       });
     } catch (e) {
@@ -97,34 +136,32 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
   }
 
-  Future<void> _pickFrom() async {
-    final d = await showDatePicker(
-      context: context,
-      initialDate: _fromDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-    if (d != null) {
-      setState(() => _fromDate = d);
-      _load();
-    }
-  }
+  DateTime get _monthStart =>
+      DateTime(_selectedMonth.year, _selectedMonth.month, 1);
+  DateTime get _nextMonthStart =>
+      DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
+  int get _periodFromMs => _monthStart.millisecondsSinceEpoch;
+  int get _periodToMsExclusive => _nextMonthStart.millisecondsSinceEpoch;
 
-  Future<void> _pickTo() async {
-    final d = await showDatePicker(
+  Future<void> _pickMonth() async {
+    final d = await showMonthPicker(
       context: context,
-      initialDate: _toDate,
+      initialDate: _selectedMonth,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
     );
     if (d != null) {
-      setState(() => _toDate = d);
+      setState(() => _selectedMonth = DateTime(d.year, d.month));
       _load();
     }
   }
 
   Future<void> _addPayment({Map<String, dynamic>? existing}) async {
     int? selEmpId = existing != null ? existing['employee_id'] as int? : null;
+    final existingFromMonth = (existing?['from_date'] as num?)?.toInt();
+    DateTime salaryMonth = existingFromMonth != null && existingFromMonth > 0
+        ? DateTime.fromMillisecondsSinceEpoch(existingFromMonth)
+        : _selectedMonth;
     final amountCtrl = TextEditingController(
         text: existing != null
             ? (existing['amount'] as num?)?.toStringAsFixed(0) ?? ''
@@ -139,44 +176,23 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
     // Payroll summary for selected employee
     Map<String, dynamic>? empSummary;
 
-    Future<Map<String, dynamic>?> fetchSummary(int empId) async {
-      final fromMs = DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
-          .millisecondsSinceEpoch;
-      final toMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-          .millisecondsSinceEpoch;
+    Future<Map<String, dynamic>?> fetchSummary(int empId, DateTime month) async {
+      final fromMs = DateTime(month.year, month.month, 1).millisecondsSinceEpoch;
+      final toMsExclusive =
+          DateTime(month.year, month.month + 1, 1).millisecondsSinceEpoch;
       try {
-        // Try saved payroll first
-        final savedRows = await ErpDatabase.instance.getSavedPayroll(
-          fromMs: fromMs,
-          toMs: toMs,
+        // Always use live calculation so latest advances reflect immediately.
+        final s = await ErpDatabase.instance.getEmployeeSalarySummary(
           employeeId: empId,
+          fromMs: fromMs,
+          toMs: toMsExclusive,
         );
-        Map<String, dynamic> s;
-        if (savedRows.isNotEmpty) {
-          s = Map<String, dynamic>.from(savedRows.first);
-          s['_source'] = 'saved';
-        } else {
-          // Fallback to live calculation
-          final calcFromMs = fromMs;
-          final calcToMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-              .add(const Duration(days: 1))
-              .millisecondsSinceEpoch;
-          s = await ErpDatabase.instance.getEmployeeSalarySummary(
-            employeeId: empId,
-            fromMs: calcFromMs,
-            toMs: calcToMs,
-          );
-          s['_source'] = 'live';
-        }
+        s['_source'] = 'live';
+
         // Also get total already paid in this period
-        final paidFromMs = fromMs;
-        final paidToMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-            .add(const Duration(days: 1))
-            .millisecondsSinceEpoch;
         final paidRows = await ErpDatabase.instance.getSalaryPayments(
           employeeId: empId,
-          fromMs: paidFromMs,
-          toMs: paidToMs,
+          salaryMonthMs: fromMs,
         );
         final totalPaid = paidRows.fold<double>(
             0.0, (sum, r) => sum + ((r['amount'] as num?)?.toDouble() ?? 0));
@@ -189,7 +205,7 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
 
     // Pre-fetch if editing
     if (selEmpId != null) {
-      empSummary = await fetchSummary(selEmpId);
+      empSummary = await fetchSummary(selEmpId, salaryMonth);
     }
 
     final saved = await showDialog<bool>(
@@ -211,34 +227,26 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
               final totalBonus =
                   (empSummary!['total_all_bonus'] as num?)?.toDouble() ?? 0;
               final remaining = netSalary - totalPaid;
-              final isSaved = empSummary!['_source'] == 'saved';
               return Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: isSaved ? Colors.green.shade50 : Colors.orange.shade50,
+                  color: Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: isSaved
-                          ? Colors.green.shade200
-                          : Colors.orange.shade200),
+                  border: Border.all(color: Colors.blue.shade200),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(children: [
-                      Icon(isSaved ? Icons.check_circle : Icons.info_outline,
-                          size: 14,
-                          color: isSaved ? Colors.green : Colors.orange),
+                      Icon(Icons.bolt, size: 14, color: Colors.blue.shade700),
                       const SizedBox(width: 4),
-                      Text(isSaved ? 'Payroll (Saved)' : 'Payroll (Not Saved)',
+                      Text('Live Payroll Snapshot',
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
-                              color: isSaved
-                                  ? Colors.green.shade800
-                                  : Colors.orange.shade800)),
+                              color: Colors.blue.shade800)),
                     ]),
                     const SizedBox(height: 4),
                     _summaryRow('Base Salary',
@@ -268,13 +276,15 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
             }
 
             return AlertDialog(
-              title: Text(existing == null ? 'Pay Salary' : 'Edit Payment'),
+              title: Text(
+                '${existing == null ? 'Pay Salary' : 'Edit Payment'} (${_monthFmt.format(salaryMonth)})',
+              ),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<int>(
-                      value: selEmpId,
+                      initialValue: selEmpId,
                       decoration: const InputDecoration(
                         labelText: 'Employee *',
                         border: OutlineInputBorder(),
@@ -290,7 +300,7 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
                       onChanged: (v) async {
                         selEmpId = v;
                         if (v != null) {
-                          empSummary = await fetchSummary(v);
+                          empSummary = await fetchSummary(v, salaryMonth);
                           // Auto-fill remaining as amount
                           if (existing == null && empSummary != null) {
                             final net = (empSummary!['net_salary'] as num?)
@@ -312,18 +322,51 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
                     ),
                     const SizedBox(height: 10),
                     summaryWidget(),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await showMonthPicker(
+                          context: ctx,
+                          initialDate: salaryMonth,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked == null) return;
+                        salaryMonth = DateTime(picked.year, picked.month);
+                        if (selEmpId != null) {
+                          empSummary =
+                              await fetchSummary(selEmpId!, salaryMonth);
+                        }
+                        setDState(() {});
+                      },
+                      icon: const Icon(Icons.event_note, size: 16),
+                      label:
+                          Text('Salary Month: ${_monthFmt.format(salaryMonth)}'),
+                    ),
+                    const SizedBox(height: 10),
                     TextField(
                       controller: amountCtrl,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
-                        labelText: 'Amount (₹) *',
+                        labelText: 'Amount (\u20b9) *',
                         border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Current Page Month: ${_monthFmt.format(_selectedMonth)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blueGrey.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 10),
                     // Payment mode
                     DropdownButtonFormField<String>(
-                      value: paymentMode,
+                      initialValue: paymentMode,
                       decoration: const InputDecoration(
                         labelText: 'Payment Mode',
                         border: OutlineInputBorder(),
@@ -358,7 +401,7 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
                       },
                       icon: const Icon(Icons.calendar_today, size: 16),
                       label: Text(
-                        'Date: ${DateFormat('dd-MM-yyyy').format(payDate)}',
+                        'Paid Date: ${DateFormat('dd-MM-yyyy').format(payDate)}',
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -406,6 +449,11 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
       'payment_mode': paymentMode,
       'date': DateTime(payDate.year, payDate.month, payDate.day)
           .millisecondsSinceEpoch,
+      'from_date':
+          DateTime(salaryMonth.year, salaryMonth.month, 1).millisecondsSinceEpoch,
+      'to_date': DateTime(salaryMonth.year, salaryMonth.month + 1, 1)
+          .subtract(const Duration(days: 1))
+          .millisecondsSinceEpoch,
       'remarks': remarksCtrl.text.trim(),
       'created_at': DateTime.now().millisecondsSinceEpoch,
     };
@@ -418,6 +466,9 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
           .updateSalaryPayment(data, existing['id'] as int);
       _msg('Payment updated');
     }
+    setState(() {
+      _selectedMonth = DateTime(salaryMonth.year, salaryMonth.month);
+    });
     _load();
   }
 
@@ -446,6 +497,23 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
 
   double get _totalPaid => payments.fold(
       0.0, (s, e) => s + ((e['amount'] as num?)?.toDouble() ?? 0));
+
+  int get _paidEmployeesCount =>
+      employeeStatuses.where((e) => e['is_paid'] == true).length;
+  int get _unpaidEmployeesCount =>
+      employeeStatuses.where((e) => e['is_paid'] != true).length;
+  List<Map<String, dynamic>> get _payableReportRows {
+    if (_unpaidOnlyReport) {
+      return employeeStatuses.where((e) {
+        final remaining = (e['remaining'] as num?)?.toDouble() ?? 0;
+        return remaining > 0.5;
+      }).toList();
+    }
+    return employeeStatuses;
+  }
+
+  double get _payableTotalDue => _payableReportRows.fold(
+      0.0, (s, e) => s + ((e['remaining'] as num?)?.toDouble() ?? 0));
 
   Map<String, double> get _modeWiseTotals {
     final map = <String, double>{};
@@ -482,7 +550,7 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
     final modeTotals = _modeWiseTotals;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pay Salary'),
+        title: Text('Pay Salary - ${_monthFmt.format(_selectedMonth)}'),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _addPayment(),
@@ -492,78 +560,36 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Date filter
+                // Month filter
                 Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: _pickFrom,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 10, horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('From',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade600)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  DateFormat('dd MMM yyyy').format(_fromDate),
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
+                  child: InkWell(
+                    onTap: _pickMonth,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 10),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Month',
+                              style: TextStyle(
+                                  fontSize: 10, color: Colors.grey.shade600)),
+                          const SizedBox(height: 2),
+                          Text(
+                            _monthFmt.format(_selectedMonth),
+                            style: const TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600),
                           ),
-                        ),
+                        ],
                       ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: Icon(Icons.arrow_forward,
-                            size: 18, color: Colors.grey),
-                      ),
-                      Expanded(
-                        child: InkWell(
-                          onTap: _pickTo,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 10, horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('To',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade600)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  DateFormat('dd MMM yyyy').format(_toDate),
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
 
@@ -576,7 +602,7 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
                   child: Column(
                     children: [
                       Text(
-                        'Total Paid: ₹${_totalPaid.toStringAsFixed(0)}  (${payments.length} payments)',
+                        'Total Paid: \u20b9${_totalPaid.toStringAsFixed(0)}  (${payments.length} payments)',
                         style: const TextStyle(
                             fontSize: 14, fontWeight: FontWeight.bold),
                       ),
@@ -596,7 +622,7 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
                                         size: 14, color: modeColors[e.key]),
                                     const SizedBox(width: 4),
                                     Text(
-                                      '${modeLabels[e.key]}: ₹${e.value.toStringAsFixed(0)}',
+                                      '${modeLabels[e.key]}: \u20b9${e.value.toStringAsFixed(0)}',
                                       style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
@@ -609,6 +635,135 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
                             }).toList(),
                           ),
                         ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: double.infinity,
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Payable Salary Report (${_monthFmt.format(_selectedMonth)})',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.blue.shade800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Paid $_paidEmployeesCount  |  Unpaid $_unpaidEmployeesCount  |  Due ₹${_payableTotalDue.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blueGrey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('Unpaid Only'),
+                            selected: _unpaidOnlyReport,
+                            onSelected: (_) =>
+                                setState(() => _unpaidOnlyReport = true),
+                          ),
+                          ChoiceChip(
+                            label: const Text('All Employees'),
+                            selected: !_unpaidOnlyReport,
+                            onSelected: (_) =>
+                                setState(() => _unpaidOnlyReport = false),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 170,
+                        child: _payableReportRows.isEmpty
+                            ? Center(
+                                child: Text(
+                                  _unpaidOnlyReport
+                                      ? 'All employees are fully paid for this month.'
+                                      : 'No employees found',
+                                  textAlign: TextAlign.center,
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: _payableReportRows.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (_, i) {
+                                  final r = _payableReportRows[i];
+                                  final isPaid = r['is_paid'] == true;
+                                  final payable =
+                                      (r['payable'] as num?)?.toDouble() ?? 0;
+                                  final paid =
+                                      (r['paid'] as num?)?.toDouble() ?? 0;
+                                  final remaining =
+                                      (r['remaining'] as num?)?.toDouble() ?? 0;
+                                  return ListTile(
+                                    dense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 2, vertical: 0),
+                                    title: Text(
+                                      (r['employee_name'] ?? '').toString(),
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                    subtitle: Text(
+                                      'Payable \u20b9${payable.toStringAsFixed(0)}  |  Paid \u20b9${paid.toStringAsFixed(0)}',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                    trailing: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: isPaid
+                                                ? Colors.green.shade100
+                                                : Colors.red.shade100,
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: Text(
+                                            isPaid ? 'Paid' : 'Unpaid',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w700,
+                                              color: isPaid
+                                                  ? Colors.green.shade800
+                                                  : Colors.red.shade800,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Due \u20b9${remaining > 0 ? remaining.toStringAsFixed(0) : '0'}',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: isPaid
+                                                ? Colors.green.shade700
+                                                : Colors.red.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
                     ],
                   ),
                 ),
@@ -629,6 +784,13 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
                             final mode =
                                 (p['payment_mode'] ?? 'cash').toString();
                             final remarks = (p['remarks'] ?? '').toString();
+                            final salaryMonthMs =
+                                (p['from_date'] as num?)?.toInt();
+                            final salaryMonthDate = salaryMonthMs != null &&
+                                    salaryMonthMs > 0
+                                ? DateTime.fromMillisecondsSinceEpoch(
+                                    salaryMonthMs)
+                                : date;
 
                             return Card(
                               margin: const EdgeInsets.symmetric(
@@ -647,15 +809,15 @@ class _PaySalaryPageState extends State<PaySalaryPage> {
                                       fontWeight: FontWeight.w600),
                                 ),
                                 subtitle: Text(
-                                  '${DateFormat('dd-MM-yyyy').format(date)}  •  ${modeLabels[mode] ?? mode}'
-                                  '${remarks.isNotEmpty ? '  •  $remarks' : ''}',
+                                  'For ${_monthFmt.format(salaryMonthDate)} | Paid ${DateFormat('dd-MM-yyyy').format(date)} | ${modeLabels[mode] ?? mode}'
+                                  '${remarks.isNotEmpty ? ' | $remarks' : ''}',
                                   style: const TextStyle(fontSize: 12),
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      '₹${amt.toStringAsFixed(0)}',
+                                      '\u20b9${amt.toStringAsFixed(0)}',
                                       style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 15,

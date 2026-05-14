@@ -77,7 +77,7 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
           children: [
             // -------- PROGRAM ----------
             DropdownButtonFormField<int>(
-              value: selectedProgramNo,
+              initialValue: selectedProgramNo,
               decoration: const InputDecoration(
                 labelText: 'Select Program',
                 border: OutlineInputBorder(),
@@ -95,7 +95,7 @@ class _MachineAllotmentPageState extends State<MachineAllotmentPage> {
 
             // -------- MACHINE ----------
             DropdownButtonFormField<int>(
-              value: selectedMachineId,
+              initialValue: selectedMachineId,
               decoration: const InputDecoration(
                 labelText: 'Select Machine',
                 border: OutlineInputBorder(),

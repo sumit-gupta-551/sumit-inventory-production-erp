@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
@@ -301,7 +301,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<int>(
-                      value: partyId,
+                      initialValue: partyId,
                       decoration: const InputDecoration(
                         labelText: 'Party',
                         border: OutlineInputBorder(),
@@ -318,7 +318,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<int>(
-                      value: productId,
+                      initialValue: productId,
                       decoration: const InputDecoration(
                         labelText: 'Product',
                         border: OutlineInputBorder(),
@@ -335,7 +335,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<int>(
-                      value: shadeId,
+                      initialValue: shadeId,
                       decoration: const InputDecoration(
                         labelText: 'Shade',
                         border: OutlineInputBorder(),
@@ -664,6 +664,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
         .toList();
 
     if (purchaseNos.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Unable to delete this invoice')),
       );
@@ -764,7 +765,7 @@ class _FirmInventoryHistoryPageState extends State<FirmInventoryHistoryPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Inventory – ${widget.firmName}'),
+        title: Text('Inventory â€“ ${widget.firmName}'),
         actions: [
           IconButton(
             tooltip: editUnlocked ? 'Lock Edit' : 'Unlock Edit',
@@ -1111,8 +1112,9 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
       if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
         for (final d in deleted) {
           final itemId = d['purchase_item_id'] as int?;
-          if (itemId != null)
+          if (itemId != null) {
             await sync.addPendingDelete('purchase_items', itemId);
+          }
         }
       }
 
@@ -1350,7 +1352,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                 child: Column(
                   children: [
                     DropdownButtonFormField<int>(
-                      value: partyId,
+                      initialValue: partyId,
                       decoration: const InputDecoration(
                         labelText: 'Party',
                         border: OutlineInputBorder(),
@@ -1367,7 +1369,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<int>(
-                      value: productId,
+                      initialValue: productId,
                       decoration: const InputDecoration(
                         labelText: 'Product',
                         border: OutlineInputBorder(),
@@ -1474,7 +1476,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                 Expanded(
                   flex: 3,
                   child: DropdownButtonFormField<int>(
-                    value: addShadeId,
+                    initialValue: addShadeId,
                     decoration: const InputDecoration(
                       labelText: 'Shade',
                       border: OutlineInputBorder(),
@@ -1566,7 +1568,7 @@ class _FullPurchaseEditPageState extends State<_FullPurchaseEditPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DropdownButtonFormField<int>(
-                    value: dlgShadeId,
+                    initialValue: dlgShadeId,
                     decoration: const InputDecoration(
                       labelText: 'Shade',
                       border: OutlineInputBorder(),

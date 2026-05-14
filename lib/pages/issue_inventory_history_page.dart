@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
@@ -273,7 +273,7 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<int>(
-                      value: partyId,
+                      initialValue: partyId,
                       decoration: const InputDecoration(labelText: 'Party'),
                       items: parties
                           .map(
@@ -289,7 +289,7 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<int>(
-                      value: productId,
+                      initialValue: productId,
                       decoration: const InputDecoration(labelText: 'Product'),
                       items: products
                           .map(
@@ -305,7 +305,7 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<int>(
-                      value: shadeId,
+                      initialValue: shadeId,
                       decoration: const InputDecoration(labelText: 'Shade'),
                       items: shades
                           .map(
@@ -427,8 +427,7 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                                 'Party: ${_partyNameById(partyId)} | ChNo: ${chNoCtrl.text.trim()}',
                           );
 
-                          if (!mounted) return;
-
+                          if (!ctx.mounted) return;
                           Navigator.pop(ctx);
                           await _load();
                           if (!mounted) return;
@@ -958,7 +957,7 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                     Text('Ch No: ${row['challan_no'] ?? '-'}'),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<int>(
-                      value: shadeId,
+                      initialValue: shadeId,
                       decoration: const InputDecoration(labelText: 'Shade'),
                       items: shades
                           .map(
@@ -1003,6 +1002,7 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                             return;
                           }
                           setDialogState(() => saving = true);
+                          final messenger = ScaffoldMessenger.of(context);
 
                           await ErpDatabase.instance.updateChallanRequirement(
                             row['id'] as int,
@@ -1012,9 +1012,9 @@ class _IssueInventoryHistoryPageState extends State<IssueInventoryHistoryPage> {
                             },
                           );
 
-                          if (!mounted) return;
+                          if (!ctx.mounted) return;
                           Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.showSnackBar(
                             const SnackBar(
                               content: Text('Requirement entry updated'),
                             ),
@@ -1294,8 +1294,9 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
       if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
         for (final d in deleted) {
           final ledgerId = d['ledger_id'] as int?;
-          if (ledgerId != null)
+          if (ledgerId != null) {
             await sync.addPendingDelete('stock_ledger', ledgerId);
+          }
         }
       }
 
@@ -1361,8 +1362,9 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
       if (ErpDatabase.instance.syncEnabled && sync.isInitialized) {
         for (final d in deleted) {
           final ledgerId = d['ledger_id'] as int?;
-          if (ledgerId != null)
+          if (ledgerId != null) {
             await sync.deleteRecord('stock_ledger', ledgerId);
+          }
         }
         for (final item in items) {
           final ledgerId = item['ledger_id'] as int?;
@@ -1428,7 +1430,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                 child: Column(
                   children: [
                     DropdownButtonFormField<int>(
-                      value: partyId,
+                      initialValue: partyId,
                       decoration: const InputDecoration(
                         labelText: 'Party',
                         border: OutlineInputBorder(),
@@ -1445,7 +1447,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<int>(
-                      value: productId,
+                      initialValue: productId,
                       decoration: const InputDecoration(
                         labelText: 'Product',
                         border: OutlineInputBorder(),
@@ -1549,7 +1551,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                 Expanded(
                   flex: 4,
                   child: DropdownButtonFormField<int>(
-                    value: addShadeId,
+                    initialValue: addShadeId,
                     decoration: const InputDecoration(
                       labelText: 'Shade',
                       border: OutlineInputBorder(),
@@ -1624,7 +1626,7 @@ class _FullIssueEditPageState extends State<_FullIssueEditPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DropdownButtonFormField<int>(
-                    value: dlgShadeId,
+                    initialValue: dlgShadeId,
                     decoration: const InputDecoration(
                       labelText: 'Shade',
                       border: OutlineInputBorder(),

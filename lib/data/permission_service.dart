@@ -34,7 +34,7 @@ class PermissionService {
     'firms': 'Firms',
     'machine_allotment': 'Machine Allotment',
     'operator_live': 'Operator Live',
-    'program_card': 'Program Card',
+    'program_card': 'Program Card Page',
     'dispatch_goods': 'Dispatch Goods',
     // Masters
     'master_parties': 'Parties',
@@ -110,22 +110,23 @@ class PermissionService {
         databaseURL: _dbUrl,
       ).ref();
 
-  /// REST fallback for platforms where the native Firebase RTDB plugin
-  /// is unavailable (e.g. Windows / Linux desktop) or fails to connect.
-  /// Returns the decoded `app_users/<phone>` map, or `null` if the node
-  /// does not exist or the request failed.
-  Future<Map<String, dynamic>?> _restGetUser(String phone) async {
+  bool get _hasFirebaseApp {
+    try {
+      Firebase.app();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _restGetNode(String path) async {
     HttpClient? client;
     try {
-      client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10);
-      final uri = Uri.parse('$_dbUrl/app_users/$phone.json');
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      final uri = Uri.parse('$_dbUrl/$path.json');
       final req = await client.getUrl(uri);
       final resp = await req.close().timeout(const Duration(seconds: 15));
-      if (resp.statusCode != 200) {
-        debugPrint('⚠ REST user fetch HTTP ${resp.statusCode}');
-        return null;
-      }
+      if (resp.statusCode != 200) return null;
       final body = await resp.transform(utf8.decoder).join();
       if (body.isEmpty || body == 'null') return null;
       final decoded = jsonDecode(body);
@@ -133,13 +134,51 @@ class PermissionService {
         return decoded.map((k, v) => MapEntry(k.toString(), v));
       }
       return null;
-    } catch (e) {
-      debugPrint('⚠ REST user fetch failed: $e');
+    } catch (_) {
       return null;
     } finally {
       client?.close(force: true);
     }
   }
+
+  Future<bool> _restPutNode(String path, Object? payload) async {
+    HttpClient? client;
+    try {
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      final uri = Uri.parse('$_dbUrl/$path.json');
+      final req = await client.putUrl(uri);
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode(payload));
+      final resp = await req.close().timeout(const Duration(seconds: 15));
+      return resp.statusCode >= 200 && resp.statusCode < 300;
+    } catch (_) {
+      return false;
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  Future<bool> _restDeleteNode(String path) async {
+    HttpClient? client;
+    try {
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      final uri = Uri.parse('$_dbUrl/$path.json');
+      final req = await client.deleteUrl(uri);
+      final resp = await req.close().timeout(const Duration(seconds: 15));
+      return resp.statusCode >= 200 && resp.statusCode < 300;
+    } catch (_) {
+      return false;
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  /// REST fallback for platforms where the native Firebase RTDB plugin
+  /// is unavailable (e.g. Windows / Linux desktop) or fails to connect.
+  /// Returns the decoded `app_users/<phone>` map, or `null` if the node
+  /// does not exist or the request failed.
+  Future<Map<String, dynamic>?> _restGetUser(String phone) async =>
+      _restGetNode('app_users/$phone');
 
   /// Whether the current user can access the given page/feature.
   bool hasPermission(String key) {
@@ -157,13 +196,15 @@ class PermissionService {
     }
 
     Map<String, dynamic>? data;
-    try {
-      final snap = await _ref.child('app_users/$phone').get();
-      if (snap.exists && snap.value is Map) {
-        data = Map<String, dynamic>.from(snap.value as Map);
+    if (_hasFirebaseApp) {
+      try {
+        final snap = await _ref.child('app_users/$phone').get();
+        if (snap.exists && snap.value is Map) {
+          data = Map<String, dynamic>.from(snap.value as Map);
+        }
+      } catch (e) {
+        debugPrint('? Load permissions (Firebase) failed: $e');
       }
-    } catch (e) {
-      debugPrint('⚠ Load permissions (Firebase) failed: $e');
     }
 
     // Fallback to REST when native plugin returned nothing or threw
@@ -196,15 +237,23 @@ class PermissionService {
       String phone, List<String>? units) async {
     if (!isSuper || phone == superPhone) return;
     try {
-      if (units == null) {
-        await _ref.child('app_users/$phone/allowed_attendance_units').remove();
+      if (_hasFirebaseApp) {
+        if (units == null) {
+          await _ref.child('app_users/$phone/allowed_attendance_units').remove();
+        } else {
+          await _ref
+              .child('app_users/$phone/allowed_attendance_units')
+              .set(units);
+        }
       } else {
-        await _ref
-            .child('app_users/$phone/allowed_attendance_units')
-            .set(units);
+        if (units == null) {
+          await _restDeleteNode('app_users/$phone/allowed_attendance_units');
+        } else {
+          await _restPutNode('app_users/$phone/allowed_attendance_units', units);
+        }
       }
     } catch (e) {
-      debugPrint('⚠ Set attendance units failed: $e');
+      debugPrint('? Set attendance units failed: $e');
     }
   }
 
@@ -219,81 +268,104 @@ class PermissionService {
           perms[key] = true;
         }
       }
-
-      await _ref.child('app_users/$phone').set({
+      final userData = <String, dynamic>{
         'name': name,
         'phone': phone,
         'password': hashedPassword,
         'role': role,
         'permissions': perms,
-        'registered_at': ServerValue.timestamp,
-      });
-
+        'registered_at': _hasFirebaseApp
+            ? ServerValue.timestamp
+            : DateTime.now().millisecondsSinceEpoch,
+      };
+      if (_hasFirebaseApp) {
+        await _ref.child('app_users/$phone').set(userData);
+      } else {
+        final ok = await _restPutNode('app_users/$phone', userData);
+        if (!ok) throw Exception('REST register user failed');
+      }
       _currentPhone = phone;
       _currentRole = role;
       _currentName = name;
       _permissions = perms;
     } catch (e) {
-      debugPrint('⚠ Register user in Firebase failed: $e');
+      debugPrint('? Register user failed: $e');
     }
   }
 
   /// Fetch every registered user (super-user management screen).
   Future<List<Map<String, dynamic>>> getAllUsers() async {
     try {
-      final snap = await _ref.child('app_users').get();
-      if (!snap.exists) return [];
-
-      final data = Map<String, dynamic>.from(snap.value as Map);
+      Map<String, dynamic>? data;
+      if (_hasFirebaseApp) {
+        try {
+          final snap = await _ref.child('app_users').get();
+          if (snap.exists && snap.value is Map) {
+            data = Map<String, dynamic>.from(snap.value as Map);
+          }
+        } catch (e) {
+          debugPrint('? Get all users (Firebase) failed: $e');
+        }
+      }
+      data ??= await _restGetNode('app_users');
+      if (data == null) return [];
       final users = <Map<String, dynamic>>[];
-
       for (final entry in data.entries) {
+        if (entry.value is! Map) continue;
         final user = Map<String, dynamic>.from(entry.value as Map);
         user['phone'] = entry.key;
         users.add(user);
       }
-
-      // super → admin → custom
       users.sort((a, b) {
         const order = {'super': 0, 'admin': 1, 'custom': 2};
         return (order[a['role']] ?? 3).compareTo(order[b['role']] ?? 3);
       });
-
       return users;
     } catch (e) {
-      debugPrint('⚠ Get all users failed: $e');
+      debugPrint('? Get all users failed: $e');
       return [];
     }
   }
 
-  /// Change a user's role (super only).
+  /// Change a user role (super only).
   Future<void> setUserRole(String phone, String role) async {
     if (!isSuper || phone == superPhone) return;
-
     try {
-      await _ref.child('app_users/$phone/role').set(role);
-
-      // Admin ⇒ grant all
+      if (_hasFirebaseApp) {
+        await _ref.child('app_users/$phone/role').set(role);
+      } else {
+        final ok = await _restPutNode('app_users/$phone/role', role);
+        if (!ok) throw Exception('REST set role failed');
+      }
       if (role == 'admin') {
         final perms = <String, bool>{};
         for (final key in allPermissions.keys) {
           perms[key] = true;
         }
-        await _ref.child('app_users/$phone/permissions').set(perms);
+        if (_hasFirebaseApp) {
+          await _ref.child('app_users/$phone/permissions').set(perms);
+        } else {
+          final ok = await _restPutNode('app_users/$phone/permissions', perms);
+          if (!ok) throw Exception('REST set admin permissions failed');
+        }
       }
     } catch (e) {
-      debugPrint('⚠ Set user role failed: $e');
+      debugPrint('? Set user role failed: $e');
     }
   }
 
   /// Set individual permissions for a custom user (super only).
   Future<void> setUserPermissions(String phone, Map<String, bool> perms) async {
     if (!isSuper || phone == superPhone) return;
-
     try {
-      await _ref.child('app_users/$phone/permissions').set(perms);
+      if (_hasFirebaseApp) {
+        await _ref.child('app_users/$phone/permissions').set(perms);
+      } else {
+        final ok = await _restPutNode('app_users/$phone/permissions', perms);
+        if (!ok) throw Exception('REST set permissions failed');
+      }
     } catch (e) {
-      debugPrint('⚠ Set permissions failed: $e');
+      debugPrint('? Set permissions failed: $e');
     }
   }
 
@@ -301,41 +373,51 @@ class PermissionService {
   /// Returns null on success, or an error message.
   Future<String?> createUser(String phone, String name, String password) async {
     if (!isSuper) return 'Only super user can create users';
-
     try {
-      // Check if user already exists
-      final snap = await _ref.child('app_users/$phone').get();
-      if (snap.exists) return 'User with this phone already exists';
-
+      final existing = _hasFirebaseApp
+          ? ((() async { final snap = await _ref.child('app_users/$phone').get(); if (snap.exists && snap.value is Map) return Map<String, dynamic>.from(snap.value as Map); return null; })())
+          : _restGetUser(phone);
+      final existingData = await existing;
+      if (existingData != null) return 'User with this phone already exists';
       final hashedPassword = sha256.convert(utf8.encode(password)).toString();
-
-      await _ref.child('app_users/$phone').set({
+      final userData = <String, dynamic>{
         'name': name,
         'phone': phone,
         'password': hashedPassword,
         'role': 'custom',
         'permissions': <String, bool>{},
-        'registered_at': ServerValue.timestamp,
-      });
-
+        'registered_at': _hasFirebaseApp
+            ? ServerValue.timestamp
+            : DateTime.now().millisecondsSinceEpoch,
+      };
+      if (_hasFirebaseApp) {
+        await _ref.child('app_users/$phone').set(userData);
+      } else {
+        final ok = await _restPutNode('app_users/$phone', userData);
+        if (!ok) return 'Failed to create user via REST';
+      }
       return null;
     } catch (e) {
-      debugPrint('⚠ Create user failed: $e');
+      debugPrint('? Create user failed: $e');
       return 'Failed to create user: $e';
     }
   }
 
-  /// Delete a user from Firebase (super only).
+  /// Delete a user from Firebase/REST (super only).
   /// Returns null on success, or an error message.
   Future<String?> deleteUser(String phone) async {
     if (!isSuper) return 'Only super user can delete users';
     if (phone == superPhone) return 'Cannot delete super user';
-
     try {
-      await _ref.child('app_users/$phone').remove();
+      if (_hasFirebaseApp) {
+        await _ref.child('app_users/$phone').remove();
+      } else {
+        final ok = await _restDeleteNode('app_users/$phone');
+        if (!ok) return 'Failed to delete user via REST';
+      }
       return null;
     } catch (e) {
-      debugPrint('⚠ Delete user failed: $e');
+      debugPrint('? Delete user failed: $e');
       return 'Failed to delete user: $e';
     }
   }
@@ -345,13 +427,15 @@ class PermissionService {
   Future<String?> verifyFirebaseLogin(
       String phone, String hashedPassword) async {
     Map<String, dynamic>? data;
-    try {
-      final snap = await _ref.child('app_users/$phone').get();
-      if (snap.exists && snap.value is Map) {
-        data = Map<String, dynamic>.from(snap.value as Map);
+    if (_hasFirebaseApp) {
+      try {
+        final snap = await _ref.child('app_users/$phone').get();
+        if (snap.exists && snap.value is Map) {
+          data = Map<String, dynamic>.from(snap.value as Map);
+        }
+      } catch (e) {
+        debugPrint('? Firebase login verify failed: $e');
       }
-    } catch (e) {
-      debugPrint('⚠ Firebase login verify failed: $e');
     }
 
     // Fallback to REST when the native plugin couldn't fetch the record

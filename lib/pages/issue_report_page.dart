@@ -564,7 +564,7 @@ class _IssueReportPageState extends State<IssueReportPage> {
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<int?>(
-                                value: selectedPartyId,
+                                initialValue: selectedPartyId,
                                 decoration: const InputDecoration(
                                   labelText: 'Party Filter',
                                   border: OutlineInputBorder(),
@@ -594,7 +594,7 @@ class _IssueReportPageState extends State<IssueReportPage> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: DropdownButtonFormField<int>(
-                                value: selectedProductId,
+                                initialValue: selectedProductId,
                                 decoration: const InputDecoration(
                                   labelText: 'Product Filter',
                                   border: OutlineInputBorder(),
@@ -622,7 +622,7 @@ class _IssueReportPageState extends State<IssueReportPage> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String?>(
-                          value: selectedChNo,
+                          initialValue: selectedChNo,
                           decoration: const InputDecoration(
                             labelText: 'Ch No Filter',
                             border: OutlineInputBorder(),

@@ -127,7 +127,7 @@ class _PartyFormPageState extends State<PartyFormPage> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 18),
                 child: DropdownButtonFormField<String>(
-                  value: _selectedPartyType,
+                  initialValue: _selectedPartyType,
                   decoration: InputDecoration(
                     labelText: 'Party Type',
                     labelStyle: const TextStyle(color: AppColors.textLight),

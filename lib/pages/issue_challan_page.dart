@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -715,7 +715,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                           borderRadius: BorderRadius.circular(10),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
+                              color: Colors.black.withValues(alpha: 0.2),
                               blurRadius: 6,
                               offset: const Offset(0, 2),
                             ),
@@ -725,7 +725,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<int?>(
-                                value: filterPartyId,
+                                initialValue: filterPartyId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Filter by Party',
@@ -814,7 +814,7 @@ class _IssueChallanPageState extends State<IssueChallanPage> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFF1565C0).withOpacity(0.1),
+              color: const Color(0xFF1565C0).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: const Icon(
@@ -1143,3 +1143,4 @@ class _TableCell extends StatelessWidget {
     );
   }
 }
+

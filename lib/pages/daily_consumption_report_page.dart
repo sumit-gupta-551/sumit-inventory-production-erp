@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+﻿// ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
 
@@ -235,12 +235,12 @@ class _DailyConsumptionReportPageState
     setState(() => reportGenerated = true);
   }
 
-  // ---- build data: date → shade → qty ----
+  // ---- build data: date â†’ shade â†’ qty ----
 
   /// Returns list of day groups sorted newest first.
   /// Each: { dayMs, dayLabel, shades: [ {shade_no, qty, rows: [...]} ], totalQty }
   List<Map<String, dynamic>> _buildDailyShadeGroups() {
-    // group by day → shade
+    // group by day â†’ shade
     final dayMap = <int, Map<String, Map<String, dynamic>>>{};
 
     for (final row in filteredRows) {
@@ -520,7 +520,7 @@ class _DailyConsumptionReportPageState
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<int?>(
-                                value: selectedProductId,
+                                initialValue: selectedProductId,
                                 decoration: const InputDecoration(
                                   labelText: 'Product',
                                   border: OutlineInputBorder(),
@@ -550,7 +550,7 @@ class _DailyConsumptionReportPageState
                             const SizedBox(width: 8),
                             Expanded(
                               child: DropdownButtonFormField<int?>(
-                                value: selectedShadeId,
+                                initialValue: selectedShadeId,
                                 decoration: const InputDecoration(
                                   labelText: 'Shade',
                                   border: OutlineInputBorder(),

@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:month_picker_dialog/month_picker_dialog.dart';
 
 import '../data/erp_database.dart';
 
@@ -17,8 +18,8 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
   List<Map<String, dynamic>> advances = [];
   bool loading = true;
 
-  DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month);
-  DateTime _toDate = DateTime.now();
+  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  final DateFormat _monthFmt = DateFormat('MMM yyyy');
 
   static const advanceModes = ['cash', 'transfer', 'neft'];
   static const modeLabels = {
@@ -59,14 +60,8 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
     setState(() => loading = true);
     try {
       final empList = await ErpDatabase.instance.getEmployees(status: 'active');
-      final fromMs = DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
-          .millisecondsSinceEpoch;
-      final toMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-          .add(const Duration(days: 1))
-          .millisecondsSinceEpoch;
       final rows = await ErpDatabase.instance.getSalaryAdvances(
-        fromMs: fromMs,
-        toMs: toMs,
+        forMonthMs: _periodFromMs,
       );
       if (!mounted) return;
       setState(() {
@@ -85,28 +80,19 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
   }
 
-  Future<void> _pickFrom() async {
-    final d = await showDatePicker(
-      context: context,
-      initialDate: _fromDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-    if (d != null) {
-      setState(() => _fromDate = d);
-      _load();
-    }
-  }
+  DateTime get _monthStart =>
+      DateTime(_selectedMonth.year, _selectedMonth.month, 1);
+  int get _periodFromMs => _monthStart.millisecondsSinceEpoch;
 
-  Future<void> _pickTo() async {
-    final d = await showDatePicker(
+  Future<void> _pickMonth() async {
+    final d = await showMonthPicker(
       context: context,
-      initialDate: _toDate,
+      initialDate: _selectedMonth,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
     );
     if (d != null) {
-      setState(() => _toDate = d);
+      setState(() => _selectedMonth = DateTime(d.year, d.month));
       _load();
     }
   }
@@ -123,35 +109,24 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
     DateTime advDate = existing != null
         ? DateTime.fromMillisecondsSinceEpoch(existing['date'] as int)
         : DateTime.now();
+    final existingForMonth = (existing?['for_month'] as num?)?.toInt();
+    DateTime deductionMonth = existingForMonth != null && existingForMonth > 0
+        ? DateTime.fromMillisecondsSinceEpoch(existingForMonth)
+        : _selectedMonth;
 
     // Payroll summary for selected employee
     Map<String, dynamic>? empSummary;
 
-    Future<Map<String, dynamic>?> fetchSummary(int empId) async {
-      final fromMs = DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
-          .millisecondsSinceEpoch;
-      final toMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-          .millisecondsSinceEpoch;
+    Future<Map<String, dynamic>?> fetchSummary(int empId, DateTime month) async {
+      final fromMs = DateTime(month.year, month.month, 1).millisecondsSinceEpoch;
+      final toMsExclusive =
+          DateTime(month.year, month.month + 1, 1).millisecondsSinceEpoch;
       try {
-        // Try saved payroll first
-        final savedRows = await ErpDatabase.instance.getSavedPayroll(
-          fromMs: fromMs,
-          toMs: toMs,
-          employeeId: empId,
-        );
-        if (savedRows.isNotEmpty) {
-          final s = Map<String, dynamic>.from(savedRows.first);
-          s['_source'] = 'saved';
-          return s;
-        }
-        // Fallback to live calculation
-        final calcToMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-            .add(const Duration(days: 1))
-            .millisecondsSinceEpoch;
+        // Always use live calculation so latest advances/attendance are visible.
         final s = await ErpDatabase.instance.getEmployeeSalarySummary(
           employeeId: empId,
           fromMs: fromMs,
-          toMs: calcToMs,
+          toMs: toMsExclusive,
         );
         s['_source'] = 'live';
         return s;
@@ -162,7 +137,7 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
 
     // Pre-fetch if editing
     if (selEmpId != null) {
-      empSummary = await fetchSummary(selEmpId);
+      empSummary = await fetchSummary(selEmpId, deductionMonth);
     }
 
     final saved = await showDialog<bool>(
@@ -181,34 +156,26 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
                   (empSummary!['total_all_bonus'] as num?)?.toDouble() ?? 0;
               final totalAdvance =
                   (empSummary!['total_advance'] as num?)?.toDouble() ?? 0;
-              final isSaved = empSummary!['_source'] == 'saved';
               return Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: isSaved ? Colors.green.shade50 : Colors.orange.shade50,
+                  color: Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: isSaved
-                          ? Colors.green.shade200
-                          : Colors.orange.shade200),
+                  border: Border.all(color: Colors.blue.shade200),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(children: [
-                      Icon(isSaved ? Icons.check_circle : Icons.info_outline,
-                          size: 14,
-                          color: isSaved ? Colors.green : Colors.orange),
+                      Icon(Icons.bolt, size: 14, color: Colors.blue.shade700),
                       const SizedBox(width: 4),
-                      Text(isSaved ? 'Payroll (Saved)' : 'Payroll (Not Saved)',
+                      Text('Live Payroll Snapshot',
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
-                              color: isSaved
-                                  ? Colors.green.shade800
-                                  : Colors.orange.shade800)),
+                              color: Colors.blue.shade800)),
                     ]),
                     const SizedBox(height: 4),
                     _payrollRow(
@@ -233,7 +200,7 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<int>(
-                      value: selEmpId,
+                      initialValue: selEmpId,
                       decoration: const InputDecoration(
                         labelText: 'Employee *',
                         border: OutlineInputBorder(),
@@ -249,7 +216,7 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
                       onChanged: (v) async {
                         selEmpId = v;
                         if (v != null) {
-                          empSummary = await fetchSummary(v);
+                          empSummary = await fetchSummary(v, deductionMonth);
                         } else {
                           empSummary = null;
                         }
@@ -258,6 +225,28 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
                     ),
                     const SizedBox(height: 10),
                     summaryWidget(),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final m = await showMonthPicker(
+                          context: ctx,
+                          initialDate: deductionMonth,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2100),
+                        );
+                        if (m == null) return;
+                        deductionMonth = DateTime(m.year, m.month);
+                        if (selEmpId != null) {
+                          empSummary =
+                              await fetchSummary(selEmpId!, deductionMonth);
+                        }
+                        setDState(() {});
+                      },
+                      icon: const Icon(Icons.event_note, size: 16),
+                      label: Text(
+                        'Deduct In: ${_monthFmt.format(deductionMonth)}',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     TextField(
                       controller: amountCtrl,
                       keyboardType: TextInputType.number,
@@ -268,7 +257,7 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: advMode,
+                      initialValue: advMode,
                       decoration: const InputDecoration(
                         labelText: 'Mode',
                         border: OutlineInputBorder(),
@@ -351,6 +340,8 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
       'payment_mode': advMode,
       'date': DateTime(advDate.year, advDate.month, advDate.day)
           .millisecondsSinceEpoch,
+      'for_month':
+          DateTime(deductionMonth.year, deductionMonth.month).millisecondsSinceEpoch,
       'remarks': remarksCtrl.text.trim(),
       'created_at': DateTime.now().millisecondsSinceEpoch,
     };
@@ -436,78 +427,36 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Date filter
+                // Month filter
                 Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: _pickFrom,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 10, horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('From',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade600)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  DateFormat('dd MMM yyyy').format(_fromDate),
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
+                  child: InkWell(
+                    onTap: _pickMonth,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 10),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Month',
+                              style: TextStyle(
+                                  fontSize: 10, color: Colors.grey.shade600)),
+                          const SizedBox(height: 2),
+                          Text(
+                            _monthFmt.format(_selectedMonth),
+                            style: const TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600),
                           ),
-                        ),
+                        ],
                       ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: Icon(Icons.arrow_forward,
-                            size: 18, color: Colors.grey),
-                      ),
-                      Expanded(
-                        child: InkWell(
-                          onTap: _pickTo,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 10, horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('To',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade600)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  DateFormat('dd MMM yyyy').format(_toDate),
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
 
@@ -571,6 +520,10 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
                             final dateMs = a['date'] as int? ?? 0;
                             final date =
                                 DateTime.fromMillisecondsSinceEpoch(dateMs);
+                            final forMonthMs = (a['for_month'] as num?)?.toInt();
+                            final forMonthDate = forMonthMs != null && forMonthMs > 0
+                                ? DateTime.fromMillisecondsSinceEpoch(forMonthMs)
+                                : date;
                             final remarks = (a['remarks'] ?? '').toString();
                             final mode =
                                 (a['payment_mode'] ?? 'cash').toString();
@@ -594,7 +547,7 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
                                       fontWeight: FontWeight.w600),
                                 ),
                                 subtitle: Text(
-                                  '${DateFormat('dd-MM-yyyy').format(date)}  •  ${modeLabels[mode] ?? mode}'
+                                  'For ${_monthFmt.format(forMonthDate)}  •  ${DateFormat('dd-MM-yyyy').format(date)}  •  ${modeLabels[mode] ?? mode}'
                                   '${remarks.isNotEmpty ? '  •  $remarks' : ''}',
                                   style: const TextStyle(fontSize: 12),
                                 ),
@@ -632,3 +585,4 @@ class _EmployeeAdvancePageState extends State<EmployeeAdvancePage> {
     );
   }
 }
+

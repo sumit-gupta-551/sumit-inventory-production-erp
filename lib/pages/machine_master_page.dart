@@ -255,7 +255,7 @@ class _MachineFormPageState extends State<_MachineFormPage> {
             ),
             const SizedBox(height: 14),
             DropdownButtonFormField<String>(
-              value: _selectedUnit,
+              initialValue: _selectedUnit,
               decoration: const InputDecoration(
                 labelText: 'Unit Name',
                 border: OutlineInputBorder(),
@@ -272,7 +272,7 @@ class _MachineFormPageState extends State<_MachineFormPage> {
             if (widget.existing != null) ...[
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
-                value: _status,
+                initialValue: _status,
                 decoration: const InputDecoration(
                   labelText: 'Status',
                   border: OutlineInputBorder(),

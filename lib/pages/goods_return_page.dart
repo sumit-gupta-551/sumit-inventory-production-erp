@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
@@ -259,7 +259,7 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<int>(
-                        value: _selectedPartyId,
+                        initialValue: _selectedPartyId,
                         decoration: const InputDecoration(labelText: 'Party'),
                         items: parties
                             .where((p) => p.id != null)
@@ -273,7 +273,7 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<int>(
-                        value: _selectedProductId,
+                        initialValue: _selectedProductId,
                         decoration: const InputDecoration(labelText: 'Product'),
                         items: products
                             .where((p) => p.id != null)
@@ -296,7 +296,7 @@ class _GoodsReturnPageState extends State<GoodsReturnPage> {
                           Expanded(
                             child:
                                 DropdownButtonFormField<Map<String, dynamic>>(
-                              value: selectedShade,
+                              initialValue: selectedShade,
                               decoration: const InputDecoration(
                                   labelText: 'Fabric Shade'),
                               items: fabricShades

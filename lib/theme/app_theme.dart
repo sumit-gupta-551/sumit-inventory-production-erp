@@ -8,7 +8,6 @@ class AppTheme {
     fontFamily: 'Roboto',
     scaffoldBackgroundColor: AppColors.bg,
     canvasColor: AppColors.surface,
-    dialogBackgroundColor: AppColors.card,
     appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.appBar,
       elevation: 2,

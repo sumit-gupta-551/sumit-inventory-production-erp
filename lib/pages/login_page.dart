@@ -315,7 +315,7 @@ class _LoginPageState extends State<LoginPage>
     if (!mounted) return;
     if (!syncReady) {
       final reason = (Platform.isWindows || Platform.isLinux)
-          ? (RestPullSyncService.instance.lastError ?? 'unknown')
+          ? (RestPullSyncService.instance.lastError.value ?? 'unknown')
           : (FirebaseSyncService.instance.lastSyncError ?? 'unknown');
       _msg('Could not load server data now. Reason: $reason');
     }
@@ -570,10 +570,10 @@ class _LoginPageState extends State<LoginPage>
               ),
             ),
             const SizedBox(height: 14),
-            Wrap(
+            const Wrap(
               spacing: 10,
               runSpacing: 10,
-              children: const [
+              children: [
                 _NeonTag(label: 'Live Sync', color: Color(0xFF0EA5E9)),
                 _NeonTag(label: 'Smart Reports', color: Color(0xFFE11D8A)),
                 _NeonTag(label: 'Role Security', color: Color(0xFF10B981)),
@@ -943,8 +943,8 @@ class _LoginPageState extends State<LoginPage>
         fillColor: const Color(0xFFFDFEFF),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: const Color(0xFFE2EAF4),
+          borderSide: const BorderSide(
+            color: Color(0xFFE2EAF4),
           ),
         ),
         focusedBorder: OutlineInputBorder(

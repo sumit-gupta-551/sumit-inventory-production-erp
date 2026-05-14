@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 class InventoryFormCard extends StatelessWidget {
   final String title;
@@ -45,7 +45,7 @@ class InventoryFormCard extends StatelessWidget {
                   style: theme.textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.5,
-                    color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
+                    color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.7),
                   ),
                 ),
               ),
@@ -63,3 +63,4 @@ class InventoryFormCard extends StatelessWidget {
     );
   }
 }
+

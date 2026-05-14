@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+﻿// ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
 
@@ -581,7 +581,7 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<int?>(
-                                value: selectedProductId,
+                                initialValue: selectedProductId,
                                 decoration: const InputDecoration(
                                   labelText: 'Product',
                                   border: OutlineInputBorder(),
@@ -611,7 +611,7 @@ class _ShadeMovementReportPageState extends State<ShadeMovementReportPage> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: DropdownButtonFormField<int?>(
-                                value: selectedShadeId,
+                                initialValue: selectedShadeId,
                                 decoration: const InputDecoration(
                                   labelText: 'Shade',
                                   border: OutlineInputBorder(),

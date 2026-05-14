@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -697,7 +697,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         ),
                         const SizedBox(height: 10),
                         DropdownButtonFormField<int?>(
-                          value: selectedPartyId,
+                          initialValue: selectedPartyId,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Party (optional)',
@@ -718,7 +718,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<int?>(
-                          value: selectedProductId,
+                          initialValue: selectedProductId,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Product (optional)',
@@ -740,7 +740,7 @@ class _StockSummaryPageState extends State<StockSummaryPage> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<int?>(
-                          value: selectedShadeId,
+                          initialValue: selectedShadeId,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Shade (optional)',

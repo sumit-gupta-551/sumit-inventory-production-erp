@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+﻿// ignore_for_file: use_build_context_synchronously
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -173,7 +173,7 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: selectedUnit,
+                      initialValue: selectedUnit,
                       decoration: const InputDecoration(
                         labelText: 'Unit Name',
                         border: OutlineInputBorder(),
@@ -189,7 +189,7 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: salaryType,
+                      initialValue: salaryType,
                       decoration: const InputDecoration(
                         labelText: 'Salary Type',
                         border: OutlineInputBorder(),
@@ -210,8 +210,8 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: salaryType == 'monthly'
-                            ? 'Monthly Salary (₹)'
-                            : 'Daily Rate (₹)',
+                            ? 'Monthly Salary (â‚¹)'
+                            : 'Daily Rate (â‚¹)',
                         border: const OutlineInputBorder(),
                       ),
                     ),
@@ -263,7 +263,7 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                     if (existing != null) ...[
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        value: status,
+                        initialValue: status,
                         decoration: const InputDecoration(
                           labelText: 'Status',
                           border: OutlineInputBorder(),
@@ -398,7 +398,7 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                'Current: ₹${currentPay.toStringAsFixed(0)} / $currentType ($currentBaseDays days)',
+                                'Current: â‚¹${currentPay.toStringAsFixed(0)} / $currentType ($currentBaseDays days)',
                                 style: const TextStyle(fontSize: 13),
                               ),
                             ),
@@ -411,7 +411,7 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                               fontWeight: FontWeight.w600, fontSize: 13)),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
-                        value: newSalaryType,
+                        initialValue: newSalaryType,
                         decoration: const InputDecoration(
                           labelText: 'Salary Type',
                           border: OutlineInputBorder(),
@@ -433,8 +433,8 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
                           labelText: newSalaryType == 'monthly'
-                              ? 'Monthly Salary (₹)'
-                              : 'Daily Rate (₹)',
+                              ? 'Monthly Salary (â‚¹)'
+                              : 'Daily Rate (â‚¹)',
                           border: const OutlineInputBorder(),
                           isDense: true,
                         ),
@@ -550,7 +550,7 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                               children: [
                                 Expanded(
                                   child: Text(
-                                    '₹${pay.toStringAsFixed(0)} / $type${type == 'monthly' ? ' ($days days)' : ''}',
+                                    'â‚¹${pay.toStringAsFixed(0)} / $type${type == 'monthly' ? ' ($days days)' : ''}',
                                     style: const TextStyle(fontSize: 12),
                                   ),
                                 ),
@@ -659,8 +659,8 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                     final baseDays =
                         (e['salary_base_days'] as num?)?.toInt() ?? 30;
                     final payLabel = salaryType == 'monthly'
-                        ? '₹${basePay.toStringAsFixed(0)}/month ($baseDays days)'
-                        : '₹${basePay.toStringAsFixed(0)}/day';
+                        ? 'â‚¹${basePay.toStringAsFixed(0)}/month ($baseDays days)'
+                        : 'â‚¹${basePay.toStringAsFixed(0)}/day';
 
                     return Card(
                       margin: const EdgeInsets.symmetric(
@@ -687,7 +687,7 @@ class _EmployeeMasterPageState extends State<EmployeeMasterPage> {
                             style:
                                 const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(
-                          '${(e['designation'] ?? '-')}  •  ${(e['unit_name'] ?? '-')}  •  $payLabel',
+                          '${(e['designation'] ?? '-')}  â€¢  ${(e['unit_name'] ?? '-')}  â€¢  $payLabel',
                           style: const TextStyle(fontSize: 12),
                         ),
                         trailing: Row(

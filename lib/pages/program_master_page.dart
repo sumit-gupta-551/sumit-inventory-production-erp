@@ -199,7 +199,7 @@ class _ProgramMasterPageState extends State<ProgramMasterPage> {
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<int>(
-                value: selectedPartyId,
+                initialValue: selectedPartyId,
                 hint: const Text('Party'),
                 items: parties
                     .map((p) => DropdownMenuItem(
@@ -366,7 +366,7 @@ class _ProgramMasterPageState extends State<ProgramMasterPage> {
     required void Function(int) onPickId,
   }) {
     return DropdownButtonFormField<int>(
-      value: null,
+      initialValue: null,
       hint: Text(hint),
       items: items
           .map(

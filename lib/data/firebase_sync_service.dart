@@ -149,8 +149,11 @@ class FirebaseSyncService {
       try {
         final localCount = await _runSyncDbTask(() async {
           final db = await ErpDatabase.instance.database;
-          final result =
-              await db.rawQuery('SELECT COUNT(*) AS cnt FROM $table');
+          final result = table == 'stock_ledger'
+              ? await db.rawQuery(
+                  'SELECT COUNT(*) AS cnt FROM stock_ledger WHERE COALESCE(is_deleted, 0) = 0',
+                )
+              : await db.rawQuery('SELECT COUNT(*) AS cnt FROM $table');
           final value = result.first['cnt'];
           if (value is int) return value;
           if (value is num) return value.toInt();
@@ -510,6 +513,21 @@ class FirebaseSyncService {
     }
   }
 
+  /// Retry queued local push/delete rows without starting realtime listeners.
+  /// Safe for desktop REST backend.
+  Future<void> retryPendingNow() async {
+    await init();
+    try {
+      final db = await ErpDatabase.instance.database;
+      await _retryPendingDeletes(db);
+      await _retryFailedPushes(db);
+    } catch (e) {
+      debugPrint('[WARN] retryPendingNow: $e');
+    } finally {
+      await _refreshPendingSyncCount();
+    }
+  }
+
   Future<bool> fullSync() async {
     await init();
     _syncing = true;
@@ -687,7 +705,7 @@ class FirebaseSyncService {
         );
         return true;
       }
-      remoteRows = map.length;
+      remoteRows = _effectiveRemoteCount(table, map);
       await _runSyncDbTask(() async {
         final localIdSet = <int>{};
         var lastId = 0;
@@ -844,7 +862,11 @@ class FirebaseSyncService {
           final table = row['table_name'] as String;
           final id = row['record_id'] as int;
           try {
-            await _ref.child('$table/$id').remove();
+            if (_useRestBackend) {
+              await RestSyncBackend.instance.delete(table, id);
+            } else {
+              await _ref.child('$table/$id').remove();
+            }
             removePendingDelete(table, id);
             await _removePendingSync(table, id, 'delete', refreshCount: false);
             pendingChanged = true;
@@ -910,8 +932,12 @@ class FirebaseSyncService {
               pushData = Map<String, dynamic>.from(localRows.first);
             }
 
-            pushData['_ts'] = ServerValue.timestamp;
-            await _ref.child('$table/$id').set(pushData);
+            if (_useRestBackend) {
+              await RestSyncBackend.instance.push(table, id, pushData);
+            } else {
+              pushData['_ts'] = ServerValue.timestamp;
+              await _ref.child('$table/$id').set(pushData);
+            }
             await _removePendingSync(table, id, 'push', refreshCount: false);
             pendingChanged = true;
             debugPrint('[OK] pending push retry ($table/$id) success');
@@ -927,6 +953,26 @@ class FirebaseSyncService {
       }
     } catch (e) {
       debugPrint('[WARN] _retryFailedPushes: $e');
+    }
+  }
+
+  /// True when there are local pending push/delete rows for this table.
+  /// Desktop REST pull can use this to avoid overwriting unsynced local edits.
+  Future<bool> hasPendingSyncForTable(String table) async {
+    try {
+      final db = await ErpDatabase.instance.database;
+      final rows = await _runSyncDbTask(
+        () => db.query(
+          '_pending_sync',
+          columns: ['id'],
+          where: 'table_name = ?',
+          whereArgs: [table],
+          limit: 1,
+        ),
+      );
+      return rows.isNotEmpty;
+    } catch (_) {
+      return false;
     }
   }
 

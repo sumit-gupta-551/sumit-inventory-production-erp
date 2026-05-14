@@ -139,9 +139,7 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
         tableName: _filterTable,
         userName: _filterUser,
         fromMs: _filterFrom?.millisecondsSinceEpoch,
-        toMs: _filterTo != null
-            ? _filterTo!.add(const Duration(days: 1)).millisecondsSinceEpoch
-            : null,
+        toMs: _filterTo?.add(const Duration(days: 1)).millisecondsSinceEpoch,
         search:
             _searchCtrl.text.trim().isEmpty ? null : _searchCtrl.text.trim(),
       );
@@ -172,9 +170,7 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
         tableName: _filterTable,
         userName: _filterUser,
         fromMs: _filterFrom?.millisecondsSinceEpoch,
-        toMs: _filterTo != null
-            ? _filterTo!.add(const Duration(days: 1)).millisecondsSinceEpoch
-            : null,
+        toMs: _filterTo?.add(const Duration(days: 1)).millisecondsSinceEpoch,
         search:
             _searchCtrl.text.trim().isEmpty ? null : _searchCtrl.text.trim(),
       );
@@ -548,7 +544,7 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
     return SizedBox(
       width: 150,
       child: DropdownButtonFormField<T>(
-        value: value,
+        initialValue: value,
         items: items,
         onChanged: onChanged,
         decoration: InputDecoration(

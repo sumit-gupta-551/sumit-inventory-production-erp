@@ -64,11 +64,15 @@ class _AddShadePageState extends State<AddShadePage> {
     }
   }
 
-  String _selectedProductName() {
-    final p = products.cast<Map<String, dynamic>?>().firstWhere(
+  Map<String, dynamic>? _selectedProduct() {
+    return products.cast<Map<String, dynamic>?>().firstWhere(
           (e) => e?['id'] == selectedProductId,
           orElse: () => null,
         );
+  }
+
+  String _selectedProductName() {
+    final p = _selectedProduct();
     return (p?['name'] ?? '').toString().trim();
   }
 
@@ -176,7 +180,7 @@ class _AddShadePageState extends State<AddShadePage> {
           ? 'Fabric_${_selectedProductName()}_Shades.xlsx'
           : 'Thread_Shades.xlsx';
 
-      // Open native save dialog — user picks where to save
+      // Open native save dialog â€” user picks where to save
       final path = await FilePicker.platform.saveFile(
         dialogTitle: 'Save Shades Export',
         fileName: fileName,
@@ -294,7 +298,7 @@ class _AddShadePageState extends State<AddShadePage> {
             shadeName: productName,
           );
           if (exists) {
-            // Shade already exists — add stock to existing shade
+            // Shade already exists â€” add stock to existing shade
             if (openingQty > 0) {
               final db = await ErpDatabase.instance.database;
               final existing = await db.query(
@@ -359,17 +363,67 @@ class _AddShadePageState extends State<AddShadePage> {
 
     try {
       if (selectedType == ShadeType.thread) {
+        final exists = await _threadShadeExists(
+          shadeNo: shadeNoCtrl.text.trim(),
+          companyName: companyCtrl.text.trim(),
+        );
+        if (exists) {
+          _msg('Thread shade already exists');
+          return;
+        }
         await ErpDatabase.instance.insertThreadShade(
           shadeNo: shadeNoCtrl.text.trim(),
           companyName: companyCtrl.text.trim(),
         );
       } else {
+        if (_selectedProduct() == null) {
+          _msg('Select valid product name');
+          setState(() => saving = false);
+          return;
+        }
         final productName = _selectedProductName();
         if (productName.isEmpty) {
           _msg('Select valid product name');
           setState(() => saving = false);
           return;
         }
+
+        final exists = await _fabricShadeExists(
+          shadeNo: shadeNoCtrl.text.trim(),
+          shadeName: productName,
+        );
+        if (exists) {
+          final openingQty = double.tryParse(openingStockCtrl.text.trim()) ?? 0;
+          if (openingQty > 0) {
+            final db = await ErpDatabase.instance.database;
+            final existing = await db.query(
+              'fabric_shades',
+              columns: ['id'],
+              where:
+                  'LOWER(TRIM(shade_no)) = ? AND LOWER(TRIM(shade_name)) = ?',
+              whereArgs: [
+                shadeNoCtrl.text.trim().toLowerCase(),
+                productName.toLowerCase(),
+              ],
+              limit: 1,
+            );
+            if (existing.isNotEmpty) {
+              await _insertOpeningStock(
+                productId: selectedProductId!,
+                shadeId: existing.first['id'] as int,
+                qty: openingQty,
+              );
+            }
+          }
+          _msg(
+            openingQty > 0
+                ? 'Shade already exists. Opening stock added.'
+                : 'Shade already exists for selected product',
+            success: true,
+          );
+          return;
+        }
+
         final shadeId = await ErpDatabase.instance.insertFabricShadeReturningId(
           shadeNo: shadeNoCtrl.text.trim(),
           shadeName: productName,
@@ -396,7 +450,7 @@ class _AddShadePageState extends State<AddShadePage> {
     } catch (e, s) {
       debugPrint('SHADE SAVE ERROR: $e');
       debugPrint(s.toString());
-      _msg('Failed to save shade');
+      _msg('Failed to save shade: $e');
     } finally {
       if (mounted) setState(() => saving = false);
     }
@@ -523,7 +577,7 @@ class _AddShadePageState extends State<AddShadePage> {
                 // FABRIC SHADE FIELDS
                 if (selectedType == ShadeType.fabric) ...[
                   DropdownButtonFormField<int>(
-                    value: selectedProductId,
+                    initialValue: selectedProductId,
                     decoration:
                         const InputDecoration(labelText: 'Product Name'),
                     items: products

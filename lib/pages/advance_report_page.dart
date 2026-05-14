@@ -103,7 +103,9 @@ class _AdvanceReportPageState extends State<AdvanceReportPage> {
 
   double _totalAmt(List<Map<String, dynamic>> rows) {
     double t = 0;
-    for (final r in rows) t += (r['amount'] as num?)?.toDouble() ?? 0;
+    for (final r in rows) {
+      t += (r['amount'] as num?)?.toDouble() ?? 0;
+    }
     return t;
   }
 

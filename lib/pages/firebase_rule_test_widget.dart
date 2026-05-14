@@ -3,8 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 
 class FirebaseRuleTestWidget extends StatefulWidget {
+  const FirebaseRuleTestWidget({super.key});
+
   @override
-  _FirebaseRuleTestWidgetState createState() => _FirebaseRuleTestWidgetState();
+  State<FirebaseRuleTestWidget> createState() => _FirebaseRuleTestWidgetState();
 }
 
 class _FirebaseRuleTestWidgetState extends State<FirebaseRuleTestWidget> {
@@ -34,10 +36,10 @@ class _FirebaseRuleTestWidgetState extends State<FirebaseRuleTestWidget> {
       children: [
         ElevatedButton(
           onPressed: _testWrite,
-          child: Text('Test Firebase Write'),
+          child: const Text('Test Firebase Write'),
         ),
-        SizedBox(height: 8),
-        Text(_result, style: TextStyle(fontSize: 12)),
+        const SizedBox(height: 8),
+        Text(_result, style: const TextStyle(fontSize: 12)),
       ],
     );
   }

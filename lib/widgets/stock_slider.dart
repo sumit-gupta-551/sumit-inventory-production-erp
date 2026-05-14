@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 class StockSlider extends StatelessWidget {
   const StockSlider({super.key});
@@ -64,7 +64,7 @@ class StockCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: colors.first.withOpacity(0.65),
+            color: colors.first.withValues(alpha: 0.65),
             blurRadius: 26,
             spreadRadius: 1,
           ),
@@ -95,3 +95,4 @@ class StockCard extends StatelessWidget {
     );
   }
 }
+

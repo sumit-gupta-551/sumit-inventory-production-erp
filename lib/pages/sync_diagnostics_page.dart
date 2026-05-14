@@ -52,6 +52,37 @@ class _SyncDiagnosticsPageState extends State<SyncDiagnosticsPage> {
     }
   }
 
+  Future<void> _runFullSyncRepair() async {
+    setState(() => _loading = true);
+    try {
+      final ok = await _sync.fullSync();
+      _sync.startListening();
+      final report = await _sync.runHealthCheck();
+      if (!mounted) return;
+      final message = ok
+          ? (report.mismatchCount == 0
+              ? 'Full sync complete. All tables are in sync.'
+              : 'Full sync complete, but ${report.mismatchCount} mismatch(es) remain.')
+          : 'Full sync failed. Please retry.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Full sync failed: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   String _fmtDate(DateTime? value) {
     if (value == null) return '-';
     final y = value.year.toString().padLeft(4, '0');
@@ -72,6 +103,11 @@ class _SyncDiagnosticsPageState extends State<SyncDiagnosticsPage> {
       appBar: AppBar(
         title: const Text('Sync Diagnostics'),
         actions: [
+          IconButton(
+            onPressed: _loading ? null : _runFullSyncRepair,
+            icon: const Icon(Icons.cloud_download_rounded),
+            tooltip: 'Run Full Sync Repair',
+          ),
           IconButton(
             onPressed: _loading ? null : () => _runHealthCheck(),
             icon: _loading

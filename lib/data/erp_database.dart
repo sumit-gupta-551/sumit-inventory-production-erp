@@ -68,6 +68,16 @@ class ErpDatabase {
     final db = await openDatabase(
       path,
       version: 25,
+      onConfigure: (db) async {
+        // Best-effort tuning. Never fail DB open if another process/session
+        // temporarily holds a lock.
+        try {
+          await db.execute('PRAGMA busy_timeout=6000');
+        } catch (_) {}
+        try {
+          await db.execute('PRAGMA synchronous=NORMAL');
+        } catch (_) {}
+      },
       onCreate: (db, version) async {
         await _createDB(db, version);
         await _seedGstCategories(db);
@@ -81,10 +91,12 @@ class ErpDatabase {
     await _ensureStockLedgerColumns(db);
     await _ensurePurchaseMasterReportingColumns(db);
     await _ensurePurchaseMasterOrderNoColumn(db);
+    await _ensureSalaryAdvanceMonthColumn(db);
     await _createIndexes(db);
     await _fixReqCloseRemarks(db);
     await _cleanupOrphanOrderPurchaseLedgerEntries(db);
     await _reopenOrphanCompletedProgramCards(db);
+    await _restoreRecentlyDeletedDispatchBills(db);
 
     return db;
   }
@@ -402,6 +414,7 @@ class ErpDatabase {
         amount REAL NOT NULL DEFAULT 0,
         payment_mode TEXT DEFAULT 'cash',
         date INTEGER NOT NULL,
+        for_month INTEGER,
         remarks TEXT,
         created_at INTEGER)''',
       '''CREATE TABLE IF NOT EXISTS salary_payments (
@@ -556,6 +569,43 @@ class ErpDatabase {
         await db
             .execute('ALTER TABLE purchase_master ADD COLUMN order_no INTEGER');
       }
+    } catch (_) {
+      // Ignore if table does not exist yet or migration is in progress.
+    }
+  }
+
+  Future<void> _ensureSalaryAdvanceMonthColumn(Database db) async {
+    try {
+      final cols = await db.rawQuery('PRAGMA table_info(salary_advances)');
+      final names =
+          cols.map((e) => (e['name'] ?? '').toString().toLowerCase()).toSet();
+      if (!names.contains('for_month')) {
+        await db.execute(
+            'ALTER TABLE salary_advances ADD COLUMN for_month INTEGER');
+      }
+
+      final rows = await db.query(
+        'salary_advances',
+        columns: ['id', 'date', 'for_month'],
+        where: 'for_month IS NULL OR for_month <= 0',
+      );
+      if (rows.isEmpty) return;
+
+      await db.transaction((txn) async {
+        for (final row in rows) {
+          final id = (row['id'] as num?)?.toInt();
+          final dateMs = (row['date'] as num?)?.toInt();
+          if (id == null || dateMs == null || dateMs <= 0) continue;
+          final d = DateTime.fromMillisecondsSinceEpoch(dateMs);
+          final monthStart = DateTime(d.year, d.month).millisecondsSinceEpoch;
+          await txn.update(
+            'salary_advances',
+            {'for_month': monthStart},
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      });
     } catch (_) {
       // Ignore if table does not exist yet or migration is in progress.
     }
@@ -844,6 +894,7 @@ class ErpDatabase {
       amount REAL NOT NULL DEFAULT 0,
       payment_mode TEXT DEFAULT 'cash',
       date INTEGER NOT NULL,
+      for_month INTEGER,
       remarks TEXT,
       created_at INTEGER
     )
@@ -899,6 +950,8 @@ class ErpDatabase {
       'CREATE INDEX IF NOT EXISTS idx_salary_advances_emp ON salary_advances(employee_id)',
       'CREATE INDEX IF NOT EXISTS idx_salary_advances_date ON salary_advances(date)',
       'CREATE INDEX IF NOT EXISTS idx_salary_advances_emp_date ON salary_advances(employee_id, date)',
+      'CREATE INDEX IF NOT EXISTS idx_salary_advances_for_month ON salary_advances(for_month)',
+      'CREATE INDEX IF NOT EXISTS idx_salary_advances_emp_for_month ON salary_advances(employee_id, for_month)',
       'CREATE INDEX IF NOT EXISTS idx_salary_payments_emp ON salary_payments(employee_id)',
       'CREATE INDEX IF NOT EXISTS idx_salary_payments_date ON salary_payments(date)',
       'CREATE INDEX IF NOT EXISTS idx_saved_payroll_emp ON saved_payroll(employee_id)',
@@ -960,12 +1013,22 @@ class ErpDatabase {
             ? 'Party: $partyName | ChNo: $challanNo | Req completed on: $dateStr'
             : 'ChNo: $challanNo | Req completed on: $dateStr';
 
-        await db.update('stock_ledger', {'remarks': newRemarks},
-            where: 'id=?', whereArgs: [id]);
+        try {
+          await db.update('stock_ledger', {'remarks': newRemarks},
+              where: 'id=?', whereArgs: [id]);
+        } catch (e) {
+          // This is a one-time cosmetic fix; if DB is busy during startup,
+          // skip immediately and try again on a future run.
+          if (_isDatabaseLockedError(e)) {
+            return;
+          }
+          rethrow;
+        }
       }
       debugPrint('âœ… Fixed ${rows.length} REQ-CLOSE remarks');
     } catch (e) {
-      debugPrint('âš  _fixReqCloseRemarks: $e');
+      if (_isDatabaseLockedError(e)) return;
+      debugPrint('_fixReqCloseRemarks: $e');
     }
   }
 
@@ -1172,6 +1235,7 @@ class ErpDatabase {
           amount REAL NOT NULL DEFAULT 0,
           payment_mode TEXT DEFAULT 'cash',
           date INTEGER NOT NULL,
+          for_month INTEGER,
           remarks TEXT,
           created_at INTEGER)''');
       } catch (_) {}
@@ -1308,8 +1372,8 @@ class ErpDatabase {
 
     if (oldVersion < 25) {
       try {
-        await db.execute(
-            'ALTER TABLE program_cards ADD COLUMN product_id INTEGER');
+        await db
+            .execute('ALTER TABLE program_cards ADD COLUMN product_id INTEGER');
       } catch (_) {}
       try {
         await db.execute(
@@ -1526,6 +1590,34 @@ class ErpDatabase {
     }
   }
 
+  bool _isDatabaseLockedError(Object error) {
+    final msg = error.toString().toLowerCase();
+    return msg.contains('database is locked') ||
+        msg.contains('sqlite_error: 5') ||
+        msg.contains('(code 5)');
+  }
+
+  Future<T> _withDbLockRetry<T>(
+    Future<T> Function() operation, {
+    String opName = 'db op',
+    int maxAttempts = 4,
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await operation();
+      } catch (e) {
+        lastError = e;
+        if (!_isDatabaseLockedError(e) || attempt >= maxAttempts) rethrow;
+        final waitMs = 80 * attempt * attempt;
+        debugPrint(
+            'SQLite locked during $opName (attempt $attempt/$maxAttempts). Retrying in ${waitMs}ms...');
+        await Future.delayed(Duration(milliseconds: waitMs));
+      }
+    }
+    throw lastError ?? Exception('Unknown database operation failure');
+  }
+
   Future<int> _syncInsert(String table, Map<String, dynamic> data) async {
     final db = await database;
     final sync = FirebaseSyncService.instance;
@@ -1542,8 +1634,14 @@ class ErpDatabase {
         id = firebaseId;
         data['id'] = id;
         try {
-          await db.insert(table, data,
-              conflictAlgorithm: ConflictAlgorithm.replace);
+          await _withDbLockRetry(
+            () => db.insert(
+              table,
+              data,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            ),
+            opName: 'insert $table/$id',
+          );
         } catch (e) {
           debugPrint('âš  _syncInsert local insert ($table/$id): $e');
           // Local failed but we have a Firebase ID â€” still push to Firebase
@@ -1565,7 +1663,10 @@ class ErpDatabase {
       }
     }
     data.remove('id');
-    id = await db.insert(table, data);
+    id = await _withDbLockRetry(
+      () => db.insert(table, data),
+      opName: 'insert $table',
+    );
     if (syncEnabled) {
       data['id'] = id;
       await sync.queuePush(table, id, data);
@@ -1587,13 +1688,19 @@ class ErpDatabase {
     // Local FIRST, then push the merged full row to Firebase.
     // Pushing only partial update payload can overwrite remote fields with null.
     final updatedData = Map<String, dynamic>.from(data)..['id'] = id;
-    await db.update(table, updatedData, where: 'id=?', whereArgs: [id]);
+    await _withDbLockRetry(
+      () => db.update(table, updatedData, where: 'id=?', whereArgs: [id]),
+      opName: 'update $table/$id',
+    );
 
-    final rows = await db.query(
-      table,
-      where: 'id=?',
-      whereArgs: [id],
-      limit: 1,
+    final rows = await _withDbLockRetry(
+      () => db.query(
+        table,
+        where: 'id=?',
+        whereArgs: [id],
+        limit: 1,
+      ),
+      opName: 'query $table/$id',
     );
     final payload = rows.isNotEmpty
         ? Map<String, dynamic>.from(rows.first)
@@ -1625,7 +1732,10 @@ class ErpDatabase {
     String? deleteDetails;
     if (table != 'activity_log') {
       try {
-        final rows = await db.query(table, where: 'id=?', whereArgs: [id]);
+        final rows = await _withDbLockRetry(
+          () => db.query(table, where: 'id=?', whereArgs: [id]),
+          opName: 'query-before-delete $table/$id',
+        );
         if (rows.isNotEmpty) {
           deleteDetails = _buildRowDetails(table, rows.first);
         }
@@ -1639,10 +1749,16 @@ class ErpDatabase {
     }
     // Delete locally FIRST (ensures data is removed even if Firebase call fails)
     if (table == 'stock_ledger') {
-      await db.update('stock_ledger', {'is_deleted': 1},
-          where: 'id=?', whereArgs: [id]);
+      await _withDbLockRetry(
+        () => db.update('stock_ledger', {'is_deleted': 1},
+            where: 'id=?', whereArgs: [id]),
+        opName: 'soft-delete stock_ledger/$id',
+      );
     } else {
-      await db.delete(table, where: 'id=?', whereArgs: [id]);
+      await _withDbLockRetry(
+        () => db.delete(table, where: 'id=?', whereArgs: [id]),
+        opName: 'delete $table/$id',
+      );
     }
     _markDataChanged();
     // Then remove from Firebase
@@ -1840,12 +1956,18 @@ class ErpDatabase {
       args.add(company);
     }
     if (status != null && status.isNotEmpty) {
-      where.add('status = ?');
-      args.add(status);
+      final normalized = status.trim().toLowerCase();
+      if (normalized == 'dispatched' || normalized == 'completed') {
+        // Legacy compatibility: treat old "Completed" as closed/dispatched too.
+        where.add("LOWER(TRIM(COALESCE(status, ''))) IN (?, ?)");
+        args.addAll(['dispatched', 'completed']);
+      } else {
+        where.add('status = ?');
+        args.add(status);
+      }
     }
     if (search != null && search.isNotEmpty) {
-      where.add(
-          '(card_no LIKE ? OR design_no LIKE ? OR line_no LIKE ?)');
+      where.add('(card_no LIKE ? OR design_no LIKE ? OR line_no LIKE ?)');
       final s = '%$search%';
       args.addAll([s, s, s]);
     }
@@ -1853,6 +1975,38 @@ class ErpDatabase {
       'program_cards',
       where: where.isEmpty ? null : where.join(' AND '),
       whereArgs: args.isEmpty ? null : args,
+      orderBy: 'program_date DESC, id DESC',
+    );
+  }
+
+  /// Program cards selectable in Dispatch:
+  /// - must have reached Ready-to-Dispatch step
+  /// - must NOT be closed (Dispatched/Completed), even with case/space variants
+  Future<List<Map<String, dynamic>>> getDispatchSelectableProgramCards({
+    String? company,
+    String? search,
+  }) async {
+    final db = await database;
+    final where = <String>[
+      'status_ready_dispatch IS NOT NULL',
+      "LOWER(TRIM(COALESCE(status, ''))) NOT IN (?, ?)",
+    ];
+    final args = <Object?>['dispatched', 'completed'];
+
+    if (company != null && company.isNotEmpty) {
+      where.add('company = ?');
+      args.add(company);
+    }
+    if (search != null && search.isNotEmpty) {
+      where.add('(card_no LIKE ? OR design_no LIKE ? OR line_no LIKE ?)');
+      final s = '%$search%';
+      args.addAll([s, s, s]);
+    }
+
+    return db.query(
+      'program_cards',
+      where: where.join(' AND '),
+      whereArgs: args,
       orderBy: 'program_date DESC, id DESC',
     );
   }
@@ -1871,8 +2025,8 @@ class ErpDatabase {
 
   Future<Map<String, dynamic>?> getProgramCardById(int id) async {
     final db = await database;
-    final r = await db
-        .query('program_cards', where: 'id = ?', whereArgs: [id], limit: 1);
+    final r = await db.query('program_cards',
+        where: 'id = ?', whereArgs: [id], limit: 1);
     return r.isEmpty ? null : r.first;
   }
 
@@ -1903,26 +2057,51 @@ class ErpDatabase {
   }
 
   // ================= DISPATCH GOODS =================
-  /// Repairs program cards that were closed (status='Completed') but have no
-  /// dispatch_items referencing them anymore — typically because their bill
-  /// was deleted before the auto-revert was added. Runs once at app start.
-  Future<void> _reopenOrphanCompletedProgramCards(Database db) async {
+  /// Repairs program cards that were closed (status='Dispatched' or legacy
+  /// status='Completed') but no longer have a valid dispatch bill link.
+  /// This covers both:
+  /// - no dispatch_items for the card
+  /// - dispatch_items exist, but their dispatch_bills header is missing
+  /// Optionally restricts to cards whose `status_ready_dispatch` timestamp is
+  /// inside [fromReadyDispatchMs, toReadyDispatchMs).
+  /// Returns number of reopened cards.
+  Future<int> _reopenOrphanCompletedProgramCards(
+    Database db, {
+    int? fromReadyDispatchMs,
+    int? toReadyDispatchMs,
+  }) async {
     try {
       // Tables may not exist yet on a brand-new install — guard with PRAGMA.
       final t1 = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND name='program_cards'");
       final t2 = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND name='dispatch_items'");
-      if (t1.isEmpty || t2.isEmpty) return;
+      final t3 = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='dispatch_bills'");
+      if (t1.isEmpty || t2.isEmpty || t3.isEmpty) return 0;
+
+      final where = StringBuffer(
+          "LOWER(TRIM(COALESCE(pc.status, ''))) IN ('dispatched', 'completed')");
+      final args = <Object?>[];
+      if (fromReadyDispatchMs != null) {
+        where.write(' AND COALESCE(pc.status_ready_dispatch, 0) >= ?');
+        args.add(fromReadyDispatchMs);
+      }
+      if (toReadyDispatchMs != null) {
+        where.write(' AND COALESCE(pc.status_ready_dispatch, 0) < ?');
+        args.add(toReadyDispatchMs);
+      }
 
       final orphans = await db.rawQuery('''
         SELECT pc.id FROM program_cards pc
-        WHERE pc.status = 'Completed'
+        WHERE ${where.toString()}
           AND NOT EXISTS (
-            SELECT 1 FROM dispatch_items di
+            SELECT 1
+            FROM dispatch_items di
+            INNER JOIN dispatch_bills db ON db.id = di.bill_id
             WHERE di.program_card_id = pc.id
           )
-      ''');
+      ''', args);
       for (final row in orphans) {
         final id = row['id'] as int?;
         if (id == null) continue;
@@ -1934,12 +2113,129 @@ class ErpDatabase {
         );
       }
       if (orphans.isNotEmpty) {
-        debugPrint(
-            'Reopened ${orphans.length} orphan Completed program card(s).');
+        debugPrint('Reopened ${orphans.length} orphan closed program card(s).');
       }
+      return orphans.length;
     } catch (e) {
       debugPrint('⚠ _reopenOrphanCompletedProgramCards: $e');
+      return 0;
     }
+  }
+
+  /// Public entrypoint to run dispatch card unlock recovery on-demand.
+  Future<int> reopenOrphanClosedDispatchCardsNow() async {
+    final db = await database;
+    final reopened = await _reopenOrphanCompletedProgramCards(db);
+    if (reopened > 0) _markDataChanged();
+    return reopened;
+  }
+
+  /// Reopens orphan closed dispatch cards only for one local calendar day,
+  /// based on `status_ready_dispatch` timestamp.
+  Future<int> reopenOrphanClosedDispatchCardsForDayNow(DateTime day) async {
+    final db = await database;
+    final from = DateTime(day.year, day.month, day.day).millisecondsSinceEpoch;
+    final to =
+        DateTime(day.year, day.month, day.day + 1).millisecondsSinceEpoch;
+    final reopened = await _reopenOrphanCompletedProgramCards(
+      db,
+      fromReadyDispatchMs: from,
+      toReadyDispatchMs: to,
+    );
+    if (reopened > 0) _markDataChanged();
+    return reopened;
+  }
+
+  Map<String, String> _parseActivityDetails(String details) {
+    final out = <String, String>{};
+    for (final rawPart in details.split(',')) {
+      final part = rawPart.trim();
+      if (part.isEmpty) continue;
+      final idx = part.indexOf(':');
+      if (idx <= 0 || idx >= part.length - 1) continue;
+      final key = part.substring(0, idx).trim();
+      final value = part.substring(idx + 1).trim();
+      if (key.isEmpty) continue;
+      out[key] = value;
+    }
+    return out;
+  }
+
+  /// Best-effort recovery:
+  /// Older buggy builds could save a dispatch bill then delete its header.
+  /// Recover recently deleted bill headers from activity_log so users can
+  /// still see and reopen those bills.
+  Future<int> _restoreRecentlyDeletedDispatchBills(Database db) async {
+    try {
+      final cutoff =
+          DateTime.now().subtract(const Duration(days: 7)).millisecondsSinceEpoch;
+      final rows = await db.query(
+        'activity_log',
+        columns: ['record_id', 'details', 'timestamp'],
+        where: 'table_name = ? AND action = ? AND timestamp >= ?',
+        whereArgs: ['dispatch_bills', 'DELETE', cutoff],
+        orderBy: 'id DESC',
+        limit: 200,
+      );
+      if (rows.isEmpty) return 0;
+
+      var restored = 0;
+      for (final row in rows) {
+        final billId = (row['record_id'] as num?)?.toInt();
+        if (billId == null || billId <= 0) continue;
+
+        final existing = await db.query(
+          'dispatch_bills',
+          columns: ['id'],
+          where: 'id = ?',
+          whereArgs: [billId],
+          limit: 1,
+        );
+        if (existing.isNotEmpty) continue;
+
+        final details = (row['details'] ?? '').toString().trim();
+        if (details.isEmpty || !details.contains('bill_no:')) continue;
+
+        final parsed = _parseActivityDetails(details);
+        final billNo = (parsed['bill_no'] ?? '').trim();
+        final billDate = int.tryParse((parsed['bill_date'] ?? '').trim()) ?? 0;
+        final partyId = int.tryParse((parsed['party_id'] ?? '').trim());
+        final createdAt =
+            int.tryParse((parsed['created_at'] ?? '').trim()) ??
+                ((row['timestamp'] as num?)?.toInt() ??
+                    DateTime.now().millisecondsSinceEpoch);
+
+        if (billNo.isEmpty || billDate <= 0) continue;
+
+        await db.insert(
+          'dispatch_bills',
+          {
+            'id': billId,
+            'bill_date': billDate,
+            'bill_no': billNo,
+            'party_id': partyId,
+            'remarks': '',
+            'created_at': createdAt,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        restored++;
+      }
+
+      if (restored > 0) {
+        debugPrint('Restored $restored recently deleted dispatch bill(s).');
+      }
+      return restored;
+    } catch (e) {
+      debugPrint('restoreRecentlyDeletedDispatchBills: $e');
+      return 0;
+    }
+  }
+
+  /// Public entrypoint to run dispatch bill header recovery on-demand.
+  Future<int> restoreRecentlyDeletedDispatchBillsNow() async {
+    final db = await database;
+    return _restoreRecentlyDeletedDispatchBills(db);
   }
 
   Future<List<Map<String, dynamic>>> getDispatchBills({
@@ -1976,6 +2272,320 @@ class ErpDatabase {
         where: 'bill_id = ?', whereArgs: [billId], orderBy: 'id ASC');
   }
 
+  /// Flattened dispatch report rows from items + bill header + program card.
+  /// Uses LEFT JOIN so rows still appear even if bill/card header is missing.
+  Future<List<Map<String, dynamic>>> getDispatchReportRows() async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT *
+      FROM (
+        SELECT
+          di.id AS item_id,
+          di.bill_id AS bill_id,
+          COALESCE(db.bill_no, '') AS bill_no,
+          db.bill_date AS bill_date,
+          db.party_id AS party_id,
+          COALESCE(di.company, '') AS company,
+          di.product_id AS product_id,
+          COALESCE(di.design_no, '') AS design_no,
+          COALESCE(di.card_no, '') AS card_no,
+          COALESCE(di.qty, 0) AS qty,
+          COALESCE(di.pcs, 0) AS pcs,
+          COALESCE(pc.tp, 0) AS tp,
+          COALESCE(pc.line_no, '') AS line_no
+        FROM dispatch_items di
+        LEFT JOIN dispatch_bills db ON db.id = di.bill_id
+        LEFT JOIN program_cards pc ON pc.id = di.program_card_id
+        UNION ALL
+        SELECT
+          NULL AS item_id,
+          db.id AS bill_id,
+          COALESCE(db.bill_no, '') AS bill_no,
+          db.bill_date AS bill_date,
+          db.party_id AS party_id,
+          '' AS company,
+          NULL AS product_id,
+          '' AS design_no,
+          '' AS card_no,
+          0 AS qty,
+          0 AS pcs,
+          0 AS tp,
+          '' AS line_no
+        FROM dispatch_bills db
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM dispatch_items di2
+          WHERE di2.bill_id = db.id
+        )
+      ) t
+      ORDER BY COALESCE(t.bill_date, 0) DESC, COALESCE(t.item_id, 0) DESC
+    ''');
+  }
+
+  /// Deletes orphan dispatch bills that have no dispatch_items rows.
+  /// Returns number of removed bill headers.
+  Future<int> cleanupEmptyDispatchBills() async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT b.id
+      FROM dispatch_bills b
+      LEFT JOIN dispatch_items i ON i.bill_id = b.id
+      GROUP BY b.id
+      HAVING COUNT(i.id) = 0
+    ''');
+
+    var removed = 0;
+    for (final row in rows) {
+      final id = (row['id'] as num?)?.toInt();
+      if (id == null) continue;
+      await _syncDelete('dispatch_bills', id);
+      removed++;
+    }
+    return removed;
+  }
+
+  /// Atomically saves a dispatch bill graph:
+  /// - upserts bill
+  /// - deletes removed dispatch_items
+  /// - upserts current dispatch_items
+  /// - closes selected program cards (status='Dispatched')
+  /// - reopens orphan completed cards previously linked to this bill
+  ///
+  /// Returns final bill id.
+  Future<int> saveDispatchBillAtomic({
+    int? existingBillId,
+    required Map<String, dynamic> billData,
+    required List<Map<String, dynamic>> itemRows,
+    List<int> removedItemIds = const [],
+    Set<int> closeProgramCardIds = const <int>{},
+  }) async {
+    final db = await database;
+    final sync = FirebaseSyncService.instance;
+
+    int? asInt(Object? v) => v is num ? v.toInt() : int.tryParse('$v');
+
+    final rows = itemRows.map((e) => Map<String, dynamic>.from(e)).toList();
+    final removedIds = removedItemIds.toSet().toList();
+    final closeIds = closeProgramCardIds.where((e) => e > 0).toSet();
+
+    // Candidate cards for possible reopen if this edit removes their final
+    // dispatch references.
+    final reopenCandidates = <int>{};
+    if (existingBillId != null) {
+      final old = await db.query(
+        'dispatch_items',
+        columns: ['program_card_id'],
+        where: 'bill_id = ?',
+        whereArgs: [existingBillId],
+      );
+      for (final it in old) {
+        final pcId = asInt(it['program_card_id']);
+        if (pcId != null) reopenCandidates.add(pcId);
+      }
+    }
+
+    // When sync is initialized, reserve remote IDs up-front so multi-device
+    // inserts remain collision-safe.
+    int? reservedBillId = existingBillId;
+    if (syncEnabled && sync.isInitialized && existingBillId == null) {
+      try {
+        reservedBillId = await sync.getNextId('dispatch_bills');
+      } catch (_) {
+        // fall back to local AUTOINCREMENT
+      }
+    }
+    if (syncEnabled && sync.isInitialized) {
+      for (final row in rows) {
+        if (row['id'] != null) continue;
+        try {
+          row['id'] = await sync.getNextId('dispatch_items');
+        } catch (_) {
+          // fall back to local AUTOINCREMENT
+        }
+      }
+    }
+
+    final touchedItemIds = <int>{};
+    final deletedItemIds = <int>{};
+    final touchedProgramCardIds = <int>{};
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    late final int billId;
+
+    await sync.beginLocalDbWrite();
+    try {
+      await db.transaction((txn) async {
+        final billPayload = Map<String, dynamic>.from(billData);
+        billPayload['created_at'] ??= nowMs;
+
+        if (existingBillId == null) {
+          if (reservedBillId != null) billPayload['id'] = reservedBillId;
+          final inserted = await txn.insert(
+            'dispatch_bills',
+            billPayload,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+          billId = reservedBillId ?? inserted;
+        } else {
+          billId = existingBillId;
+          billPayload['id'] = billId;
+          await txn.update(
+            'dispatch_bills',
+            billPayload,
+            where: 'id = ?',
+            whereArgs: [billId],
+          );
+        }
+
+        for (final id in removedIds) {
+          await txn.delete('dispatch_items', where: 'id = ?', whereArgs: [id]);
+          deletedItemIds.add(id);
+        }
+
+        for (final raw in rows) {
+          final payload = Map<String, dynamic>.from(raw);
+          payload['bill_id'] = billId;
+          payload['created_at'] ??= nowMs;
+          final id = asInt(payload['id']);
+          if (id == null) {
+            final inserted = await txn.insert(
+              'dispatch_items',
+              payload,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+            touchedItemIds.add(asInt(payload['id']) ?? inserted);
+          } else {
+            payload['id'] = id;
+            final updated = await txn.update(
+              'dispatch_items',
+              payload,
+              where: 'id = ?',
+              whereArgs: [id],
+            );
+            if (updated == 0) {
+              // New row with a pre-reserved id: update won't find a record,
+              // so insert explicitly.
+              await txn.insert(
+                'dispatch_items',
+                payload,
+                conflictAlgorithm: ConflictAlgorithm.replace,
+              );
+            }
+            touchedItemIds.add(id);
+          }
+        }
+
+        for (final pcId in closeIds) {
+          await txn.update(
+            'program_cards',
+            {'status': 'Dispatched'},
+            where: 'id = ?',
+            whereArgs: [pcId],
+          );
+          touchedProgramCardIds.add(pcId);
+        }
+
+        // If a previously linked closed card has no remaining dispatch rows,
+        // reopen it so it becomes selectable again.
+        for (final pcId in reopenCandidates) {
+          if (closeIds.contains(pcId)) continue;
+          final remaining = await txn.query(
+            'dispatch_items',
+            columns: ['id'],
+            where: 'program_card_id = ?',
+            whereArgs: [pcId],
+            limit: 1,
+          );
+          if (remaining.isNotEmpty) continue;
+
+          final card = await txn.query(
+            'program_cards',
+            columns: ['status'],
+            where: 'id = ?',
+            whereArgs: [pcId],
+            limit: 1,
+          );
+          if (card.isEmpty) continue;
+          final status = (card.first['status'] ?? '').toString();
+          final statusNorm = status.trim().toLowerCase();
+          if (statusNorm == 'dispatched' || statusNorm == 'completed') {
+            await txn.update(
+              'program_cards',
+              {'status': 'Ready to Dispatch'},
+              where: 'id = ?',
+              whereArgs: [pcId],
+            );
+            touchedProgramCardIds.add(pcId);
+          }
+        }
+      });
+    } finally {
+      await sync.endLocalDbWrite();
+    }
+
+    // Hard safety check: a dispatch bill save with itemRows must leave at
+    // least one dispatch_items row for that bill.
+    if (rows.isNotEmpty) {
+      final persisted = await db.rawQuery(
+        'SELECT COUNT(*) AS cnt FROM dispatch_items WHERE bill_id = ?',
+        [billId],
+      );
+      final persistedCount = ((persisted.first['cnt'] as num?) ?? 0).toInt();
+      if (persistedCount <= 0) {
+        throw Exception(
+          'Dispatch save integrity check failed: no rows persisted for bill $billId',
+        );
+      }
+    }
+
+    _markDataChanged();
+
+    Future<void> pushOrQueue(String table, int id) async {
+      if (!syncEnabled) return;
+      final r =
+          await db.query(table, where: 'id = ?', whereArgs: [id], limit: 1);
+      if (r.isEmpty) return;
+      final payload = Map<String, dynamic>.from(r.first);
+      if (sync.isInitialized) {
+        await sync.pushRecord(table, id, payload);
+      } else {
+        await sync.queuePush(table, id, payload);
+      }
+    }
+
+    await pushOrQueue('dispatch_bills', billId);
+    for (final id in touchedItemIds) {
+      await pushOrQueue('dispatch_items', id);
+    }
+    for (final id in touchedProgramCardIds) {
+      await pushOrQueue('program_cards', id);
+    }
+
+    if (syncEnabled) {
+      for (final id in deletedItemIds) {
+        await sync.addPendingDelete('dispatch_items', id);
+        if (sync.isInitialized) {
+          try {
+            await sync.deleteRecord('dispatch_items', id);
+          } catch (_) {
+            // keep pending for later retry
+          }
+        }
+      }
+    }
+
+    if (_shouldWriteActivityLog) {
+      await logActivity(
+        action: existingBillId == null ? 'INSERT' : 'UPDATE',
+        tableName: 'dispatch_bills',
+        recordId: billId,
+        details:
+            'Dispatch bill saved. Items: ${rows.length}, Removed: ${deletedItemIds.length}, Closed cards: ${closeIds.length}',
+      );
+    }
+
+    return billId;
+  }
+
   Future<int> insertDispatchBill(Map<String, dynamic> data) async {
     data['created_at'] ??= DateTime.now().millisecondsSinceEpoch;
     return _syncInsert('dispatch_bills', data);
@@ -1987,11 +2597,12 @@ class ErpDatabase {
 
   Future<void> deleteDispatchBill(int id) async {
     final db = await database;
-    final items = await db
-        .query('dispatch_items', where: 'bill_id = ?', whereArgs: [id]);
+    final items =
+        await db.query('dispatch_items', where: 'bill_id = ?', whereArgs: [id]);
 
     // Collect all program_card ids referenced in this bill so we can
-    // re-open any that were closed (Completed) when this bill was saved.
+    // re-open any that were closed (Dispatched/Completed) when this bill was
+    // saved.
     final pcIds = <int>{
       for (final it in items)
         if (it['program_card_id'] != null) it['program_card_id'] as int,
@@ -2004,19 +2615,18 @@ class ErpDatabase {
     await _syncDelete('dispatch_bills', id);
 
     // For each card, if it has no remaining dispatch items anywhere AND it is
-    // currently Completed, revert it to "Ready to Dispatch" so it shows up
+    // currently closed, revert it to "Ready to Dispatch" so it shows up
     // again in the dispatch picker.
     for (final pcId in pcIds) {
       final remaining = await db.query('dispatch_items',
-          where: 'program_card_id = ?',
-          whereArgs: [pcId],
-          limit: 1);
+          where: 'program_card_id = ?', whereArgs: [pcId], limit: 1);
       if (remaining.isNotEmpty) continue;
       final card = await db.query('program_cards',
           where: 'id = ?', whereArgs: [pcId], limit: 1);
       if (card.isEmpty) continue;
       final status = (card.first['status'] ?? '').toString();
-      if (status == 'Completed') {
+      final statusNorm = status.trim().toLowerCase();
+      if (statusNorm == 'dispatched' || statusNorm == 'completed') {
         await _syncUpdate(
             'program_cards', {'status': 'Ready to Dispatch'}, pcId);
       }
@@ -2038,6 +2648,41 @@ class ErpDatabase {
   // ================= FABRIC / THREAD =================
   Future<List<Map<String, dynamic>>> getFabricShades() async =>
       (await database).query('fabric_shades');
+
+  /// Returns shades that are already related to the given product
+  /// from historical order/purchase/stock data.
+  Future<List<Map<String, dynamic>>> getShadesForProduct(int productId) async {
+    final db = await database;
+    return db.rawQuery(
+      '''
+      SELECT DISTINCT fs.id, fs.shade_no, fs.shade_name, fs.image_path
+      FROM (
+        SELECT fs0.id AS shade_id
+        FROM fabric_shades fs0
+        JOIN products p ON p.id = ?
+        WHERE LOWER(TRIM(COALESCE(fs0.shade_name, ''))) =
+              LOWER(TRIM(COALESCE(p.name, '')))
+        UNION
+        SELECT oi.shade_id AS shade_id
+        FROM order_items oi
+        WHERE oi.product_id = ? AND oi.shade_id IS NOT NULL
+        UNION
+        SELECT pi.shade_id AS shade_id
+        FROM purchase_items pi
+        WHERE pi.product_id = ? AND pi.shade_id IS NOT NULL
+        UNION
+        SELECT sl.fabric_shade_id AS shade_id
+        FROM stock_ledger sl
+        WHERE sl.product_id = ?
+          AND sl.fabric_shade_id IS NOT NULL
+          AND (sl.is_deleted IS NULL OR sl.is_deleted = 0)
+      ) rel
+      JOIN fabric_shades fs ON fs.id = rel.shade_id
+      ORDER BY fs.shade_no
+      ''',
+      [productId, productId, productId, productId],
+    );
+  }
 
   Future<List<Map<String, dynamic>>> getThreadShades() async =>
       (await database).query('thread_shades');
@@ -2106,8 +2751,8 @@ class ErpDatabase {
 
   // ================= PURCHASE / STOCK =================
   Future<int> getNextOrderNo() async {
-    final rows = await (await database)
-        .rawQuery('SELECT COALESCE(MAX(order_no), 0) AS max_no FROM order_master');
+    final rows = await (await database).rawQuery(
+        'SELECT COALESCE(MAX(order_no), 0) AS max_no FROM order_master');
     final raw = rows.first['max_no'];
     final maxNo = raw is int
         ? raw
@@ -2548,7 +3193,8 @@ class ErpDatabase {
     final db = await database;
     final orderRemark = 'Purchase against Order #$orderNo';
     final orderRemarkLike = '$orderRemark%';
-    final stockLedgerCols = await db.rawQuery('PRAGMA table_info(stock_ledger)');
+    final stockLedgerCols =
+        await db.rawQuery('PRAGMA table_info(stock_ledger)');
     final hasStockLedgerOrderNo = stockLedgerCols.any(
       (c) => (c['name'] ?? '').toString().toLowerCase() == 'order_no',
     );
@@ -3228,7 +3874,8 @@ class ErpDatabase {
     );
   }
 
-  Future<int> _countClosedRequirementRowsNeedingLedgerRepair(Database db) async {
+  Future<int> _countClosedRequirementRowsNeedingLedgerRepair(
+      Database db) async {
     final rows = await db.rawQuery('''
       SELECT COUNT(*) AS cnt
       FROM challan_requirements cr
@@ -3331,8 +3978,7 @@ class ErpDatabase {
       args.add(shadeId);
     }
     if (closedDateMs != null && closedDateMs > 0) {
-      final fromMs =
-          closedDateMs - const Duration(days: 10).inMilliseconds;
+      final fromMs = closedDateMs - const Duration(days: 10).inMilliseconds;
       final toMs = closedDateMs + const Duration(days: 10).inMilliseconds;
       where.add('COALESCE(date, 0) BETWEEN ? AND ?');
       args.add(fromMs);
@@ -3348,7 +3994,14 @@ class ErpDatabase {
     }) async {
       final rows = await db.query(
         'stock_ledger',
-        columns: ['id', 'product_id', 'fabric_shade_id', 'qty', 'date', 'remarks'],
+        columns: [
+          'id',
+          'product_id',
+          'fabric_shade_id',
+          'qty',
+          'date',
+          'remarks'
+        ],
         where: where.join(' AND '),
         whereArgs: args,
         orderBy: orderBy,
@@ -3369,8 +4022,7 @@ class ErpDatabase {
         final parsedChallan = (parsed['challan'] ?? '').trim().toLowerCase();
         final needParty = partyName.isNotEmpty;
         final needChallan = challanNo.isNotEmpty;
-        final partyOk =
-            !needParty || parsedParty == partyName.toLowerCase();
+        final partyOk = !needParty || parsedParty == partyName.toLowerCase();
         final challanOk =
             !needChallan || parsedChallan == challanNo.toLowerCase();
         if (partyOk && challanOk) {
@@ -3394,7 +4046,8 @@ class ErpDatabase {
   Future<int> repairClosedRequirementLedgers({int limit = 200}) async {
     final db = await database;
     if (_closedRequirementLedgerRepairDone) {
-      final remaining = await _countClosedRequirementRowsNeedingLedgerRepair(db);
+      final remaining =
+          await _countClosedRequirementRowsNeedingLedgerRepair(db);
       if (remaining <= 0) return 0;
     }
 
@@ -3575,13 +4228,15 @@ class ErpDatabase {
         if (row['product_id'] == null && ledger['product_id'] != null) {
           updateData['product_id'] = ledger['product_id'];
         }
-        if (row['fabric_shade_id'] == null && ledger['fabric_shade_id'] != null) {
+        if (row['fabric_shade_id'] == null &&
+            ledger['fabric_shade_id'] != null) {
           updateData['fabric_shade_id'] = ledger['fabric_shade_id'];
         }
 
         final challanNo = (row['challan_no'] ?? '').toString().trim();
         final partyName = (row['party_name'] ?? '').toString().trim();
-        final parsed = _parseReqCloseRemarks((ledger['remarks'] ?? '').toString());
+        final parsed =
+            _parseReqCloseRemarks((ledger['remarks'] ?? '').toString());
         final parsedParty = (parsed['party'] ?? '').trim();
         final parsedChallan = (parsed['challan'] ?? '').trim();
 
@@ -4046,6 +4701,16 @@ class ErpDatabase {
     ''', [fromMs, toMs]);
   }
 
+  int _monthStartMs(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    return DateTime(d.year, d.month).millisecondsSinceEpoch;
+  }
+
+  int _nextMonthStartMs(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    return DateTime(d.year, d.month + 1).millisecondsSinceEpoch;
+  }
+
   /// Bulk salary summary for ALL active employees in a date range.
   /// Uses only ~6 queries total instead of 5 per employee.
   Future<Map<int, Map<String, dynamic>>> getAllEmployeeSalarySummaries({
@@ -4152,13 +4817,21 @@ class ErpDatabase {
       prodMap[(r['employee_id'] as int)] = r;
     }
 
-    // 5. Advance totals grouped by employee (till end of period)
+    // 5. Advance totals grouped by employee.
+    // Use explicit payroll month assignment (`for_month`) when available.
+    final advFromMonth = _monthStartMs(fromMs);
+    final advToMonthExclusive =
+        _nextMonthStartMs(toMs > fromMs ? toMs - 1 : fromMs);
     final advRows = await db.rawQuery('''
       SELECT employee_id, COALESCE(SUM(amount), 0) as total_advance
       FROM salary_advances
-      WHERE date <= ?
+      WHERE (
+        (for_month IS NOT NULL AND for_month > 0 AND for_month >= ? AND for_month < ?)
+        OR
+        ((for_month IS NULL OR for_month <= 0) AND date >= ? AND date < ?)
+      )
       GROUP BY employee_id
-    ''', [toMs]);
+    ''', [advFromMonth, advToMonthExclusive, fromMs, toMs]);
     final advMap = <int, double>{};
     for (final r in advRows) {
       advMap[(r['employee_id'] as int)] =
@@ -4273,6 +4946,33 @@ class ErpDatabase {
       salaryBaseDays = (emp['salary_base_days'] as num?)?.toInt() ?? 30;
     }
 
+    // Auto-generate attendance from production entries for this employee
+    // to keep single-employee summary consistent with bulk payroll summary.
+    final prodDates = await db.rawQuery('''
+      SELECT DISTINCT date FROM production_entries
+      WHERE employee_id = ? AND date >= ? AND date < ?
+    ''', [employeeId, fromMs, toMs]);
+    for (final row in prodDates) {
+      final date = row['date'] as int?;
+      if (date == null) continue;
+      final existing = await db.query(
+        'attendance',
+        columns: ['id'],
+        where: 'employee_id = ? AND date = ?',
+        whereArgs: [employeeId, date],
+        limit: 1,
+      );
+      if (existing.isEmpty) {
+        await _syncInsert('attendance', {
+          'employee_id': employeeId,
+          'date': date,
+          'status': 'present',
+          'shift': 'day',
+          'remarks': 'Auto: Production',
+        });
+      }
+    }
+
     // Attendance counts
     final attRows = await db.rawQuery('''
       SELECT status, shift, COUNT(*) as cnt
@@ -4333,12 +5033,22 @@ class ErpDatabase {
 
     final totalBonus = (prod['total_all_bonus'] as num?)?.toDouble() ?? 0;
 
-    // Advance total till end-of-period
+    // Advance total:
+    // - Prefer the mapped payroll month (`for_month`)
+    // - Fallback to old date-based behavior for legacy rows
+    final advFromMonth = _monthStartMs(fromMs);
+    final advToMonthExclusive =
+        _nextMonthStartMs(toMs > fromMs ? toMs - 1 : fromMs);
     final advRows = await db.rawQuery('''
       SELECT COALESCE(SUM(amount), 0) as total_advance
       FROM salary_advances
-      WHERE employee_id = ? AND date <= ?
-    ''', [employeeId, toMs]);
+      WHERE employee_id = ?
+        AND (
+          (for_month IS NOT NULL AND for_month > 0 AND for_month >= ? AND for_month < ?)
+          OR
+          ((for_month IS NULL OR for_month <= 0) AND date >= ? AND date < ?)
+        )
+    ''', [employeeId, advFromMonth, advToMonthExclusive, fromMs, toMs]);
     final totalAdvance =
         (advRows.isNotEmpty ? advRows.first['total_advance'] as num? : null)
                 ?.toDouble() ??
@@ -4392,6 +5102,7 @@ class ErpDatabase {
     int? employeeId,
     int? fromMs,
     int? toMs,
+    int? forMonthMs,
   }) async {
     final db = await database;
     final where = <String>[];
@@ -4408,6 +5119,17 @@ class ErpDatabase {
       where.add('sa.date < ?');
       args.add(toMs);
     }
+    if (forMonthMs != null) {
+      final toMonthMs = _nextMonthStartMs(forMonthMs);
+      where.add('('
+          '(sa.for_month IS NOT NULL AND sa.for_month > 0 AND sa.for_month = ?)'
+          ' OR '
+          '((sa.for_month IS NULL OR sa.for_month <= 0) AND sa.date >= ? AND sa.date < ?)'
+          ')');
+      args.add(forMonthMs);
+      args.add(forMonthMs);
+      args.add(toMonthMs);
+    }
     final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
     return db.rawQuery('''
       SELECT sa.*, e.name AS employee_name, e.designation, e.unit_name
@@ -4419,11 +5141,27 @@ class ErpDatabase {
   }
 
   Future<int> insertSalaryAdvance(Map<String, dynamic> data) async {
-    return _syncInsert('salary_advances', data);
+    final row = Map<String, dynamic>.from(data);
+    final forMonth = (row['for_month'] as num?)?.toInt() ?? 0;
+    if (forMonth <= 0) {
+      final dateMs = (row['date'] as num?)?.toInt() ?? 0;
+      if (dateMs > 0) {
+        row['for_month'] = _monthStartMs(dateMs);
+      }
+    }
+    return _syncInsert('salary_advances', row);
   }
 
   Future<void> updateSalaryAdvance(Map<String, dynamic> data, int id) async {
-    await _syncUpdate('salary_advances', data, id);
+    final row = Map<String, dynamic>.from(data);
+    final forMonth = (row['for_month'] as num?)?.toInt() ?? 0;
+    if (forMonth <= 0) {
+      final dateMs = (row['date'] as num?)?.toInt() ?? 0;
+      if (dateMs > 0) {
+        row['for_month'] = _monthStartMs(dateMs);
+      }
+    }
+    await _syncUpdate('salary_advances', row, id);
   }
 
   Future<void> deleteSalaryAdvance(int id) async {
@@ -4435,6 +5173,7 @@ class ErpDatabase {
     int? employeeId,
     int? fromMs,
     int? toMs,
+    int? salaryMonthMs,
   }) async {
     final db = await database;
     final where = <String>[];
@@ -4450,6 +5189,17 @@ class ErpDatabase {
     if (toMs != null) {
       where.add('sp.date < ?');
       args.add(toMs);
+    }
+    if (salaryMonthMs != null) {
+      final monthEndExclusive = _nextMonthStartMs(salaryMonthMs);
+      where.add('('
+          '(sp.from_date IS NOT NULL AND sp.from_date > 0 AND sp.from_date = ?)'
+          ' OR '
+          '((sp.from_date IS NULL OR sp.from_date <= 0) AND sp.date >= ? AND sp.date < ?)'
+          ')');
+      args.add(salaryMonthMs);
+      args.add(salaryMonthMs);
+      args.add(monthEndExclusive);
     }
     final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
     return db.rawQuery('''

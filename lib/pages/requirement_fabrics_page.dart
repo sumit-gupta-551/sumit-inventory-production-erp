@@ -172,7 +172,7 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<int>(
-                      value: shadeId,
+                      initialValue: shadeId,
                       decoration: const InputDecoration(
                         labelText: 'Shade',
                         border: OutlineInputBorder(),
@@ -719,7 +719,7 @@ class _RequirementFabricsPageState extends State<RequirementFabricsPage>
         children: [
           // Party filter
           DropdownButtonFormField<String>(
-            value: _selectedParty,
+            initialValue: _selectedParty,
             decoration: const InputDecoration(
               labelText: 'Filter by Party',
               border: OutlineInputBorder(),

@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+﻿// ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -362,7 +362,7 @@ class _AttendancePageState extends State<AttendancePage> {
       _hasChanges = true;
     });
     final label = _selectedUnit != null ? '($_selectedUnit)' : '';
-    _msg('All set to ${statusFullLabels[status]} $label — tap Save');
+    _msg('All set to ${statusFullLabels[status]} $label â€” tap Save');
   }
 
   /// Save all pending changes to DB
@@ -427,7 +427,7 @@ class _AttendancePageState extends State<AttendancePage> {
         _hasChanges = false;
         _saving = false;
       });
-      _msg('Attendance saved ✓');
+      _msg('Attendance saved âœ“');
     } catch (e) {
       setState(() => _saving = false);
       _msg('Save error: $e');
@@ -496,7 +496,7 @@ class _AttendancePageState extends State<AttendancePage> {
               ? const Center(child: CircularProgressIndicator())
               : Column(
                   children: [
-                    // ── Date Navigation ──
+                    // â”€â”€ Date Navigation â”€â”€
                     Padding(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 4, vertical: 6),
@@ -546,13 +546,13 @@ class _AttendancePageState extends State<AttendancePage> {
                       ),
                     ),
 
-                    // ── Unit Filter ──
+                    // â”€â”€ Unit Filter â”€â”€
                     if (units.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 2),
                         child: DropdownButtonFormField<String>(
-                          value: _selectedUnit,
+                          initialValue: _selectedUnit,
                           decoration: const InputDecoration(
                             labelText: 'Filter by Unit',
                             border: OutlineInputBorder(),
@@ -576,7 +576,7 @@ class _AttendancePageState extends State<AttendancePage> {
                       ),
                     const SizedBox(height: 4),
 
-                    // ── Summary Bar ──
+                    // â”€â”€ Summary Bar â”€â”€
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 12),
                       padding: const EdgeInsets.symmetric(
@@ -623,7 +623,7 @@ class _AttendancePageState extends State<AttendancePage> {
                     ),
                     const SizedBox(height: 6),
 
-                    // ── Employee List ──
+                    // â”€â”€ Employee List â”€â”€
                     Expanded(
                       child: filtered.isEmpty
                           ? const Center(child: Text('No employees found'))
@@ -664,7 +664,7 @@ class _AttendancePageState extends State<AttendancePage> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        // ── Row 1: Name, Unit, Shift ──
+                                        // â”€â”€ Row 1: Name, Unit, Shift â”€â”€
                                         Row(
                                           children: [
                                             Expanded(
@@ -692,7 +692,7 @@ class _AttendancePageState extends State<AttendancePage> {
                                                           emp['designation'],
                                                         if (unitName.isNotEmpty)
                                                           unitName,
-                                                      ].join('  •  '),
+                                                      ].join('  â€¢  '),
                                                       style: TextStyle(
                                                           fontSize: 11,
                                                           color: Colors
@@ -725,8 +725,8 @@ class _AttendancePageState extends State<AttendancePage> {
                                                 ),
                                                 child: Text(
                                                   shift == 'night'
-                                                      ? '🌙 Night'
-                                                      : '☀ Day',
+                                                      ? 'ðŸŒ™ Night'
+                                                      : 'â˜€ Day',
                                                   style: TextStyle(
                                                     fontSize: 12,
                                                     fontWeight: FontWeight.w600,
@@ -760,7 +760,7 @@ class _AttendancePageState extends State<AttendancePage> {
                                         ),
                                         const SizedBox(height: 6),
 
-                                        // ── Row 2: Status Chips ──
+                                        // â”€â”€ Row 2: Status Chips â”€â”€
                                         Row(
                                           children: statusOptions.map((s) {
                                             final isActive = status == s;
@@ -819,7 +819,7 @@ class _AttendancePageState extends State<AttendancePage> {
                                           }).toList(),
                                         ),
 
-                                        // ── Remarks text ──
+                                        // â”€â”€ Remarks text â”€â”€
                                         if (remarks.isNotEmpty)
                                           Padding(
                                             padding:
@@ -840,7 +840,7 @@ class _AttendancePageState extends State<AttendancePage> {
                             ),
                     ),
 
-                    // ── Save Button ──
+                    // â”€â”€ Save Button â”€â”€
                     if (_hasChanges)
                       Container(
                         width: double.infinity,

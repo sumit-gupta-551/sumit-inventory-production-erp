@@ -437,6 +437,92 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
     return (e['name'] ?? '-').toString();
   }
 
+  String _empDisplay(Map<String, dynamic> employee) {
+    final name = (employee['name'] ?? '').toString().trim();
+    final designation = (employee['designation'] ?? '').toString().trim();
+    final unitName = (employee['unit_name'] ?? '').toString().trim();
+    final parts = <String>[name];
+    if (designation.isNotEmpty) parts.add(designation);
+    if (unitName.isNotEmpty) parts.add(unitName);
+    return parts.where((p) => p.isNotEmpty).join(' | ');
+  }
+
+  Future<void> _pickEmployee() async {
+    String query = '';
+    final selectedId = await showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final q = query.trim().toLowerCase();
+            final filtered = employees.where((e) {
+              if (q.isEmpty) return true;
+              final text = _empDisplay(e).toLowerCase();
+              return text.contains(q);
+            }).toList();
+
+            return AlertDialog(
+              title: const Text('Select Employee'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Search employee',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (v) => setDialogState(() => query = v),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 300,
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('No employee found'))
+                          : ListView.separated(
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (_, i) {
+                                final emp = filtered[i];
+                                final id = emp['id'] as int?;
+                                return ListTile(
+                                  dense: true,
+                                  title: Text((emp['name'] ?? '').toString()),
+                                  subtitle: Text(
+                                    [
+                                      (emp['designation'] ?? '').toString(),
+                                      (emp['unit_name'] ?? '').toString(),
+                                    ].where((x) => x.isNotEmpty).join(' | '),
+                                  ),
+                                  onTap: id == null
+                                      ? null
+                                      : () => Navigator.pop(ctx, id),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (selectedId == null || !mounted) return;
+    setState(() => _selEmployeeId = selectedId);
+  }
+
   int get _totalStitch =>
       _items.fold(0, (s, e) => s + ((e['stitch'] as int?) ?? 0));
   double get _totalBonus => _items.fold(
@@ -506,7 +592,8 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                 ),
                 Text(
                   '${items.length} entries',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF757575)),
+                  style: const TextStyle(
+                      fontSize: 11, color: Color(0xFF757575)),
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -755,7 +842,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                         ),
                         const SizedBox(height: 6),
                         DropdownButtonFormField<String>(
-                          value: _selectedUnit,
+                          initialValue: _selectedUnit,
                           isDense: true,
                           decoration: const InputDecoration(
                             labelText: 'Unit',
@@ -779,7 +866,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                         const SizedBox(height: 6),
                         DropdownButtonFormField<int>(
                           focusNode: _machineFocusNode,
-                          value: _selMachineId,
+                          initialValue: _selMachineId,
                           isDense: true,
                           decoration: const InputDecoration(
                             labelText: 'Machine',
@@ -798,22 +885,39 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                           onChanged: (v) => setState(() => _selMachineId = v),
                         ),
                         const SizedBox(height: 6),
-                        DropdownButtonFormField<int>(
-                          value: _selEmployeeId,
-                          isDense: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Employee *',
-                            contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 8),
+                        InkWell(
+                          onTap: _pickEmployee,
+                          borderRadius: BorderRadius.circular(6),
+                          child: InputDecorator(
+                            isEmpty: _selEmployeeId == null,
+                            decoration: const InputDecoration(
+                              labelText: 'Employee *',
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 8),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _selEmployeeId == null
+                                        ? 'Tap to select employee'
+                                        : _empName(_selEmployeeId),
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: _selEmployeeId == null
+                                          ? Colors.grey.shade600
+                                          : Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.search,
+                                  size: 18,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ],
+                            ),
                           ),
-                          isExpanded: true,
-                          items: employees
-                              .map((e) => DropdownMenuItem<int>(
-                                    value: e['id'] as int,
-                                    child: Text((e['name'] ?? '').toString()),
-                                  ))
-                              .toList(),
-                          onChanged: (v) => setState(() => _selEmployeeId = v),
                         ),
                       ],
                     ),
@@ -1120,7 +1224,7 @@ class _ProductionEntryPageState extends State<ProductionEntryPage> {
                 color: const Color(0xFFFFFFFF),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, -2),
                   ),

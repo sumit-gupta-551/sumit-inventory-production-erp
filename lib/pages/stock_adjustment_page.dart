@@ -1,5 +1,4 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/erp_database.dart';
 
@@ -349,7 +348,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     final pId = entry['product_id'] as int;
     final sId = entry['fabric_shade_id'] as int;
 
-    // If changing to OUT (or from IN→OUT which swings by 2x qty), check balance
+    // If changing to OUT (or from INâ†’OUT which swings by 2x qty), check balance
     if (newType == 'OUT') {
       final current = await ErpDatabase.instance.getCurrentStockBalance(
         productId: pId,
@@ -568,7 +567,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
             // ---------------- PRODUCT ----------------
             DropdownButtonFormField<int>(
-              value: productId,
+              initialValue: productId,
               decoration: const InputDecoration(
                 labelText: 'Product',
                 border: OutlineInputBorder(),
@@ -591,7 +590,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
             // ---------------- FABRIC SHADE (filtered by product) ----------------
             DropdownButtonFormField<int>(
               key: ValueKey('shade_$productId'),
-              value: shadeId,
+              initialValue: shadeId,
               decoration: InputDecoration(
                 labelText:
                     productId == null ? 'Select product first' : 'Fabric Shade',
@@ -633,7 +632,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
             // ---------------- TYPE ----------------
             DropdownButtonFormField<String>(
-              value: type,
+              initialValue: type,
               decoration: const InputDecoration(
                 labelText: 'Adjustment Type',
                 border: OutlineInputBorder(),
@@ -820,7 +819,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  '${entry['product_name'] ?? '-'}  ·  Shade ${entry['shade_no'] ?? '-'}',
+                                  '${entry['product_name'] ?? '-'}  Â·  Shade ${entry['shade_no'] ?? '-'}',
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w600),
                                 ),
@@ -882,7 +881,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
                                     .isNotEmpty)
                                   Expanded(
                                     child: Text(
-                                      '  ·  ${entry['remarks']}',
+                                      '  Â·  ${entry['remarks']}',
                                       style: const TextStyle(
                                           fontSize: 12, color: Colors.grey),
                                       overflow: TextOverflow.ellipsis,

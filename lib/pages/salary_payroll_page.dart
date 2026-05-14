@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:month_picker_dialog/month_picker_dialog.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -17,14 +18,25 @@ class SalaryPayrollPage extends StatefulWidget {
 }
 
 class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
-  DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month);
-  DateTime _toDate = DateTime(DateTime.now().year, DateTime.now().month + 1)
-      .subtract(const Duration(days: 1));
+  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  final DateFormat _monthFmt = DateFormat('MMM yyyy');
   List<Map<String, dynamic>> employees = [];
   Map<int, Map<String, dynamic>> salaryData = {}; // empId -> salary summary
+  Map<int, double> paidByEmployee = {}; // empId -> total paid in selected month
   bool loading = true;
   bool _payrollSaved = false; // whether payroll is saved for current period
   bool _loadInProgress = false;
+  static const _paymentModes = ['cash', 'transfer', 'neft'];
+  static const _paymentModeLabels = {
+    'cash': 'Cash',
+    'transfer': 'Transfer',
+    'neft': 'NEFT',
+  };
+  static const _paymentModeIcons = {
+    'cash': Icons.money,
+    'transfer': Icons.swap_horiz,
+    'neft': Icons.account_balance,
+  };
 
   @override
   void initState() {
@@ -49,11 +61,8 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
     _loadInProgress = true;
     if (employees.isEmpty) setState(() => loading = true);
     try {
-      final fromMs = DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
-          .millisecondsSinceEpoch;
-      final toMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-          .add(const Duration(days: 1))
-          .millisecondsSinceEpoch;
+      final fromMs = _fromMs;
+      final toMs = _toMsExclusive;
 
       // Single bulk query instead of N+1
       final data = await ErpDatabase.instance.getAllEmployeeSalarySummaries(
@@ -62,20 +71,27 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
       );
 
       final empList = await ErpDatabase.instance.getEmployees(status: 'active');
+      final paymentRows = await ErpDatabase.instance.getSalaryPayments(
+        salaryMonthMs: fromMs,
+      );
+      final paidMap = <int, double>{};
+      for (final row in paymentRows) {
+        final empId = (row['employee_id'] as num?)?.toInt();
+        if (empId == null) continue;
+        final amount = (row['amount'] as num?)?.toDouble() ?? 0;
+        paidMap[empId] = (paidMap[empId] ?? 0) + amount;
+      }
 
       if (!mounted) return;
       setState(() {
         employees = empList;
         salaryData = data;
+        paidByEmployee = paidMap;
         loading = false;
       });
 
       // Check if payroll already saved for this period
-      final fMs = DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
-          .millisecondsSinceEpoch;
-      final tMs = DateTime(_toDate.year, _toDate.month, _toDate.day)
-          .millisecondsSinceEpoch;
-      final saved = await ErpDatabase.instance.isPayrollSaved(fMs, tMs);
+      final saved = await ErpDatabase.instance.isPayrollSaved(_fromMs, _toMs);
       if (mounted) setState(() => _payrollSaved = saved);
     } catch (e) {
       if (!mounted) return;
@@ -90,39 +106,29 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
   }
 
-  Future<void> _pickFrom() async {
-    final picked = await showDatePicker(
+  Future<void> _pickMonth() async {
+    final picked = await showMonthPicker(
       context: context,
-      initialDate: _fromDate,
+      initialDate: _selectedMonth,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
     );
     if (picked != null) {
-      setState(() => _fromDate = picked);
+      setState(() => _selectedMonth = DateTime(picked.year, picked.month));
       _load();
     }
   }
 
-  Future<void> _pickTo() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _toDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-    if (picked != null) {
-      setState(() => _toDate = picked);
-      _load();
-    }
-  }
+  String _dateLabel() => _monthFmt.format(_selectedMonth);
 
-  String _dateLabel() =>
-      '${DateFormat('dd MMM yyyy').format(_fromDate)} — ${DateFormat('dd MMM yyyy').format(_toDate)}';
-
-  int get _fromMs => DateTime(_fromDate.year, _fromDate.month, _fromDate.day)
-      .millisecondsSinceEpoch;
+  DateTime get _monthStart =>
+      DateTime(_selectedMonth.year, _selectedMonth.month, 1);
+  DateTime get _nextMonthStart =>
+      DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
+  int get _fromMs => _monthStart.millisecondsSinceEpoch;
   int get _toMs =>
-      DateTime(_toDate.year, _toDate.month, _toDate.day).millisecondsSinceEpoch;
+      _nextMonthStart.subtract(const Duration(days: 1)).millisecondsSinceEpoch;
+  int get _toMsExclusive => _nextMonthStart.millisecondsSinceEpoch;
 
   /// Save payroll for a single employee
   Future<void> _saveOnePayroll(Map<String, dynamic> emp) async {
@@ -182,6 +188,165 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
     }
     _msg('Payroll saved for ${employees.length} employees');
     setState(() => _payrollSaved = true);
+  }
+
+  Future<void> _openQuickPayDialog(Map<String, dynamic> emp) async {
+    final empId = emp['id'] as int?;
+    if (empId == null) return;
+
+    final empName = (emp['name'] ?? '').toString();
+    final payable = _employeePayable(empId);
+    final alreadyPaid = _employeePaid(empId);
+    final due = payable - alreadyPaid;
+    final suggestedAmount = due > 0 ? due : 0;
+
+    final amountCtrl = TextEditingController(
+      text: suggestedAmount > 0 ? suggestedAmount.toStringAsFixed(0) : '',
+    );
+    final remarksCtrl = TextEditingController();
+    String paymentMode = _paymentModes.first;
+    DateTime payDate = DateTime.now();
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDState) => AlertDialog(
+          title: Text('Pay Salary - $empName'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade100),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Month: ${_dateLabel()}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue.shade800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text('Payable: ₹${payable.toStringAsFixed(0)}'),
+                      Text('Already Paid: ₹${alreadyPaid.toStringAsFixed(0)}'),
+                      Text(
+                        'Due: ₹${(due > 0 ? due : 0).toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color:
+                              due > 0 ? Colors.deepOrange.shade700 : Colors.green.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: amountCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Amount (₹) *',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: paymentMode,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment Mode',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _paymentModes
+                      .map((m) => DropdownMenuItem<String>(
+                            value: m,
+                            child: Row(
+                              children: [
+                                Icon(_paymentModeIcons[m], size: 18),
+                                const SizedBox(width: 8),
+                                Text(_paymentModeLabels[m] ?? m),
+                              ],
+                            ),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setDState(() => paymentMode = v);
+                  },
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final picked = await showDatePicker(
+                      context: ctx,
+                      initialDate: payDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked == null) return;
+                    setDState(() => payDate = picked);
+                  },
+                  icon: const Icon(Icons.calendar_month, size: 16),
+                  label: Text(
+                    'Paid Date: ${DateFormat('dd-MM-yyyy').format(payDate)}',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: remarksCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Remarks',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Pay Now'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (saved != true) return;
+
+    final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
+    if (amount <= 0) {
+      _msg('Enter a valid amount');
+      return;
+    }
+
+    final data = {
+      'employee_id': empId,
+      'amount': amount,
+      'payment_mode': paymentMode,
+      'date': DateTime(payDate.year, payDate.month, payDate.day)
+          .millisecondsSinceEpoch,
+      'from_date': _fromMs,
+      'to_date': _toMs,
+      'remarks': remarksCtrl.text.trim(),
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    await ErpDatabase.instance.insertSalaryPayment(data);
+    _msg('Payment recorded for $empName');
+    _load();
   }
 
   void _showDetail(Map<String, dynamic> emp) {
@@ -458,6 +623,23 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
     return total;
   }
 
+  double _employeePayable(int empId) {
+    return (salaryData[empId]?['net_salary'] as num?)?.toDouble() ?? 0;
+  }
+
+  double _employeePaid(int empId) {
+    return paidByEmployee[empId] ?? 0;
+  }
+
+  double _employeeRemaining(int empId) {
+    final remaining = _employeePayable(empId) - _employeePaid(empId);
+    return remaining > 0 ? remaining : 0;
+  }
+
+  bool _employeeIsPaid(int empId) {
+    return _employeePaid(empId) > 0.5 && _employeeRemaining(empId) <= 0.5;
+  }
+
   // ── PDF Export ──────────────────────────────────────────────
 
   Future<pw.ThemeData> _pdfTheme() async {
@@ -490,7 +672,7 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
 
     final headerStyle =
         pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold);
-    final cellStyle = const pw.TextStyle(fontSize: 7);
+    const cellStyle = pw.TextStyle(fontSize: 7);
     final boldCell = pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold);
     final unitHeaderStyle =
         pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold);
@@ -751,8 +933,7 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
     );
 
     await Printing.layoutPdf(
-      name:
-          'salary_${DateFormat('yyyyMMdd').format(_fromDate)}_${DateFormat('yyyyMMdd').format(_toDate)}.pdf',
+      name: 'salary_${DateFormat('yyyyMM').format(_selectedMonth)}.pdf',
       onLayout: (_) => doc.save(),
     );
   }
@@ -782,82 +963,40 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // ── Date Range Selector ──
+                // Month Selector
                 Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: _pickFrom,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 10, horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('From',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade600)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  DateFormat('dd MMM yyyy').format(_fromDate),
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
+                  child: InkWell(
+                    onTap: _pickMonth,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 10),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Month',
+                              style: TextStyle(
+                                  fontSize: 10, color: Colors.grey.shade600)),
+                          const SizedBox(height: 2),
+                          Text(
+                            _monthFmt.format(_selectedMonth),
+                            style: const TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600),
                           ),
-                        ),
+                        ],
                       ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: Icon(Icons.arrow_forward,
-                            size: 18, color: Colors.grey),
-                      ),
-                      Expanded(
-                        child: InkWell(
-                          onTap: _pickTo,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 10, horizontal: 10),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('To',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade600)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  DateFormat('dd MMM yyyy').format(_toDate),
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
 
-                // ── Grand Total ──
+                // Grand Total ──
                 Container(
                   width: double.infinity,
                   padding:
@@ -907,35 +1046,143 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
                                     0;
                             final effDays =
                                 (s?['effective_days'] as num?)?.toDouble() ?? 0;
+                            final paid = _employeePaid(empId);
+                            final remaining = _employeeRemaining(empId);
+                            final isPaid = _employeeIsPaid(empId);
 
                             return Card(
                               margin: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 4),
-                              child: ListTile(
+                              child: InkWell(
                                 onTap: () => _showDetail(emp),
-                                leading: CircleAvatar(
-                                  child: Text(
-                                    (emp['name'] ?? '?')
-                                        .toString()
-                                        .substring(0, 1)
-                                        .toUpperCase(),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      CircleAvatar(
+                                        child: Text(
+                                          (emp['name'] ?? '?')
+                                              .toString()
+                                              .substring(0, 1)
+                                              .toUpperCase(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    (emp['name'] ?? '')
+                                                        .toString(),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w600),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: isPaid
+                                                        ? Colors.green.shade100
+                                                        : Colors
+                                                            .orange.shade100,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            10),
+                                                  ),
+                                                  child: Text(
+                                                    isPaid
+                                                        ? 'Paid'
+                                                        : 'Unpaid',
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: isPaid
+                                                          ? Colors
+                                                              .green.shade800
+                                                          : Colors
+                                                              .orange.shade800,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Days: ${effDays.toStringAsFixed(1)}  |  Base: \u20b9${baseSal.toStringAsFixed(0)}  |  Bonus: \u20b9${bonus.toStringAsFixed(0)}\nPaid: \u20b9${paid.toStringAsFixed(0)}  |  Due: \u20b9${remaining.toStringAsFixed(0)}',
+                                              style:
+                                                  const TextStyle(fontSize: 12),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ConstrainedBox(
+                                        constraints:
+                                            const BoxConstraints(minWidth: 76),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              '\u20b9${net.toStringAsFixed(0)}',
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                  color: Colors.green),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            SizedBox(
+                                              height: 28,
+                                              child: FilledButton.tonal(
+                                                onPressed: () =>
+                                                    _openQuickPayDialog(emp),
+                                                style:
+                                                    FilledButton.styleFrom(
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  tapTargetSize:
+                                                      MaterialTapTargetSize
+                                                          .shrinkWrap,
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 10),
+                                                  minimumSize:
+                                                      const Size(0, 28),
+                                                ),
+                                                child: const Text(
+                                                  'Pay',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight:
+                                                        FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                title: Text(
-                                  (emp['name'] ?? '').toString(),
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600),
-                                ),
-                                subtitle: Text(
-                                  'Days: ${effDays.toStringAsFixed(1)}  |  Base: ₹${baseSal.toStringAsFixed(0)}  |  Bonus: ₹${bonus.toStringAsFixed(0)}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                trailing: Text(
-                                  '₹${net.toStringAsFixed(0)}',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                      color: Colors.green),
                                 ),
                               ),
                             );
@@ -947,3 +1194,4 @@ class _SalaryPayrollPageState extends State<SalaryPayrollPage> {
     );
   }
 }
+

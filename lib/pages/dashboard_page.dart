@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../data/erp_database.dart';
 import 'package:sssj/data/firebase_sync_service.dart';
@@ -48,6 +50,7 @@ import 'employee_advance_page.dart';
 import 'pay_salary_page.dart';
 import 'paid_salary_report_page.dart';
 import 'production_report_page.dart';
+import 'production_employee_report_page.dart';
 import 'advance_report_page.dart';
 import 'attendance_report_page.dart';
 import 'unit_master_page.dart';
@@ -57,6 +60,7 @@ import 'order_management_page.dart';
 import 'sync_diagnostics_page.dart';
 import '../data/permission_service.dart';
 import '../data/firebase_backup_service.dart';
+import '../services/voice_foreground_service.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -68,6 +72,7 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   static const _dataRefreshDebounce = Duration(milliseconds: 700);
   static const _dailyHealthCheckPrefKey = 'daily_sync_health_check_date_v1';
+  static const _voicePermissionAskedPrefKey = 'voice_permission_asked_v1';
 
   int requirementCount = 0;
   bool isOnline = false;
@@ -75,6 +80,9 @@ class _DashboardPageState extends State<DashboardPage> {
   List<Map<String, dynamic>> _stockItems = [];
   late ScrollController _tickerScroll;
   bool _tickerRunning = false;
+  final SpeechToText _voiceToText = SpeechToText();
+  bool _isVoiceListening = false;
+  String _lastVoiceWords = '';
   Timer? _connectivityTimer;
   Timer? _dataRefreshTimer;
   bool _dataRefreshInProgress = false;
@@ -96,8 +104,10 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     _tickerScroll = ScrollController();
+    VoiceForegroundService.ensureInitialized();
     unawaited(_refreshDashboardData());
     unawaited(_runDailySyncHealthCheck());
+    unawaited(_ensureVoicePermissionAskedOnce());
     _checkConnectivity();
     _connectivityTimer = Timer.periodic(
       const Duration(seconds: 30),
@@ -210,6 +220,150 @@ class _DashboardPageState extends State<DashboardPage> {
     } catch (e) {
       debugPrint('Daily sync health check failed: $e');
     }
+  }
+
+  Future<void> _ensureVoicePermissionAskedOnce() async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final alreadyAsked = prefs.getBool(_voicePermissionAskedPrefKey) ?? false;
+      if (alreadyAsked) return;
+
+      final result = await Permission.microphone.request();
+      if (Platform.isAndroid) {
+        await Permission.notification.request();
+      }
+      await prefs.setBool(_voicePermissionAskedPrefKey, true);
+
+      if (!mounted) return;
+      if (result.isGranted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Voice permission granted.')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Voice permission denied. Voice features stay off.'),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Voice permission prompt failed: $e');
+    }
+  }
+
+  Future<void> _toggleSuperVoiceListen() async {
+    if (!_perm.isSuper) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Only super user can listen voice.')),
+      );
+      return;
+    }
+
+    if (_isVoiceListening) {
+      await _voiceToText.stop();
+      await VoiceForegroundService.stop();
+      if (!mounted) return;
+      setState(() => _isVoiceListening = false);
+      final text = _lastVoiceWords.trim();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            text.isEmpty
+                ? 'Voice listening stopped.'
+                : 'Voice listening stopped. Last: $text',
+          ),
+        ),
+      );
+      return;
+    }
+
+    var micStatus = await Permission.microphone.status;
+    if (!micStatus.isGranted) {
+      micStatus = await Permission.microphone.request();
+    }
+    if (!micStatus.isGranted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Voice permission not granted. Enable it to listen.'),
+        ),
+      );
+      return;
+    }
+
+    if (Platform.isAndroid) {
+      var notiStatus = await Permission.notification.status;
+      if (!notiStatus.isGranted) {
+        notiStatus = await Permission.notification.request();
+      }
+      if (!notiStatus.isGranted) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Notification permission required for background voice mode.'),
+          ),
+        );
+        return;
+      }
+    }
+
+    final available = await _voiceToText.initialize(
+      onStatus: (status) {
+        final s = status.toLowerCase();
+        if (!mounted) return;
+        if (s.contains('notlistening') || s == 'done') {
+          unawaited(VoiceForegroundService.stop());
+          setState(() => _isVoiceListening = false);
+        }
+      },
+      onError: (_) {
+        if (!mounted) return;
+        unawaited(VoiceForegroundService.stop());
+        setState(() => _isVoiceListening = false);
+      },
+    );
+    if (!available) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Voice listening not available on device.')),
+      );
+      return;
+    }
+
+    final serviceStarted = await VoiceForegroundService.start();
+    if (!serviceStarted && Platform.isAndroid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not start background voice service.'),
+        ),
+      );
+      return;
+    }
+
+    await _voiceToText.listen(
+      onResult: (result) {
+        if (!mounted) return;
+        setState(() => _lastVoiceWords = result.recognizedWords);
+      },
+      listenFor: const Duration(minutes: 10),
+      pauseFor: const Duration(seconds: 20),
+      listenOptions: SpeechListenOptions(
+        partialResults: true,
+        cancelOnError: true,
+        listenMode: ListenMode.dictation,
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() => _isVoiceListening = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Voice listening started (super user).')),
+    );
   }
 
   void _startTicker() {
@@ -393,12 +547,12 @@ class _DashboardPageState extends State<DashboardPage> {
     final shouldUpdate = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Update Available — v$version'),
+        title: Text('Update Available - v$version'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Current: v${AppUpdater.currentVersion}'),
+            const Text('Current: v${AppUpdater.currentVersion}'),
             Text('Latest:  v$version'),
             if (notes.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -716,7 +870,7 @@ class _DashboardPageState extends State<DashboardPage> {
     ErpDatabase.instance.logActivity(
       action: 'LOGOUT',
       details:
-          'User logged out — ${PermissionService.instance.currentName.isNotEmpty ? PermissionService.instance.currentName : PermissionService.instance.currentPhone}',
+          'User logged out - ${PermissionService.instance.currentName.isNotEmpty ? PermissionService.instance.currentName : PermissionService.instance.currentPhone}',
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_logged_in', false);
@@ -745,65 +899,49 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       builder: (_) {
         final items = <_ReportItem>[
-          _ReportItem(
+          const _ReportItem(
             'Employee Master',
-            Icons.people_rounded,
-            const Color(0xFF7C3AED),
-            const EmployeeMasterPage(),
+            Icons.people_rounded, Color(0xFF7C3AED), EmployeeMasterPage(),
             'payroll_employee_master'),
-          _ReportItem(
+          const _ReportItem(
             'Production Entry',
-            Icons.factory_rounded,
-            const Color(0xFFE11D48),
-            const ProductionEntryPage(),
+            Icons.factory_rounded, Color(0xFFE11D48), ProductionEntryPage(),
             'payroll_production_entry'),
-          _ReportItem(
+          const _ReportItem(
             'Attendance',
-            Icons.calendar_month_rounded,
-            const Color(0xFF0EA5E9),
-            const AttendancePage(),
+            Icons.calendar_month_rounded, Color(0xFF0EA5E9), AttendancePage(),
             'payroll_attendance'),
-          _ReportItem(
+          const _ReportItem(
             'Salary / Payroll',
-            Icons.account_balance_wallet_rounded,
-            const Color(0xFF22C55E),
-            const SalaryPayrollPage(),
+            Icons.account_balance_wallet_rounded, Color(0xFF22C55E), SalaryPayrollPage(),
             'payroll_salary'),
-          _ReportItem(
+          const _ReportItem(
             'Employee Advance',
-            Icons.money_off_rounded,
-            const Color(0xFFF59E0B),
-            const EmployeeAdvancePage(),
+            Icons.money_off_rounded, Color(0xFFF59E0B), EmployeeAdvancePage(),
             'payroll_advance'),
-          _ReportItem(
+          const _ReportItem(
             'Pay Salary',
-            Icons.payments_rounded,
-            const Color(0xFF6366F1),
-            const PaySalaryPage(),
+            Icons.payments_rounded, Color(0xFF6366F1), PaySalaryPage(),
             'payroll_pay_salary'),
-          _ReportItem(
+          const _ReportItem(
             'Paid Salary',
-            Icons.payments_rounded,
-            const Color(0xFF16A34A),
-            const PaidSalaryReportPage(),
+            Icons.payments_rounded, Color(0xFF16A34A), PaidSalaryReportPage(),
             'payroll_paid_salary'),
-          _ReportItem(
+          const _ReportItem(
             'Production Report',
-            Icons.assessment_rounded,
-            const Color(0xFF0EA5E9),
-            const ProductionReportPage(),
+            Icons.assessment_rounded, Color(0xFF0EA5E9), ProductionReportPage(),
             'payroll_production_report'),
-          _ReportItem(
+          const _ReportItem(
+            'Production Employee Report',
+            Icons.leaderboard_rounded, Color(0xFF0284C7),
+            ProductionEmployeeReportPage(), 'payroll_production_report'),
+          const _ReportItem(
             'Advance Report',
-            Icons.summarize_rounded,
-            const Color(0xFFE11D48),
-            const AdvanceReportPage(),
+            Icons.summarize_rounded, Color(0xFFE11D48), AdvanceReportPage(),
             'payroll_advance_report'),
-          _ReportItem(
+          const _ReportItem(
             'Attendance Report',
-            Icons.fact_check_rounded,
-            const Color(0xFF1565C0),
-            const AttendanceReportPage(),
+            Icons.fact_check_rounded, Color(0xFF1565C0), AttendanceReportPage(),
             'payroll_attendance'),
         ].where((r) => _perm.hasPermission(r.permKey)).toList();
 
@@ -880,63 +1018,43 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       builder: (_) {
         final reports = <_ReportItem>[
-          _ReportItem('Stock Report', Icons.list_alt_rounded,
-              const Color(0xFF14B8A6), const StockLedgerPage(), 'report_stock'),
-          _ReportItem(
+          const _ReportItem('Stock Report', Icons.list_alt_rounded, Color(0xFF14B8A6), StockLedgerPage(), 'report_stock'),
+          const _ReportItem(
               'Purchase Report',
-              Icons.bar_chart_rounded,
-              const Color(0xFFDAA520),
-              const StockSummaryPage(),
+              Icons.bar_chart_rounded, Color(0xFFDAA520), StockSummaryPage(),
               'report_purchase'),
-          _ReportItem(
+          const _ReportItem(
               'Order Report',
-              Icons.receipt_long_rounded,
-              const Color(0xFF1565C0),
-              const OrderManagementPage(initialTab: 2),
+              Icons.receipt_long_rounded, Color(0xFF1565C0), OrderManagementPage(initialTab: 2),
               'report_order'),
-          _ReportItem('Issue Report', Icons.assessment_rounded,
-              const Color(0xFF8B5CF6), const IssueReportPage(), 'report_issue'),
-          _ReportItem(
+          const _ReportItem('Issue Report', Icons.assessment_rounded, Color(0xFF8B5CF6), IssueReportPage(), 'report_issue'),
+          const _ReportItem(
               'Issue Challan',
-              Icons.receipt_long_rounded,
-              const Color(0xFFB8860B),
-              const IssueChallanPage(),
+              Icons.receipt_long_rounded, Color(0xFFB8860B), IssueChallanPage(),
               'report_challan'),
-          _ReportItem(
+          const _ReportItem(
               'Shade Movement',
-              Icons.swap_vert_rounded,
-              const Color(0xFF0EA5E9),
-              const ShadeMovementReportPage(),
+              Icons.swap_vert_rounded, Color(0xFF0EA5E9), ShadeMovementReportPage(),
               'report_shade_movement'),
-          _ReportItem(
+          const _ReportItem(
               'Daily Consumption',
-              Icons.trending_down_rounded,
-              const Color(0xFFE11D48),
-              const DailyConsumptionReportPage(),
+              Icons.trending_down_rounded, Color(0xFFE11D48), DailyConsumptionReportPage(),
               'report_daily_consumption'),
-          _ReportItem(
+          const _ReportItem(
               'Requirement History',
-              Icons.history_rounded,
-              const Color(0xFF7C3AED),
-              const RequirementHistoryReportPage(),
+              Icons.history_rounded, Color(0xFF7C3AED), RequirementHistoryReportPage(),
               'report_requirement_history'),
-          _ReportItem(
+          const _ReportItem(
               'Adjustment History',
-              Icons.tune_rounded,
-              const Color(0xFFD97706),
-              const AdjustmentHistoryReportPage(),
+              Icons.tune_rounded, Color(0xFFD97706), AdjustmentHistoryReportPage(),
               'report_adjustment_history'),
-          _ReportItem(
+          const _ReportItem(
               'Program Card Report',
-              Icons.style_rounded,
-              const Color(0xFF0F766E),
-              const ProgramCardReportPage(),
+              Icons.style_rounded, Color(0xFF0F766E), ProgramCardReportPage(),
               'report_program_card'),
-          _ReportItem(
+          const _ReportItem(
               'Dispatch Report',
-              Icons.local_shipping_rounded,
-              const Color(0xFF0EA5E9),
-              const DispatchReportPage(),
+              Icons.local_shipping_rounded, Color(0xFF0EA5E9), DispatchReportPage(),
               'report_dispatch'),
             // _ReportItem(
             //     'Paid Salary',
@@ -1149,12 +1267,12 @@ class _DashboardPageState extends State<DashboardPage> {
                 height: 300,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      const Color(0xFF1565C0).withValues(alpha: 0.15),
-                      const Color(0xFF1565C0).withValues(alpha: 0.04),
-                      Colors.transparent,
-                    ],
+                    gradient: RadialGradient(
+                      colors: [
+                        const Color(0xFF1565C0).withValues(alpha: 0.15),
+                        const Color(0xFF1565C0).withValues(alpha: 0.04),
+                        Colors.transparent,
+                      ],
                     stops: const [0.0, 0.4, 1.0],
                   ),
                 ),
@@ -1267,7 +1385,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                         ],
                                       ).createShader(bounds),
                                       child: const Text(
-                                        '✩ Mayur Synthetics ✩',
+                                        'Mayur Synthetics',
                                         style: TextStyle(
                                           color: Colors.white,
                                           fontSize: 22,
@@ -1280,7 +1398,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                     ),
                                     const SizedBox(height: 3),
                                     Text(
-                                      'ERP System  •  v1.0.01',
+                                      'ERP System - v1.0.01',
                                       style: TextStyle(
                                         color: Colors.white
                                             .withValues(alpha: 0.35),
@@ -1296,6 +1414,16 @@ class _DashboardPageState extends State<DashboardPage> {
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  if (_perm.isSuper)
+                                    _appBarIconBtn(
+                                      _isVoiceListening
+                                          ? Icons.mic_off_rounded
+                                          : Icons.keyboard_voice_rounded,
+                                      _isVoiceListening
+                                          ? 'Stop Voice'
+                                          : 'Listen Voice',
+                                      _toggleSuperVoiceListen,
+                                    ),
                                   if (_perm.hasPermission('sync_data'))
                                     _appBarIconBtn(
                                       Icons.cloud_sync_rounded,
@@ -1319,7 +1447,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    '$_greeting, $userName ✨',
+                                    '$_greeting, $userName',
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 18,
@@ -1425,12 +1553,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                         bottomLeft: Radius.circular(10),
                                       ),
                                     ),
-                                    child: Row(
+                                    child: const Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Icon(Icons.trending_up_rounded,
                                             color: _accent, size: 14),
-                                        const SizedBox(width: 4),
+                                        SizedBox(width: 4),
                                         Text('STOCK',
                                             style: TextStyle(
                                               color: _accent,
@@ -1465,7 +1593,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                                 children: [
                                                   TextSpan(
                                                     text: '${s['shade_no']}',
-                                                    style: TextStyle(
+                                                    style: const TextStyle(
                                                       color: _accent,
                                                       fontWeight:
                                                           FontWeight.w700,
@@ -1496,7 +1624,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     ),
                                                   ),
                                                   TextSpan(
-                                                    text: '   •',
+                                                    text: '   |',
                                                     style: TextStyle(
                                                       color: _accent.withValues(
                                                           alpha: 0.3),
@@ -1551,79 +1679,66 @@ class _DashboardPageState extends State<DashboardPage> {
                             if (_perm.hasPermission('purchase_entry'))
                               _moduleCard(
                                   'Purchase\nEntry',
-                                  Icons.shopping_cart_rounded,
-                                  const Color(0xFFDAA520),
+                                  Icons.shopping_cart_rounded, const Color(0xFFDAA520),
                                   () => _openQuickPurchase(context)),
                             if (_perm.hasPermission('order_management'))
                               _moduleCard(
                                   'Order\nMgmt',
-                                  Icons.assignment_rounded,
-                                  const Color(0xFF1D4ED8),
+                                  Icons.assignment_rounded, const Color(0xFF1D4ED8),
                                   () =>
                                       _openPage(const OrderManagementPage())),
                             if (_perm.hasPermission('issue_entry'))
                               _moduleCard(
                                   'Issue\nEntry',
-                                  Icons.outbox_rounded,
-                                  const Color(0xFF6366F1),
+                                  Icons.outbox_rounded, const Color(0xFF6366F1),
                                   () => _openPage(const IssueInventoryPage())),
                             if (_perm.hasPermission('requirement'))
                               _moduleCard(
                                   'Requirement',
-                                  Icons.warning_amber_rounded,
-                                  const Color(0xFFF59E0B),
+                                  Icons.warning_amber_rounded, const Color(0xFFF59E0B),
                                   () =>
                                       _openPage(const RequirementFabricsPage()),
                                   badge: requirementCount),
                             if (_perm.hasPermission('stock_adjustment'))
                               _moduleCard(
                                   'Adjust',
-                                  Icons.tune_rounded,
-                                  const Color(0xFFEC4899),
+                                  Icons.tune_rounded, const Color(0xFFEC4899),
                                   () => _openPage(const StockAdjustmentPage())),
                             if (_perm.hasPermission('history'))
                               _moduleCard(
                                   'History',
-                                  Icons.history_rounded,
-                                  const Color(0xFF64748B),
+                                  Icons.history_rounded, const Color(0xFF64748B),
                                   _openInventoryHistory),
                             if (_perm.hasPermission('firms'))
                               _moduleCard(
                                   'Add Firm',
-                                  Icons.domain_add_rounded,
-                                  const Color(0xFFB8860B),
+                                  Icons.domain_add_rounded, const Color(0xFFB8860B),
                                   () => _openPage(const FirmListPage())),
                             if (_hasAnyReport)
-                              _moduleCard('Reports', Icons.bar_chart_rounded,
-                                  const Color(0xFF14B8A6), _openReportsList),
+                              _moduleCard('Reports', Icons.bar_chart_rounded, const Color(0xFF14B8A6), _openReportsList),
                             if (_perm.hasPermission('machine_allotment'))
                               _moduleCard(
                                   'Machine',
-                                  Icons.precision_manufacturing_rounded,
-                                  const Color(0xFFEF4444),
+                                  Icons.precision_manufacturing_rounded, const Color(0xFFEF4444),
                                   () =>
                                       _openPage(const MachineAllotmentPage())),
                             if (_perm.hasPermission('operator_live'))
                               _moduleCard(
                                   'Operator',
-                                  Icons.play_circle_fill_rounded,
-                                  const Color(0xFF22C55E),
+                                  Icons.play_circle_fill_rounded, const Color(0xFF22C55E),
                                   () => _openPage(const OperatorLivePage())),
                             if (_perm.hasPermission('program_card'))
                               _moduleCard(
                                   'Program\nCard',
-                                  Icons.style_rounded,
-                                  const Color(0xFF0F766E),
+                                  Icons.style_rounded, const Color(0xFF0F766E),
                                   () => _openPage(const ProgramCardPage())),
                             if (_perm.hasPermission('dispatch_goods'))
                               _moduleCard(
                                   'Dispatch\nGoods',
-                                  Icons.local_shipping_rounded,
-                                  const Color(0xFF0EA5E9),
+                                  Icons.local_shipping_rounded, const Color(0xFF0EA5E9),
                                   () => _openPage(const DispatchGoodsPage())),
                             if (_hasAnyPayroll)
-                              _moduleCard('Payroll', Icons.payments_rounded,
-                                  const Color(0xFF7C3AED), _openPayrollList),
+                              _moduleCard('Payroll', Icons.payments_rounded, const Color(0xFF7C3AED), _openPayrollList),
                           ],
                         );
                         }),
@@ -1861,10 +1976,10 @@ class _DashboardPageState extends State<DashboardPage> {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
             colors: [
-              const Color(0xFFFFFFFF),
-              const Color(0xFFFFFFFF),
+              Color(0xFFFFFFFF),
+              Color(0xFFFFFFFF),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -2086,3 +2201,5 @@ class _MenuRow extends StatelessWidget {
     );
   }
 }
+
+

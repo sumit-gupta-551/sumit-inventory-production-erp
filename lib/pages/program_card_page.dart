@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/erp_database.dart';
+import '../data/permission_service.dart';
 import '../models/party.dart';
 import '../models/product.dart';
 import '../widgets/passcode_gate.dart';
@@ -47,6 +48,8 @@ class ProgramCardPage extends StatefulWidget {
 }
 
 class _ProgramCardPageState extends State<ProgramCardPage> {
+  final _perm = PermissionService.instance;
+  bool _listeningDataVersion = false;
   // ── Companies (fixed) ──
   static const companies = ProgramCardConstants.companies;
 
@@ -69,15 +72,22 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
   @override
   void initState() {
     super.initState();
-    _load();
-    ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+    if (_perm.hasPermission('program_card')) {
+      _load();
+      ErpDatabase.instance.dataVersion.addListener(_onDataChanged);
+      _listeningDataVersion = true;
+    } else {
+      _loading = false;
+    }
   }
 
   @override
   void dispose() {
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
-    ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    if (_listeningDataVersion) {
+      ErpDatabase.instance.dataVersion.removeListener(_onDataChanged);
+    }
     super.dispose();
   }
 
@@ -92,9 +102,8 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
       final cards = await ErpDatabase.instance.getProgramCards(
         company: _filterCompany,
         status: _filterStatus,
-        search: _searchCtrl.text.trim().isEmpty
-            ? null
-            : _searchCtrl.text.trim(),
+        search:
+            _searchCtrl.text.trim().isEmpty ? null : _searchCtrl.text.trim(),
       );
       final parties = await ErpDatabase.instance.getParties();
       final products = await ErpDatabase.instance.getProducts();
@@ -117,10 +126,12 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
 
   String _partyName(int? id) {
     if (id == null) return '';
-    return _parties.firstWhere(
-      (p) => p.id == id,
-      orElse: () => Party(name: '', address: '', mobile: ''),
-    ).name;
+    return _parties
+        .firstWhere(
+          (p) => p.id == id,
+          orElse: () => Party(name: '', address: '', mobile: ''),
+        )
+        .name;
   }
 
   String _productName(int? id) {
@@ -145,6 +156,22 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
     return idx >= 0 ? ProgramCardConstants.stepColors[idx] : Colors.grey;
   }
 
+  bool _isCompletedCard(Map<String, dynamic> card) {
+    final s = (card['status'] ?? '').toString().trim().toLowerCase();
+    return s == 'dispatched' || s == 'completed';
+  }
+
+  String _currentStatusLabel(Map<String, dynamic> card) {
+    if (_isCompletedCard(card)) return 'Dispatched';
+    final key = _currentStatusKey(card);
+    return key == null ? 'Pending' : labelForKey(key);
+  }
+
+  Color _currentStatusColor(Map<String, dynamic> card) {
+    if (_isCompletedCard(card)) return const Color(0xFF334155);
+    return _statusColor(_currentStatusKey(card));
+  }
+
   /// Computed Qty for a card = TP × Line (numeric portion of line_no).
   /// Returns 0 when either is missing / non-numeric.
   static double cardQty(Map<String, dynamic> card) {
@@ -161,8 +188,14 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
     return v.toStringAsFixed(2);
   }
 
-  double get _grandQty =>
-      _cards.fold(0.0, (s, c) => s + cardQty(c));
+  double get _grandQty => _cards.fold(0.0, (s, c) => s + cardQty(c));
+
+  int get _closedCount => _cards.where(_isCompletedCard).length;
+
+  int get _readyCount => _cards
+      .where((c) =>
+          !_isCompletedCard(c) && _currentStatusLabel(c) == 'Ready to Dispatch')
+      .length;
 
   // ── Actions ──
   Future<void> _openEditor({Map<String, dynamic>? card}) async {
@@ -213,6 +246,59 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
     _load();
   }
 
+  Future<void> _unlockProgramCard(Map<String, dynamic> card) async {
+    if (!_isCompletedCard(card)) {
+      _msg('Card is already open.');
+      return;
+    }
+    final cardId = card['id'] as int?;
+    if (cardId == null) return;
+
+    final pass = await requirePasscode(
+      context,
+      title: 'Unlock Program Card',
+      action: 'Unlock',
+    );
+    if (!pass) return;
+
+    final latestKey = _currentStatusKey(card);
+    final restoreStatus =
+        latestKey == null ? 'Pending' : labelForKey(latestKey);
+    final dispatchedQty =
+        await ErpDatabase.instance.getDispatchedQtyForCard(cardId);
+
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unlock This Card?'),
+        content: Text(
+          dispatchedQty > 0
+              ? 'This card has dispatched qty (${fmtQty(dispatchedQty)}).\n'
+                  'Unlocking will set status to "$restoreStatus".\n'
+                  'Use only if card was closed by mistake.'
+              : 'Unlocking will set status to "$restoreStatus".',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Unlock')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    await ErpDatabase.instance.updateProgramCard(
+      cardId,
+      {'status': restoreStatus},
+    );
+    _msg('Card unlocked');
+    _load();
+  }
+
   /// Opens a sheet to mark each status step done/undone with a date.
   Future<void> _editStatus(Map<String, dynamic> card) async {
     final cardId = card['id'] as int;
@@ -260,7 +346,7 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Status — #${card['card_no']}',
+                                'Status - #${card['card_no']}',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700, fontSize: 16),
                               ),
@@ -273,8 +359,7 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                         child: ListView.separated(
                           controller: scrollController,
                           itemCount: statusFlow.length,
-                          separatorBuilder: (_, __) =>
-                              const Divider(height: 1),
+                          separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (_, i) {
                             final s = statusFlow[i];
                             final ts = values[s.key];
@@ -310,9 +395,8 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                                   IconButton(
                                     icon: const Icon(Icons.event_available,
                                         size: 20),
-                                    tooltip: done
-                                        ? 'Change date'
-                                        : 'Mark complete',
+                                    tooltip:
+                                        done ? 'Change date' : 'Mark complete',
                                     onPressed: () async {
                                       final picked = await showDatePicker(
                                         context: ctx,
@@ -334,8 +418,8 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                                       icon: const Icon(Icons.clear,
                                           size: 20, color: Colors.red),
                                       tooltip: 'Clear',
-                                      onPressed: () => setSheet(
-                                          () => values[s.key] = null),
+                                      onPressed: () =>
+                                          setSheet(() => values[s.key] = null),
                                     ),
                                 ],
                               ),
@@ -385,10 +469,9 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
       if (values[s.key] != null) latest = s.value;
     }
 
-    // If card is already Completed (closed), never overwrite back to a
-    // step status — closed means closed.
-    if ((card['status'] ?? '') == 'Completed') {
-      latest = 'Completed';
+    // If card is already closed/dispatched, never overwrite back to a step.
+    if (_isCompletedCard(card)) {
+      latest = 'Dispatched';
     }
 
     final updateData = <String, dynamic>{
@@ -403,9 +486,32 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
   // ── UI ──
   @override
   Widget build(BuildContext context) {
+    if (!_perm.hasPermission('program_card')) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Program Card')),
+        body: const Center(
+          child: Text(
+            'You do not have permission to access Program Card Page.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Program Card'),
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF1A1A2E), Color(0xFF1565C0)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
@@ -434,10 +540,19 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                         color: Color(0xFF1565C0)),
                     const SizedBox(width: 8),
                     Text('Cards: ${_cards.length}',
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 10),
+                    Text('Ready: $_readyCount',
                         style: const TextStyle(
-                            fontWeight: FontWeight.w600)),
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF15803D))),
+                    const SizedBox(width: 10),
+                    Text('Closed: $_closedCount',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF334155))),
                     const Spacer(),
-                    const Text('Grand Qty (TP×Line): ',
+                    const Text('Grand Qty (TP x Line): ',
                         style: TextStyle(fontWeight: FontWeight.w600)),
                     Text(fmtQty(_grandQty),
                         style: const TextStyle(
@@ -448,105 +563,116 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                 ),
               ),
             ),
-      body: Column(
-        children: [
-          // ── Filters ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String?>(
-                    value: _filterCompany,
-                    decoration: const InputDecoration(
-                      labelText: 'Company',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      isDense: true,
-                    ),
-                    items: [
-                      const DropdownMenuItem<String?>(
-                          value: null, child: Text('All')),
-                      ...companies.map(
-                        (c) => DropdownMenuItem<String?>(
-                            value: c, child: Text(c)),
-                      ),
-                    ],
-                    onChanged: (v) {
-                      setState(() => _filterCompany = v);
-                      _load();
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<String?>(
-                    value: _filterStatus,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Status',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      isDense: true,
-                    ),
-                    items: [
-                      const DropdownMenuItem<String?>(
-                          value: null, child: Text('All')),
-                      ...statusFlow.map(
-                        (s) => DropdownMenuItem<String?>(
-                            value: s.value, child: Text(s.value)),
-                      ),
-                    ],
-                    onChanged: (v) {
-                      setState(() => _filterStatus = v);
-                      _load();
-                    },
-                  ),
-                ),
-              ],
-            ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF5F5F5), Color(0xFFE8F0FE), Color(0xFFF5F5F5)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                hintText: 'Search Card # / Design / Line',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                isDense: true,
-                border: const OutlineInputBorder(),
-                suffixIcon: _searchCtrl.text.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.clear, size: 20),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          _load();
-                        },
+        ),
+        child: Column(
+          children: [
+            // ── Filters ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String?>(
+                      initialValue: _filterCompany,
+                      decoration: const InputDecoration(
+                        labelText: 'Company',
+                        border: OutlineInputBorder(),
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        isDense: true,
                       ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                            value: null, child: Text('All')),
+                        ...companies.map(
+                          (c) => DropdownMenuItem<String?>(
+                              value: c, child: Text(c)),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        setState(() => _filterCompany = v);
+                        _load();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<String?>(
+                      initialValue: _filterStatus,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Status',
+                        border: OutlineInputBorder(),
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                            value: null, child: Text('All')),
+                        ...statusFlow.map(
+                          (s) => DropdownMenuItem<String?>(
+                              value: s.value, child: Text(s.value)),
+                        ),
+                        const DropdownMenuItem<String?>(
+                            value: 'Dispatched', child: Text('Dispatched')),
+                      ],
+                      onChanged: (v) {
+                        setState(() => _filterStatus = v);
+                        _load();
+                      },
+                    ),
+                  ),
+                ],
               ),
-              onChanged: (_) {
-                _searchDebounce?.cancel();
-                _searchDebounce = Timer(
-                    const Duration(milliseconds: 350), _load);
-              },
             ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _cards.isEmpty
-                    ? const Center(child: Text('No program cards'))
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
-                        itemCount: _cards.length,
-                        itemBuilder: (_, i) => _cardTile(_cards[i]),
-                      ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+              child: TextField(
+                controller: _searchCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Search Card # / Design / Line',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                  suffixIcon: _searchCtrl.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.clear, size: 20),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            _load();
+                          },
+                        ),
+                ),
+                onChanged: (_) {
+                  _searchDebounce?.cancel();
+                  _searchDebounce =
+                      Timer(const Duration(milliseconds: 350), _load);
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _cards.isEmpty
+                      ? const Center(child: Text('No program cards'))
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
+                          itemCount: _cards.length,
+                          itemBuilder: (_, i) => _cardTile(_cards[i]),
+                        ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -556,7 +682,7 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
     final dateStr = dateMs != null
         ? DateFormat('dd MMM yyyy')
             .format(DateTime.fromMillisecondsSinceEpoch(dateMs))
-        : '—';
+        : '-';
     final company = (card['company'] ?? '').toString();
     final cardNo = (card['card_no'] ?? '').toString();
     final designNo = (card['design_no'] ?? '').toString();
@@ -564,17 +690,18 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
     final tp = (card['tp'] as num?)?.toDouble() ?? 0;
     final partyName = _partyName(card['party_id'] as int?);
 
-    final currentKey = _currentStatusKey(card);
-    final currentLabel =
-        currentKey == null ? 'Pending' : labelForKey(currentKey);
-    final color = _statusColor(currentKey);
+    final currentLabel = _currentStatusLabel(card);
+    final color = _currentStatusColor(card);
+    final isCompleted = _isCompletedCard(card);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
+      elevation: 1,
+      surfaceTintColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () => _editStatus(card),
+        onTap: isCompleted ? null : () => _editStatus(card),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 8, 12),
           child: Column(
@@ -584,8 +711,8 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: const Color(0xFF1565C0).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -618,14 +745,17 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                     ),
                   const Spacer(),
                   Text(dateStr,
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade600)),
+                      style:
+                          TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                   PopupMenuButton<String>(
                     onSelected: (v) {
-                      final isCompleted =
-                          (card['status'] ?? '') == 'Completed';
+                      if (v == 'unlock') {
+                        _unlockProgramCard(card);
+                        return;
+                      }
                       if (isCompleted && (v == 'edit' || v == 'status')) {
-                        _msg('Card is Completed (closed) and cannot be reopened.');
+                        _msg(
+                            'Card is Dispatched (closed) and cannot be reopened.');
                         return;
                       }
                       if (v == 'edit') _openEditor(card: card);
@@ -633,8 +763,6 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                       if (v == 'delete') _delete(card);
                     },
                     itemBuilder: (_) {
-                      final isCompleted =
-                          (card['status'] ?? '') == 'Completed';
                       return [
                         PopupMenuItem(
                             value: 'status',
@@ -644,6 +772,9 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                             value: 'edit',
                             enabled: !isCompleted,
                             child: const Text('Edit Details')),
+                        if (isCompleted)
+                          const PopupMenuItem(
+                              value: 'unlock', child: Text('Unlock Card')),
                         const PopupMenuItem(
                             value: 'delete',
                             child: Text('Delete',
@@ -696,11 +827,28 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
                           fontWeight: FontWeight.w700,
                           color: color,
                           fontSize: 13)),
+                  if (isCompleted) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF334155).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'Closed',
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF334155),
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   Text(
                     '${_completedCount(card)}/${statusFlow.length} steps',
-                    style:
-                        TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
                 ],
               ),
@@ -778,8 +926,7 @@ class _ProgramCardPageState extends State<ProgramCardPage> {
       children: [
         Icon(icon, size: 14, color: Colors.grey.shade700),
         const SizedBox(width: 4),
-        Text(text,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+        Text(text, style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
       ],
     );
   }
@@ -798,8 +945,7 @@ class _ProgramCardEditorPage extends StatefulWidget {
   });
 
   @override
-  State<_ProgramCardEditorPage> createState() =>
-      _ProgramCardEditorPageState();
+  State<_ProgramCardEditorPage> createState() => _ProgramCardEditorPageState();
 }
 
 class _ProgramCardEditorPageState extends State<_ProgramCardEditorPage> {
@@ -894,11 +1040,11 @@ class _ProgramCardEditorPageState extends State<_ProgramCardEditorPage> {
 
     try {
       if (_isEdit) {
-        // Preserve Completed (closed) status — cannot be reopened.
+        // Preserve closed/dispatched status — cannot be reopened.
         final existingStatus =
-            (widget.card!['status'] ?? '').toString();
-        if (existingStatus == 'Completed') {
-          data['status'] = 'Completed';
+            (widget.card!['status'] ?? '').toString().trim().toLowerCase();
+        if (existingStatus == 'dispatched' || existingStatus == 'completed') {
+          data['status'] = 'Dispatched';
         }
         await ErpDatabase.instance
             .updateProgramCard(widget.card!['id'] as int, data);
@@ -946,15 +1092,15 @@ class _ProgramCardEditorPageState extends State<_ProgramCardEditorPage> {
             const SizedBox(height: 12),
             // Company
             DropdownButtonFormField<String>(
-              value: _company,
+              initialValue: _company,
               decoration: const InputDecoration(
                 labelText: 'Company *',
                 prefixIcon: Icon(Icons.business_rounded),
                 border: OutlineInputBorder(),
               ),
               items: _ProgramCardPageState.companies
-                  .map((c) =>
-                      DropdownMenuItem<String>(value: c, child: Text(c)))
+                  .map(
+                      (c) => DropdownMenuItem<String>(value: c, child: Text(c)))
                   .toList(),
               onChanged: (v) => setState(() => _company = v),
               validator: (v) => v == null ? 'Required' : null,
@@ -962,7 +1108,7 @@ class _ProgramCardEditorPageState extends State<_ProgramCardEditorPage> {
             const SizedBox(height: 12),
             // Party
             DropdownButtonFormField<int>(
-              value: _partyId,
+              initialValue: _partyId,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Party Code *',
@@ -971,8 +1117,8 @@ class _ProgramCardEditorPageState extends State<_ProgramCardEditorPage> {
               ),
               items: widget.parties
                   .where((p) => p.id != null)
-                  .map((p) => DropdownMenuItem<int>(
-                      value: p.id, child: Text(p.name)))
+                  .map((p) =>
+                      DropdownMenuItem<int>(value: p.id, child: Text(p.name)))
                   .toList(),
               onChanged: (v) => setState(() => _partyId = v),
               validator: (v) => v == null ? 'Required' : null,
@@ -980,7 +1126,7 @@ class _ProgramCardEditorPageState extends State<_ProgramCardEditorPage> {
             const SizedBox(height: 12),
             // Product
             DropdownButtonFormField<int>(
-              value: _productId,
+              initialValue: _productId,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Product',
@@ -989,11 +1135,9 @@ class _ProgramCardEditorPageState extends State<_ProgramCardEditorPage> {
               ),
               items: [
                 const DropdownMenuItem<int>(
-                    value: null, child: Text('— None —')),
-                ..._products
-                    .where((p) => p.id != null)
-                    .map((p) => DropdownMenuItem<int>(
-                        value: p.id, child: Text(p.name))),
+                    value: null, child: Text('- None -')),
+                ..._products.where((p) => p.id != null).map((p) =>
+                    DropdownMenuItem<int>(value: p.id, child: Text(p.name))),
               ],
               onChanged: (v) => setState(() => _productId = v),
             ),

@@ -120,51 +120,60 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
     if (mounted) _load();
   }
 
+  int? _toInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v == null) return null;
+    return int.tryParse(v.toString().trim());
+  }
+
+  double _toDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v == null) return 0;
+    return double.tryParse(v.toString().trim()) ?? 0;
+  }
+
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
     try {
-      final bills = await _db.getDispatchBills();
+      await _db.restoreRecentlyDeletedDispatchBillsNow();
+      await _db.reopenOrphanClosedDispatchCardsNow();
+      final reportRows = await _db.getDispatchReportRows();
       final parties = await _db.getParties();
       final products = await _db.getProducts();
 
-      // Cache program cards by id (for TP / Line lookup).
-      final allCards = await _db.getProgramCards();
-      final cardById = <int, Map<String, dynamic>>{
-        for (final c in allCards)
-          if (c['id'] != null) c['id'] as int: c,
-      };
-
       final rows = <_DispatchRow>[];
-      for (final b in bills) {
-        final billId = b['id'] as int;
-        final billNo = (b['bill_no'] ?? '').toString();
-        final dtMs = b['bill_date'] as int?;
-        final date = dtMs == null
-            ? null
-            : DateTime.fromMillisecondsSinceEpoch(dtMs);
-        final partyId = b['party_id'] as int?;
-
-        final items = await _db.getDispatchItems(billId);
-        for (final it in items) {
-          final pcId = it['program_card_id'] as int?;
-          final card = pcId == null ? null : cardById[pcId];
-          final tp = (card?['tp'] as num?)?.toDouble() ?? 0;
-          final lineNo = (card?['line_no'] ?? '').toString();
-          rows.add(_DispatchRow(
-            billId: billId,
-            billNo: billNo,
-            date: date,
-            company: (it['company'] ?? '').toString(),
-            partyId: partyId,
-            productId: it['product_id'] as int?,
-            designNo: (it['design_no'] ?? '').toString(),
-            cardNo: (it['card_no'] ?? '').toString(),
-            tp: tp,
-            lineNo: lineNo,
-            qty: (it['qty'] as num?)?.toDouble() ?? 0,
-            pcs: (it['pcs'] as num?)?.toDouble() ?? 0,
-          ));
-        }
+      for (final r in reportRows) {
+        final itemId = _toInt(r['item_id']) ?? (rows.length + 1);
+        final billId = _toInt(r['bill_id']) ?? (-itemId);
+        final billNo = (r['bill_no'] ?? '').toString();
+        final dtMs = _toInt(r['bill_date']);
+        final date =
+            dtMs == null ? null : DateTime.fromMillisecondsSinceEpoch(dtMs);
+        final partyId = _toInt(r['party_id']);
+        final companyRaw = (r['company'] ?? '').toString().trim();
+        final designRaw = (r['design_no'] ?? '').toString().trim();
+        final cardRaw = (r['card_no'] ?? '').toString().trim();
+        final qty = _toDouble(r['qty']);
+        final pcs = _toDouble(r['pcs']);
+        final isEmptyBillPlaceholder =
+            companyRaw.isEmpty && designRaw.isEmpty && cardRaw.isEmpty && qty == 0 && pcs == 0;
+        rows.add(_DispatchRow(
+          billId: billId,
+          billNo: billNo,
+          date: date,
+          company: companyRaw.isEmpty ? '-' : companyRaw,
+          partyId: partyId,
+          productId: _toInt(r['product_id']),
+          designNo: isEmptyBillPlaceholder
+              ? '(No dispatch rows)'
+              : (designRaw.isEmpty ? '-' : designRaw),
+          cardNo: cardRaw.isEmpty ? '-' : cardRaw,
+          tp: _toDouble(r['tp']),
+          lineNo: (r['line_no'] ?? '').toString(),
+          qty: qty,
+          pcs: pcs,
+        ));
       }
 
       if (!mounted) return;
@@ -177,6 +186,9 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load dispatch report: $e')),
+      );
     }
   }
 
@@ -195,12 +207,14 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
   String _f(double v) =>
       v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
 
+  String _companyKey(String company) => company.trim().toUpperCase();
+
   List<_DispatchRow> get _filtered {
     final q = _search.trim().toLowerCase();
     return _rows.where((r) {
       if (_filterCompany != null &&
           _filterCompany!.isNotEmpty &&
-          r.company != _filterCompany) {
+          _companyKey(r.company) != _companyKey(_filterCompany!)) {
         return false;
       }
       if (_filterPartyId != null && r.partyId != _filterPartyId) return false;
@@ -209,8 +223,8 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
         return false;
       }
       if (_toDate != null) {
-        final end = DateTime(
-            _toDate!.year, _toDate!.month, _toDate!.day, 23, 59, 59);
+        final end =
+            DateTime(_toDate!.year, _toDate!.month, _toDate!.day, 23, 59, 59);
         if (r.date == null || r.date!.isAfter(end)) return false;
       }
       if (q.isNotEmpty) {
@@ -222,9 +236,15 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
       return true;
     }).toList()
       ..sort((a, b) {
+        final co = _companyKey(a.company).compareTo(_companyKey(b.company));
+        if (co != 0) return co;
         final ad = a.date?.millisecondsSinceEpoch ?? 0;
         final bd = b.date?.millisecondsSinceEpoch ?? 0;
-        return bd.compareTo(ad);
+        final dt = bd.compareTo(ad);
+        if (dt != 0) return dt;
+        final dsg = a.designNo.compareTo(b.designNo);
+        if (dsg != 0) return dsg;
+        return a.cardNo.compareTo(b.cardNo);
       });
   }
 
@@ -329,11 +349,19 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
   Widget build(BuildContext context) {
     final list = _filtered;
     final groups = _group(list);
+    final grandTp = groups.fold<double>(0, (s, g) => s + g.tp);
     final grandQty = list.fold<double>(0, (s, r) => s + r.qty);
     final grandPcs = list.fold<double>(0, (s, r) => s + r.pcs);
     final grandTotal = list.fold<double>(0, (s, r) => s + r.total);
 
-    final companies = _rows.map((r) => r.company).toSet().toList()..sort();
+    final companiesByKey = <String, String>{};
+    for (final r in _rows) {
+      final company = r.company.trim();
+      if (company.isEmpty) continue;
+      companiesByKey.putIfAbsent(_companyKey(company), () => company);
+    }
+    final companies = companiesByKey.values.toList()
+      ..sort((a, b) => _companyKey(a).compareTo(_companyKey(b)));
 
     return Scaffold(
       appBar: AppBar(
@@ -363,7 +391,7 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
           : Column(
               children: [
                 _filtersBar(companies),
-                _summaryBar(groups.length, grandQty, grandPcs, grandTotal),
+                _summaryBar(groups.length, grandTp, grandQty, grandPcs, grandTotal),
                 const Divider(height: 1),
                 Expanded(
                   child: groups.isEmpty
@@ -401,14 +429,14 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<_DateRange>(
-                  value: _dateRange,
+                  initialValue: _dateRange,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Date Range',
                     isDense: true,
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   ),
                   items: [
                     for (final r in _DateRange.values)
@@ -440,9 +468,8 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
                   child: OutlinedButton.icon(
                     onPressed: () => _pickDate(isFrom: false),
                     icon: const Icon(Icons.calendar_today, size: 16),
-                    label: Text(_toDate == null
-                        ? 'To'
-                        : 'To: ${_df.format(_toDate!)}'),
+                    label: Text(
+                        _toDate == null ? 'To' : 'To: ${_df.format(_toDate!)}'),
                   ),
                 ),
               ],
@@ -453,14 +480,14 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String?>(
-                  value: _filterCompany,
+                  initialValue: _filterCompany,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Company',
                     isDense: true,
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   ),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('All')),
@@ -473,21 +500,20 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
               const SizedBox(width: 8),
               Expanded(
                 child: DropdownButtonFormField<int?>(
-                  value: _filterPartyId,
+                  initialValue: _filterPartyId,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Party',
                     isDense: true,
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   ),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('All')),
                     for (final p in _parties)
                       if (p.id != null)
-                        DropdownMenuItem(
-                            value: p.id, child: Text(p.name)),
+                        DropdownMenuItem(value: p.id, child: Text(p.name)),
                   ],
                   onChanged: (v) => setState(() => _filterPartyId = v),
                 ),
@@ -511,84 +537,118 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
     );
   }
 
-  Widget _summaryBar(int rows, double q, double p, double total) {
-    Widget chip(String k, String v, Color c) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: c.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: c.withValues(alpha: 0.4)),
+  Widget _summaryBar(
+      int cards, double tp, double qty, double pcs, double total) {
+    Widget stat(String k, String v) => Text(
+          '$k: $v',
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1F2937),
           ),
-          child: Text('$k: $v',
-              style: TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w700, color: c)),
         );
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 6,
-        children: [
-          chip('Cards', '$rows', const Color(0xFF0EA5E9)),
-          chip('Σ Qty', _f(q), const Color(0xFF0F766E)),
-          chip('Σ Pcs', _f(p), const Color(0xFF7C3AED)),
-          chip('Grand Total', _f(total), const Color(0xFFE11D48)),
-        ],
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+        ),
+        child: Wrap(
+          spacing: 14,
+          runSpacing: 6,
+          children: [
+            stat('Total Cards', '$cards'),
+            stat('Total TP', _f(tp)),
+            stat('Total Qty', _f(qty)),
+            stat('Total Pcs', _f(pcs)),
+            stat('Grand Total', _f(total)),
+          ],
+        ),
       ),
     );
   }
 
-  /// Format like "5×25" or "5×10 / 5×10".
+  /// Format like "5x25" or "5x10 / 5x10".
   String _entriesText(_GroupedRow g) =>
-      g.entries.map((e) => '${_f(e.qty)}×${_f(e.pcs)}').join(' / ');
+      g.entries.map((e) => '${_f(e.qty)}x${_f(e.pcs)}').join(' / ');
 
   Widget _table(List<_GroupedRow> groups) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: ConstrainedBox(
-        constraints: BoxConstraints(
-            minWidth: MediaQuery.of(context).size.width),
+        constraints:
+            BoxConstraints(minWidth: MediaQuery.of(context).size.width),
         child: SingleChildScrollView(
           child: DataTable(
-            headingRowColor:
-                WidgetStatePropertyAll(Colors.blueGrey.shade50),
+            headingRowColor: WidgetStatePropertyAll(Colors.blueGrey.shade50),
             columnSpacing: 12,
             horizontalMargin: 8,
-            headingTextStyle: const TextStyle(
-                fontSize: 12, fontWeight: FontWeight.bold),
+            headingTextStyle:
+                const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
             dataTextStyle: const TextStyle(fontSize: 12),
             columns: const [
               DataColumn(label: Text('#')),
               DataColumn(label: Text('Date')),
               DataColumn(label: Text('Bill #')),
-              DataColumn(label: Text('Co.')),
-              DataColumn(label: Text('Party')),
+              DataColumn(label: SizedBox(width: 72, child: Text('Co.'))),
+              DataColumn(label: SizedBox(width: 72, child: Text('Party'))),
               DataColumn(label: Text('Product')),
               DataColumn(label: Text('Design')),
               DataColumn(label: Text('Card #')),
-              DataColumn(label: Text('TP'), numeric: true),
-              DataColumn(label: Text('Line')),
-              DataColumn(label: Text('Qty × Pcs')),
+              DataColumn(
+                  label: SizedBox(width: 42, child: Text('TP')),
+                  numeric: true),
+              DataColumn(label: SizedBox(width: 46, child: Text('Line'))),
+              DataColumn(label: Text('Qty x Pcs')),
               DataColumn(label: Text('Total'), numeric: true),
+              DataColumn(label: SizedBox(width: 92, child: Text(''))),
             ],
             rows: [
               for (var i = 0; i < groups.length; i++)
                 DataRow(cells: [
                   DataCell(Text('${i + 1}')),
-                  DataCell(Text(
-                      groups[i].date == null ? '-' : _df.format(groups[i].date!))),
+                  DataCell(Text(groups[i].date == null
+                      ? '-'
+                      : _df.format(groups[i].date!))),
                   DataCell(Text(groups[i].billNo)),
-                  DataCell(Text(groups[i].company)),
-                  DataCell(Text(_partyName(groups[i].partyId))),
+                  DataCell(SizedBox(
+                    width: 72,
+                    child: Text(
+                      groups[i].company,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  )),
+                  DataCell(SizedBox(
+                    width: 72,
+                    child: Text(
+                      _partyName(groups[i].partyId),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  )),
                   DataCell(Text(_productName(groups[i].productId))),
                   DataCell(Text(groups[i].designNo)),
                   DataCell(Text('#${groups[i].cardNo}')),
-                  DataCell(Text(_f(groups[i].tp))),
-                  DataCell(Text(groups[i].lineNo)),
+                  DataCell(SizedBox(
+                    width: 42,
+                    child: Text(_f(groups[i].tp), overflow: TextOverflow.fade),
+                  )),
+                  DataCell(SizedBox(
+                    width: 46,
+                    child:
+                        Text(groups[i].lineNo, overflow: TextOverflow.ellipsis),
+                  )),
                   DataCell(Text(_entriesText(groups[i]))),
                   DataCell(Text(_f(groups[i].total),
-                      style:
-                          const TextStyle(fontWeight: FontWeight.bold))),
+                      style: const TextStyle(fontWeight: FontWeight.bold))),
+                  const DataCell(SizedBox(width: 92, child: Text(''))),
                 ]),
             ],
           ),
@@ -612,6 +672,7 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
         (await rootBundle.load('assets/mslogo.png')).buffer.asUint8List();
     final logoImage = pw.MemoryImage(logoBytes);
 
+    final grandTp = groups.fold<double>(0, (s, g) => s + g.tp);
     final grandQty = list.fold<double>(0, (s, r) => s + r.qty);
     final grandPcs = list.fold<double>(0, (s, r) => s + r.pcs);
     final grandTotal = list.fold<double>(0, (s, r) => s + r.total);
@@ -631,7 +692,7 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
           return 'This Month';
         case _DateRange.custom:
           if (_fromDate != null && _toDate != null) {
-            return '${df.format(_fromDate!)}  →  ${df.format(_toDate!)}';
+            return '${df.format(_fromDate!)} to ${df.format(_toDate!)}';
           }
           if (_fromDate != null) return 'From ${df.format(_fromDate!)}';
           if (_toDate != null) return 'Up to ${df.format(_toDate!)}';
@@ -659,8 +720,9 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
       'Card #',
       'TP',
       'Line',
-      'Qty × Pcs',
+      'Qty x Pcs',
       'Total',
+      '',
     ];
     final data = <List<String>>[];
     for (var i = 0; i < groups.length; i++) {
@@ -677,35 +739,12 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
         g.lineNo,
         _entriesText(g),
         _f(g.total),
+        '',
       ]);
     }
 
-    pw.Widget statBox(String label, String value, PdfColor color) =>
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(
-              horizontal: 10, vertical: 6),
-          decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(color.toInt() & 0x33FFFFFF | 0x22000000),
-            borderRadius:
-                const pw.BorderRadius.all(pw.Radius.circular(4)),
-            border: pw.Border.all(color: color, width: 0.6),
-          ),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(label,
-                  style: pw.TextStyle(
-                      fontSize: 8,
-                      fontWeight: pw.FontWeight.bold,
-                      color: color)),
-              pw.SizedBox(height: 1),
-              pw.Text(value,
-                  style: pw.TextStyle(
-                      fontSize: 11,
-                      fontWeight: pw.FontWeight.bold)),
-            ],
-          ),
-        );
+    final headerTotals =
+        'Cards: ${groups.length}   Total TP: ${_f(grandTp)}   Total Qty: ${_f(grandQty)}   Sum Pcs: ${_f(grandPcs)}   Grand Total: ${_f(grandTotal)}';
 
     final doc = pw.Document();
     doc.addPage(
@@ -729,17 +768,10 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
             ),
             pw.SizedBox(height: 4),
             pw.Text(filterLine, style: const pw.TextStyle(fontSize: 9)),
-            pw.SizedBox(height: 6),
-            pw.Row(
-              children: [
-                statBox('CARDS', '${groups.length}', PdfColors.blue700),
-                pw.SizedBox(width: 8),
-                statBox('Σ QTY', _f(grandQty), PdfColors.teal700),
-                pw.SizedBox(width: 8),
-                statBox('Σ PCS', _f(grandPcs), PdfColors.purple700),
-                pw.SizedBox(width: 8),
-                statBox('GRAND TOTAL', _f(grandTotal), PdfColors.red700),
-              ],
+            pw.SizedBox(height: 4),
+            pw.Text(
+              headerTotals,
+              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
             ),
             pw.SizedBox(height: 6),
             pw.Divider(),
@@ -748,14 +780,13 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
         footer: (ctx) => pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Text('Dispatch Report',
-                style: const pw.TextStyle(fontSize: 8)),
+            pw.Text('Dispatch Report', style: const pw.TextStyle(fontSize: 8)),
             pw.Text('Page ${ctx.pageNumber} / ${ctx.pagesCount}',
                 style: const pw.TextStyle(fontSize: 8)),
           ],
         ),
         build: (ctx) => [
-          pw.Table.fromTextArray(
+          pw.TableHelper.fromTextArray(
             headers: headers,
             data: data,
             headerStyle: pw.TextStyle(
@@ -780,34 +811,32 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
               8: pw.Alignment.center,
               9: pw.Alignment.center,
               10: pw.Alignment.centerRight,
+              11: pw.Alignment.center,
             },
-            oddRowDecoration:
-                const pw.BoxDecoration(color: PdfColors.grey100),
+            oddRowDecoration: const pw.BoxDecoration(color: PdfColors.grey100),
             columnWidths: {
-              0: const pw.FlexColumnWidth(0.4),  // #
-              1: const pw.FlexColumnWidth(1.1),  // Date
-              2: const pw.FlexColumnWidth(0.7),  // Co.
-              3: const pw.FlexColumnWidth(1.8),  // Party
-              4: const pw.FlexColumnWidth(1.0),  // Design
-              5: const pw.FlexColumnWidth(1.5),  // Product
-              6: const pw.FlexColumnWidth(0.9),  // Card #
-              7: const pw.FlexColumnWidth(0.6),  // TP
-              8: const pw.FlexColumnWidth(0.7),  // Line
-              9: const pw.FlexColumnWidth(2.5),  // Qty × Pcs
-              10: const pw.FlexColumnWidth(0.9), // Total
+              0: const pw.FlexColumnWidth(0.4), // #
+              1: const pw.FlexColumnWidth(1.1), // Date
+              2: const pw.FlexColumnWidth(0.7), // Co.
+              3: const pw.FlexColumnWidth(0.7), // Party
+              4: const pw.FlexColumnWidth(1.0), // Design
+              5: const pw.FlexColumnWidth(1.5), // Product
+              6: const pw.FlexColumnWidth(0.9), // Card #
+              7: const pw.FlexColumnWidth(0.45), // TP
+              8: const pw.FlexColumnWidth(0.55), // Line
+              9: const pw.FlexColumnWidth(2.5), // Qty x Pcs
+              10: const pw.FlexColumnWidth(0.8), // Total
+              11: const pw.FlexColumnWidth(0.9), // Blank
             },
-            border: pw.TableBorder.all(
-                color: PdfColors.grey400, width: 0.4),
+            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.4),
           ),
           pw.SizedBox(height: 6),
           // Highlighted Grand Total bar
           pw.Container(
-            padding: const pw.EdgeInsets.symmetric(
-                horizontal: 10, vertical: 6),
+            padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: const pw.BoxDecoration(
               color: PdfColors.blueGrey800,
-              borderRadius:
-                  pw.BorderRadius.all(pw.Radius.circular(4)),
+              borderRadius: pw.BorderRadius.all(pw.Radius.circular(4)),
             ),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -818,7 +847,7 @@ class _DispatchReportPageState extends State<DispatchReportPage> {
                         fontWeight: pw.FontWeight.bold,
                         color: PdfColors.white)),
                 pw.Text(
-                    'Cards: ${groups.length}    Σ Qty: ${_f(grandQty)}    Σ Pcs: ${_f(grandPcs)}    Total: ${_f(grandTotal)}',
+                    'Cards: ${groups.length}    Total TP: ${_f(grandTp)}    Total Qty: ${_f(grandQty)}    Sum Pcs: ${_f(grandPcs)}    Total: ${_f(grandTotal)}',
                     style: pw.TextStyle(
                         fontSize: 11,
                         fontWeight: pw.FontWeight.bold,

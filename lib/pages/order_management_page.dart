@@ -11,6 +11,126 @@ import '../data/erp_database.dart';
 import '../models/party.dart';
 import '../models/product.dart';
 
+class _ShadeChoice {
+  final int? id;
+  final String label;
+
+  const _ShadeChoice({
+    required this.id,
+    required this.label,
+  });
+}
+
+class _ShadePickResult {
+  final int? shadeId;
+
+  const _ShadePickResult(this.shadeId);
+}
+
+List<_ShadeChoice> _shadeChoicesFromRows(
+  List<Map<String, dynamic>> rows,
+  int? Function(dynamic value) asInt,
+) {
+  final out = <_ShadeChoice>[
+    const _ShadeChoice(id: null, label: 'NO SHADE'),
+  ];
+  final seenIds = <int>{};
+  for (final row in rows) {
+    final id = asInt(row['id']);
+    if (id == null || !seenIds.add(id)) continue;
+    final label = (row['shade_no'] ?? '').toString().trim();
+    if (label.isEmpty) continue;
+    out.add(_ShadeChoice(id: id, label: label));
+  }
+  return out;
+}
+
+Future<_ShadePickResult?> _showSearchableShadePicker({
+  required BuildContext context,
+  required String title,
+  required int? selectedId,
+  required List<_ShadeChoice> choices,
+}) async {
+  var search = '';
+  return showDialog<_ShadePickResult>(
+    context: context,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final q = search.trim().toLowerCase();
+          final filtered = q.isEmpty
+              ? choices
+              : choices.where((c) => c.label.toLowerCase().contains(q)).toList();
+          return AlertDialog(
+            title: Text(title),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Search shade...',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 12,
+                      ),
+                    ),
+                    onChanged: (v) => setDialogState(() => search = v),
+                  ),
+                  const SizedBox(height: 8),
+                  Flexible(
+                    child: filtered.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text('No matching shades.'),
+                            ),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: filtered.length,
+                            itemBuilder: (_, i) {
+                              final c = filtered[i];
+                              final isSelected = c.id == selectedId;
+                              return ListTile(
+                                dense: true,
+                                leading: Icon(
+                                  isSelected
+                                      ? Icons.radio_button_checked_rounded
+                                      : Icons.radio_button_off_rounded,
+                                  color: isSelected
+                                      ? Theme.of(ctx).colorScheme.primary
+                                      : Colors.grey.shade600,
+                                ),
+                                title: Text(c.label),
+                                onTap: () =>
+                                    Navigator.pop(ctx, _ShadePickResult(c.id)),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
 class OrderManagementPage extends StatefulWidget {
   final int initialTab;
 
@@ -42,6 +162,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   List<Party> _parties = [];
   List<Product> _products = [];
   List<Map<String, dynamic>> _shades = [];
+  final Map<int, List<Map<String, dynamic>>> _productShadeCache = {};
 
   int? _selectedFirmId;
   int? _selectedPartyId;
@@ -140,6 +261,29 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
     });
   }
 
+  List<Map<String, dynamic>> _lineShadeOptions() {
+    final productId = _lineProductId;
+    if (productId == null) return _shades;
+    final related = _productShadeCache[productId];
+    if (related == null || related.isEmpty) {
+      return _shades;
+    }
+    return related;
+  }
+
+  Future<void> _onLineProductChanged(int? productId) async {
+    setState(() {
+      _lineProductId = productId;
+      _lineShadeId = null;
+    });
+    if (productId == null || _productShadeCache.containsKey(productId)) return;
+    final related = await _db.getShadesForProduct(productId);
+    if (!mounted) return;
+    setState(() {
+      _productShadeCache[productId] = related;
+    });
+  }
+
   Future<void> _loadNextOrderNo() async {
     final next = await _db.getNextOrderNo();
     if (!mounted) return;
@@ -189,8 +333,8 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
       ),
     ]);
 
-    final rows = results[0] as List<Map<String, dynamic>>;
-    final shadeRows = results[1] as List<Map<String, dynamic>>;
+    final rows = results[0];
+    final shadeRows = results[1];
 
     if (!mounted) return;
     setState(() {
@@ -922,6 +1066,8 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
   }
 
   Widget _buildCreateOrderTab() {
+    final lineShadeOptions = _lineShadeOptions();
+    final lineShadeChoices = _shadeChoicesFromRows(lineShadeOptions, _asInt);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
       child: Column(
@@ -951,7 +1097,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
-                    value: _selectedFirmId,
+                    initialValue: _selectedFirmId,
                     decoration: const InputDecoration(labelText: 'Firm'),
                     items: _firms
                         .map(
@@ -965,7 +1111,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
-                    value: _selectedPartyId,
+                    initialValue: _selectedPartyId,
                     decoration: const InputDecoration(labelText: 'Party'),
                     items: _parties
                         .where((p) => p.id != null)
@@ -1004,7 +1150,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
-                    value: _lineProductId,
+                    initialValue: _lineProductId,
                     decoration: const InputDecoration(labelText: 'Product'),
                     items: _products
                         .where((p) => p.id != null)
@@ -1015,25 +1161,33 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
                           ),
                         )
                         .toList(),
-                    onChanged: (v) => setState(() => _lineProductId = v),
+                    onChanged: (v) => unawaited(_onLineProductChanged(v)),
                   ),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<int?>(
-                    value: _lineShadeId,
-                    decoration: const InputDecoration(labelText: 'Shade'),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                        value: null,
-                        child: Text('NO SHADE'),
+                  InkWell(
+                    onTap: () async {
+                      FocusScope.of(context).unfocus();
+                      final picked = await _showSearchableShadePicker(
+                        context: context,
+                        title: 'Select Shade',
+                        selectedId: _lineShadeId,
+                        choices: lineShadeChoices,
+                      );
+                      if (picked == null || !mounted) return;
+                      setState(() => _lineShadeId = picked.shadeId);
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Shade',
+                        suffixIcon: Icon(Icons.search_rounded),
                       ),
-                      ..._shades.map(
-                        (s) => DropdownMenuItem<int?>(
-                          value: _asInt(s['id']),
-                          child: Text((s['shade_no'] ?? '').toString()),
-                        ),
+                      child: Text(
+                        _lineShadeId == null
+                            ? 'NO SHADE'
+                            : _shadeNameById(_lineShadeId),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                    onChanged: (v) => setState(() => _lineShadeId = v),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Row(
@@ -1138,7 +1292,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
               child: Column(
                 children: [
                   DropdownButtonFormField<int>(
-                    value: _selectedOrderNo,
+                    initialValue: _selectedOrderNo,
                     decoration: const InputDecoration(labelText: 'Order No'),
                     items: _openOrders
                         .map(
@@ -1382,7 +1536,7 @@ class _OrderManagementPageState extends State<OrderManagementPage> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: _reportStatus,
+                          initialValue: _reportStatus,
                           decoration:
                               const InputDecoration(labelText: 'Status'),
                           items: const [
@@ -1638,6 +1792,7 @@ class _OrderEditPageState extends State<_OrderEditPage> {
   List<Party> _parties = [];
   List<Product> _products = [];
   List<Map<String, dynamic>> _shades = [];
+  final Map<int, List<Map<String, dynamic>>> _addProductShadeCache = {};
   final List<_EditableOrderLine> _lines = [];
 
   @override
@@ -1693,6 +1848,31 @@ class _OrderEditPageState extends State<_OrderEditPage> {
       }
     }
     return 'NO SHADE';
+  }
+
+  List<Map<String, dynamic>> _addShadeOptions() {
+    final productId = _addProductId;
+    if (productId == null) return _shades;
+    final related = _addProductShadeCache[productId];
+    if (related == null || related.isEmpty) {
+      return _shades;
+    }
+    return related;
+  }
+
+  Future<void> _onAddProductChanged(int? productId) async {
+    setState(() {
+      _addProductId = productId;
+      _addShadeId = null;
+    });
+    if (productId == null || _addProductShadeCache.containsKey(productId)) {
+      return;
+    }
+    final related = await _db.getShadesForProduct(productId);
+    if (!mounted) return;
+    setState(() {
+      _addProductShadeCache[productId] = related;
+    });
   }
 
   Future<void> _load() async {
@@ -1892,6 +2072,8 @@ class _OrderEditPageState extends State<_OrderEditPage> {
 
   @override
   Widget build(BuildContext context) {
+    final addShadeOptions = _addShadeOptions();
+    final addShadeChoices = _shadeChoicesFromRows(addShadeOptions, _asInt);
     return Scaffold(
       appBar: AppBar(
         title: Text('Edit Order #${widget.orderNo}'),
@@ -1924,7 +2106,7 @@ class _OrderEditPageState extends State<_OrderEditPage> {
                           ),
                           const SizedBox(height: 8),
                           DropdownButtonFormField<int>(
-                            value: _firmId,
+                            initialValue: _firmId,
                             decoration: const InputDecoration(labelText: 'Firm'),
                             items: _firms
                                 .map(
@@ -1939,7 +2121,7 @@ class _OrderEditPageState extends State<_OrderEditPage> {
                           ),
                           const SizedBox(height: 8),
                           DropdownButtonFormField<int>(
-                            value: _partyId,
+                            initialValue: _partyId,
                             decoration: const InputDecoration(labelText: 'Party'),
                             items: _parties
                                 .where((p) => p.id != null)
@@ -1978,7 +2160,7 @@ class _OrderEditPageState extends State<_OrderEditPage> {
                           ),
                           const SizedBox(height: 8),
                           DropdownButtonFormField<int>(
-                            value: _addProductId,
+                            initialValue: _addProductId,
                             decoration:
                                 const InputDecoration(labelText: 'Product'),
                             items: _products
@@ -1990,25 +2172,33 @@ class _OrderEditPageState extends State<_OrderEditPage> {
                                   ),
                                 )
                                 .toList(),
-                            onChanged: (v) => setState(() => _addProductId = v),
+                            onChanged: (v) => unawaited(_onAddProductChanged(v)),
                           ),
                           const SizedBox(height: 8),
-                          DropdownButtonFormField<int?>(
-                            value: _addShadeId,
-                            decoration: const InputDecoration(labelText: 'Shade'),
-                            items: [
-                              const DropdownMenuItem<int?>(
-                                value: null,
-                                child: Text('NO SHADE'),
+                          InkWell(
+                            onTap: () async {
+                              FocusScope.of(context).unfocus();
+                              final picked = await _showSearchableShadePicker(
+                                context: context,
+                                title: 'Select Shade',
+                                selectedId: _addShadeId,
+                                choices: addShadeChoices,
+                              );
+                              if (picked == null || !mounted) return;
+                              setState(() => _addShadeId = picked.shadeId);
+                            },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Shade',
+                                suffixIcon: Icon(Icons.search_rounded),
                               ),
-                              ..._shades.map(
-                                (s) => DropdownMenuItem<int?>(
-                                  value: _asInt(s['id']),
-                                  child: Text((s['shade_no'] ?? '').toString()),
-                                ),
+                              child: Text(
+                                _addShadeId == null
+                                    ? 'NO SHADE'
+                                    : _shadeNoById(_addShadeId),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ],
-                            onChanged: (v) => setState(() => _addShadeId = v),
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Row(

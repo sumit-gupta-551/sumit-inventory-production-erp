@@ -26,7 +26,9 @@ Future<void> main() async {
   // Desktop platforms (Windows / Linux / macOS) need sqflite FFI.
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
     sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+    // No-isolate factory avoids extra isolate DB bridge contention on desktop
+    // during hot-restart and background sync bursts.
+    databaseFactory = databaseFactoryFfiNoIsolate;
   }
 
   // Show splash/loading UI instantly
@@ -74,7 +76,9 @@ Future<void> _initAndLaunch() async {
       // pull mirror so we see changes other devices make.
       await FirebaseSyncService.instance.init();
       ErpDatabase.instance.syncEnabled = true;
-      RestPullSyncService.instance.start();
+      RestPullSyncService.instance.start(
+        initialDelay: const Duration(seconds: 5),
+      );
     }
   } catch (e) {
     debugPrint('⚠ Database init failed: $e');

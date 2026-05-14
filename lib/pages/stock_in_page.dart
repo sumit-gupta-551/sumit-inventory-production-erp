@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../data/erp_database.dart';
 import '../models/product.dart';
@@ -95,7 +95,7 @@ class _StockInPageState extends State<StockInPage> {
         child: Column(
           children: [
             DropdownButtonFormField<Product>(
-              value: selectedProduct,
+              initialValue: selectedProduct,
               decoration: const InputDecoration(labelText: 'Select Product'),
               items: products
                   .map(

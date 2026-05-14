@@ -3,10 +3,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:telephony/telephony.dart';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -66,12 +64,6 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
   final List<Map<String, dynamic>> items = [];
 
   bool loading = true;
-
-  bool get _voiceSupported {
-    return !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS);
-  }
 
   @override
   void initState() {
@@ -802,6 +794,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     return out;
   }
 
+  // ignore: unused_element
   Map<String, String> _scanDataFromRaw(String raw) {
     final parsed = _parseScanPayload(raw);
     if (parsed.isNotEmpty) return parsed;
@@ -1182,6 +1175,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     return out;
   }
 
+  // ignore: unused_element
   Future<Map<String, String>?> _reviewScanData(
     Map<String, String> data, {
     String fullText = '',
@@ -1470,202 +1464,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     return reviewed;
   }
 
-  Future<String?> _voiceEntryInput() async {
-    final ctrl = TextEditingController();
-    final speech = stt.SpeechToText();
-    bool isListening = false;
-    var lastVoiceError = '';
-
-    final value = await showDialog<String>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocalState) {
-            Future<void> requestMicPermission() async {
-              if (!_voiceSupported) {
-                _msg('Voice entry is available on Android/iOS only');
-                return;
-              }
-
-              try {
-                final granted = await speech.initialize(
-                  onStatus: (_) {},
-                  onError: (error) {
-                    lastVoiceError = error.errorMsg;
-                  },
-                );
-
-                if (granted) {
-                  _msg('Microphone permission granted');
-                } else if (lastVoiceError.isNotEmpty) {
-                  _msg('Permission failed: $lastVoiceError');
-                } else {
-                  _msg('Please allow microphone permission in app settings');
-                }
-              } on MissingPluginException {
-                _msg(
-                  'Voice plugin not registered. Run full app restart (flutter clean; flutter pub get; flutter run).',
-                );
-              } on PlatformException catch (e) {
-                final msg = e.message?.trim() ?? 'Permission request failed';
-                _msg(msg);
-              } catch (_) {
-                _msg(
-                    'Could not request microphone permission. Check app settings.');
-              }
-            }
-
-            Future<void> toggleListening() async {
-              if (!_voiceSupported) {
-                _msg('Voice entry is available on Android/iOS only');
-                return;
-              }
-
-              if (isListening) {
-                try {
-                  await speech.stop();
-                } catch (_) {}
-                if (mounted) setLocalState(() => isListening = false);
-                return;
-              }
-
-              bool available = false;
-              try {
-                available = await speech.initialize(
-                  onStatus: (status) {
-                    final s = status.toLowerCase();
-                    if (s == 'done' || s == 'notlistening') {
-                      if (mounted) {
-                        setLocalState(() => isListening = false);
-                      }
-                    }
-                  },
-                  onError: (error) {
-                    lastVoiceError = error.errorMsg;
-                    if (mounted) {
-                      setLocalState(() => isListening = false);
-                    }
-                  },
-                );
-              } on MissingPluginException {
-                _msg(
-                  'Voice plugin not ready. Do full restart (flutter clean; flutter pub get; flutter run).',
-                );
-                return;
-              } on PlatformException catch (e) {
-                final msg = e.message?.trim() ?? 'Microphone initialize failed';
-                _msg(msg);
-                return;
-              } catch (_) {
-                _msg('Unable to initialize microphone');
-                return;
-              }
-
-              if (!available) {
-                if (lastVoiceError.isNotEmpty) {
-                  _msg('Voice unavailable: $lastVoiceError');
-                } else {
-                  _msg('Microphone permission denied or speech unavailable');
-                }
-                return;
-              }
-
-              if (mounted) setLocalState(() => isListening = true);
-              try {
-                await speech.listen(
-                  onResult: (result) {
-                    ctrl.text = result.recognizedWords;
-                    ctrl.selection = TextSelection.fromPosition(
-                      TextPosition(offset: ctrl.text.length),
-                    );
-                    if (mounted) setLocalState(() {});
-                  },
-                  listenFor: const Duration(seconds: 25),
-                  pauseFor: const Duration(seconds: 4),
-                  listenOptions: stt.SpeechListenOptions(
-                    partialResults: true,
-                    cancelOnError: true,
-                  ),
-                );
-              } on MissingPluginException {
-                if (mounted) setLocalState(() => isListening = false);
-                _msg('Voice plugin not ready. Restart app once and try again');
-              } on PlatformException catch (e) {
-                if (mounted) setLocalState(() => isListening = false);
-                final msg = e.message?.trim() ?? 'Unable to open microphone';
-                _msg(msg);
-              } catch (_) {
-                if (mounted) setLocalState(() => isListening = false);
-                _msg('Unable to start microphone');
-              }
-            }
-
-            return AlertDialog(
-              title: const Text('Voice Entry'),
-              content: SizedBox(
-                width: 420,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: ctrl,
-                      minLines: 4,
-                      maxLines: 7,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        hintText:
-                            'Speak or type: invoice INV-101 party MAYUR product BANGLOURI SILK shade 101 qty 12',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          FilledButton.icon(
-                            onPressed: toggleListening,
-                            icon: Icon(
-                              isListening ? Icons.mic_off : Icons.mic,
-                            ),
-                            label: Text(
-                              isListening
-                                  ? 'Stop Listening'
-                                  : 'Start Listening',
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: requestMicPermission,
-                            icon: const Icon(Icons.security),
-                            label: const Text('Grant Mic Permission'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-                  child: const Text('Use Text'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    await speech.stop();
-    return value?.trim();
-  }
-
+  // ignore: unused_element
   Future<void> _applyReviewedEntry(
     Map<String, String> reviewed, {
     required String sourceLabel,
@@ -1790,25 +1589,6 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     } else {
       _msg('$sourceLabel applied with notes: ${notices.join(', ')}');
     }
-  }
-
-  Future<void> _voiceEntryPurchase() async {
-    if (!_voiceSupported) {
-      _msg('Voice entry is available on Android/iOS only');
-      return;
-    }
-
-    final spoken = await _voiceEntryInput();
-    if (spoken == null || spoken.trim().isEmpty) return;
-
-    final rawData = _scanDataFromRaw(spoken);
-    final reviewed = await _reviewScanData(
-      rawData,
-      fullText: spoken,
-    );
-    if (reviewed == null) return;
-
-    await _applyReviewedEntry(reviewed, sourceLabel: 'Voice');
   }
 
   String _selectedShadesText() {
@@ -2240,12 +2020,6 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
             iconSize: 20,
           ),
           IconButton(
-            tooltip: 'Voice Entry',
-            onPressed: _voiceEntryPurchase,
-            icon: const Icon(Icons.mic, color: Colors.white),
-            iconSize: 20,
-          ),
-          IconButton(
             tooltip: 'History',
             onPressed: _openHistory,
             icon: const Icon(Icons.history, color: Colors.white),
@@ -2356,7 +2130,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                               ),
                               const SizedBox(height: 6),
                               DropdownButtonFormField<int>(
-                                value: _selectedPartyId,
+                                initialValue: _selectedPartyId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Party Name',
@@ -2377,7 +2151,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                               ),
                               const SizedBox(height: 6),
                               DropdownButtonFormField<int>(
-                                value: _selectedProductId,
+                                initialValue: _selectedProductId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Product',
@@ -2649,7 +2423,7 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
                 color: const Color(0xFFFFFFFF),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, -2),
                   ),
@@ -2749,3 +2523,5 @@ class _AddInventoryPageState extends State<AddInventoryPage> {
     super.dispose();
   }
 }
+
+

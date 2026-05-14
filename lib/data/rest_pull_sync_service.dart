@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart' as sql;
 
 import 'erp_database.dart';
+import 'firebase_sync_service.dart';
 
 /// Read-only pull-from-Firebase sync used on platforms where the native
 /// firebase_database plugin isn't available (Windows / Linux desktop).
@@ -64,6 +66,36 @@ class RestPullSyncService {
 
   Timer? _timer;
   bool _running = false;
+  DateTime? _lockBackoffUntil;
+  int _lockBackoffSec = 0;
+
+  bool _isDbLockedError(Object error) {
+    final msg = error.toString().toLowerCase();
+    return msg.contains('database is locked') ||
+        msg.contains('sqlite_error: 5') ||
+        msg.contains('(code 5)');
+  }
+
+  bool _isLockedMessage(String message) => _isDbLockedError(message);
+
+  Future<T> _dbRetry<T>(
+    Future<T> Function() action, {
+    String op = 'db op',
+    int maxAttempts = 8,
+  }) async {
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await action();
+      } catch (e) {
+        if (!_isDbLockedError(e) || attempt >= maxAttempts) rethrow;
+        final waitMs = 120 * attempt * attempt;
+        debugPrint(
+            'REST pull retry ($op) locked [attempt $attempt/$maxAttempts], waiting ${waitMs}ms');
+        await Future.delayed(Duration(milliseconds: waitMs));
+      }
+    }
+    throw Exception('Unexpected retry flow exit ($op)');
+  }
 
   /// Notifies UI when state changes (running flag, last sync time, last error).
   final ValueNotifier<DateTime?> lastSyncAt = ValueNotifier(null);
@@ -71,10 +103,17 @@ class RestPullSyncService {
   final ValueNotifier<String?> lastError = ValueNotifier(null);
 
   /// Start the background pull loop. Safe to call multiple times.
-  void start({Duration interval = _autoInterval}) {
+  void start({
+    Duration interval = _autoInterval,
+    Duration initialDelay = Duration.zero,
+  }) {
     _timer?.cancel();
     // Kick off an immediate pull, then schedule periodic ones.
-    unawaited(pullNow());
+    if (initialDelay <= Duration.zero) {
+      unawaited(pullNow());
+    } else {
+      Timer(initialDelay, () => unawaited(pullNow()));
+    }
     _timer = Timer.periodic(interval, (_) => unawaited(pullNow()));
   }
 
@@ -86,6 +125,10 @@ class RestPullSyncService {
   /// Manually trigger a full pull. UI can await this for a "Sync Now" button.
   Future<bool> pullNow() async {
     if (_running) return false;
+    final now = DateTime.now();
+    if (_lockBackoffUntil != null && now.isBefore(_lockBackoffUntil!)) {
+      return false;
+    }
     _running = true;
     isSyncing.value = true;
     lastError.value = null;
@@ -96,15 +139,41 @@ class RestPullSyncService {
       client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
       final db = await ErpDatabase.instance.database;
       var totalRows = 0;
+      var lockedDetected = false;
+      final sync = FirebaseSyncService.instance;
+      await sync.retryPendingNow();
       for (final table in _tables) {
+        final hasPendingLocal = await sync.hasPendingSyncForTable(table);
+        if (hasPendingLocal) {
+          debugPrint(
+              'REST pull skipped $table: local pending sync exists (protect local edits)');
+          continue;
+        }
         final res = await _pullTable(client, db, table);
         if (res.error != null) {
           ok = false;
           failures.add('$table: ${res.error}');
+          if (_isLockedMessage(res.error!)) {
+            failures.add('Local database busy; remaining tables skipped.');
+            lockedDetected = true;
+            break;
+          }
         } else {
           totalRows += res.rowsUpserted;
           debugPrint('✓ REST pull $table: ${res.rowsUpserted} rows');
         }
+      }
+      if (lockedDetected) {
+        _lockBackoffSec = _lockBackoffSec == 0
+            ? 30
+            : math.min(_lockBackoffSec * 2, 300);
+        _lockBackoffUntil =
+            DateTime.now().add(Duration(seconds: _lockBackoffSec));
+        debugPrint(
+            'REST pull paused for ${_lockBackoffSec}s due to DB lock. Will retry automatically.');
+      } else if (ok) {
+        _lockBackoffSec = 0;
+        _lockBackoffUntil = null;
       }
       debugPrint('REST pull complete. Total upserted: $totalRows');
       lastSyncAt.value = DateTime.now();
@@ -166,13 +235,16 @@ class RestPullSyncService {
       final localIds = <int>{};
       var lastId = 0;
       while (true) {
-        final rows = await db.query(
-          table,
-          columns: ['id'],
-          where: 'id > ?',
-          whereArgs: [lastId],
-          orderBy: 'id ASC',
-          limit: _batchSize,
+        final rows = await _dbRetry(
+          () => db.query(
+            table,
+            columns: ['id'],
+            where: 'id > ?',
+            whereArgs: [lastId],
+            orderBy: 'id ASC',
+            limit: _batchSize,
+          ),
+          op: 'query ids $table',
         );
         if (rows.isEmpty) break;
         for (final r in rows) {
@@ -190,7 +262,10 @@ class RestPullSyncService {
 
       Future<void> flush() async {
         if (pending == 0) return;
-        await batch.commit(noResult: true, continueOnError: true);
+        await _dbRetry(
+          () => batch.commit(noResult: true, continueOnError: true),
+          op: 'batch commit $table',
+        );
         batch = db.batch();
         pending = 0;
       }

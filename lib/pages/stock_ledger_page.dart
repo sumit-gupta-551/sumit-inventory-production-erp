@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+﻿// ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
 
@@ -590,7 +590,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<int?>(
-                          value: selectedProductId,
+                          initialValue: selectedProductId,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Product (optional)',
@@ -625,7 +625,7 @@ class _StockLedgerPageState extends State<StockLedgerPage> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<int?>(
-                          value: selectedShadeId,
+                          initialValue: selectedShadeId,
                           isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Shade (optional)',

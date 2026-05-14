@@ -563,7 +563,7 @@ class _RequirementHistoryReportPageState
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<int?>(
-                              value: selectedPartyId,
+                              initialValue: selectedPartyId,
                               decoration: const InputDecoration(
                                 labelText: 'Party',
                                 border: OutlineInputBorder(),
@@ -594,7 +594,7 @@ class _RequirementHistoryReportPageState
                           const SizedBox(width: 8),
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              value: statusFilter,
+                              initialValue: statusFilter,
                               decoration: const InputDecoration(
                                 labelText: 'Status',
                                 border: OutlineInputBorder(),
@@ -624,7 +624,7 @@ class _RequirementHistoryReportPageState
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<int?>(
-                              value: selectedProductId,
+                              initialValue: selectedProductId,
                               decoration: const InputDecoration(
                                 labelText: 'Product',
                                 border: OutlineInputBorder(),
@@ -654,7 +654,7 @@ class _RequirementHistoryReportPageState
                           const SizedBox(width: 8),
                           Expanded(
                             child: DropdownButtonFormField<int?>(
-                              value: selectedShadeId,
+                              initialValue: selectedShadeId,
                               decoration: const InputDecoration(
                                 labelText: 'Shade',
                                 border: OutlineInputBorder(),
@@ -943,7 +943,7 @@ class _RequirementHistoryReportPageState
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
+          color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(
@@ -952,7 +952,7 @@ class _RequirementHistoryReportPageState
                 style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: color.withOpacity(0.8))),
+                    color: color.withValues(alpha: 0.8))),
             const SizedBox(height: 4),
             Text(value,
                 style: TextStyle(fontSize: 13, color: color),

@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+﻿// ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
 
@@ -471,7 +471,7 @@ class _AdjustmentHistoryReportPageState
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<int?>(
-                              value: selectedProductId,
+                              initialValue: selectedProductId,
                               decoration: const InputDecoration(
                                 labelText: 'Product',
                                 border: OutlineInputBorder(),
@@ -502,7 +502,7 @@ class _AdjustmentHistoryReportPageState
                           const SizedBox(width: 8),
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              value: typeFilter,
+                              initialValue: typeFilter,
                               decoration: const InputDecoration(
                                 labelText: 'Type',
                                 border: OutlineInputBorder(),
@@ -529,7 +529,7 @@ class _AdjustmentHistoryReportPageState
                       const SizedBox(height: 8),
                       // Shade
                       DropdownButtonFormField<int?>(
-                        value: selectedShadeId,
+                        initialValue: selectedShadeId,
                         decoration: const InputDecoration(
                           labelText: 'Shade',
                           border: OutlineInputBorder(),
@@ -763,7 +763,7 @@ class _AdjustmentHistoryReportPageState
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
+          color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(
@@ -772,7 +772,7 @@ class _AdjustmentHistoryReportPageState
                 style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: color.withOpacity(0.8))),
+                    color: color.withValues(alpha: 0.8))),
             const SizedBox(height: 4),
             Text(value,
                 style: TextStyle(fontSize: 13, color: color),
@@ -783,3 +783,4 @@ class _AdjustmentHistoryReportPageState
     );
   }
 }
+

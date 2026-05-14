@@ -1276,7 +1276,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                               ),
                               const SizedBox(height: 6),
                               DropdownButtonFormField<int>(
-                                value: _selectedPartyId,
+                                initialValue: _selectedPartyId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Party Code',
@@ -1297,7 +1297,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                               ),
                               const SizedBox(height: 6),
                               DropdownButtonFormField<int>(
-                                value: _selectedProductId,
+                                initialValue: _selectedProductId,
                                 isDense: true,
                                 decoration: const InputDecoration(
                                   labelText: 'Product',
@@ -1784,7 +1784,7 @@ class _IssueInventoryPageState extends State<IssueInventoryPage> {
                 color: const Color(0xFFFFFFFF),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, -2),
                   ),

@@ -36,6 +36,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
   DateTime? _toDate;
 
   static const _pendingLabel = 'Pending';
+  static const _closedLabel = 'Dispatched';
 
   @override
   void initState() {
@@ -76,7 +77,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     }
   }
 
-  // ── Helpers ──
+  // â”€â”€ Helpers â”€â”€
   String _partyName(int? id) {
     if (id == null) return '';
     return _parties
@@ -93,8 +94,14 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     return f.isEmpty ? '' : f.first.name;
   }
 
-  /// Returns the latest completed status display label, or "Pending".
+  bool _isDispatchedCard(Map<String, dynamic> card) {
+    final s = (card['status'] ?? '').toString().trim().toLowerCase();
+    return s == 'dispatched' || s == 'completed';
+  }
+
+  /// Returns current status display label.
   String _currentStatusLabel(Map<String, dynamic> card) {
+    if (_isDispatchedCard(card)) return _closedLabel;
     String? latest;
     for (final s in ProgramCardConstants.statusFlow) {
       if (card[s.key] != null) latest = s.value;
@@ -103,9 +110,10 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
   }
 
   Color _statusColor(String label) {
+    if (label == _closedLabel) return const Color(0xFF334155);
     if (label == _pendingLabel) return Colors.grey;
-    final idx = ProgramCardConstants.statusFlow
-        .indexWhere((e) => e.value == label);
+    final idx =
+        ProgramCardConstants.statusFlow.indexWhere((e) => e.value == label);
     return idx >= 0 ? ProgramCardConstants.stepColors[idx] : Colors.grey;
   }
 
@@ -124,8 +132,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
         final d = DateTime.fromMillisecondsSinceEpoch(ms);
         if (_fromDate != null && d.isBefore(_fromDate!)) return false;
         if (_toDate != null) {
-          final end = DateTime(_toDate!.year, _toDate!.month, _toDate!.day,
-              23, 59, 59);
+          final end =
+              DateTime(_toDate!.year, _toDate!.month, _toDate!.day, 23, 59, 59);
           if (d.isAfter(end)) return false;
         }
       }
@@ -160,7 +168,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     });
   }
 
-  // ── UI ──
+  // â”€â”€ UI â”€â”€
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -229,21 +237,21 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
             children: [
               Expanded(
                 child: DropdownButtonFormField<String?>(
-                  value: _filterCompany,
+                  initialValue: _filterCompany,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Company',
                     border: OutlineInputBorder(),
                     contentPadding:
-                        EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        EdgeInsets.symmetric(horizontal: 15, vertical: 6),
                     isDense: true,
                   ),
                   items: [
                     const DropdownMenuItem<String?>(
                         value: null, child: Text('All')),
                     ...ProgramCardConstants.companies.map(
-                      (c) => DropdownMenuItem<String?>(
-                          value: c, child: Text(c)),
+                      (c) =>
+                          DropdownMenuItem<String?>(value: c, child: Text(c)),
                     ),
                   ],
                   onChanged: (v) => setState(() => _filterCompany = v),
@@ -252,7 +260,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
               const SizedBox(width: 8),
               Expanded(
                 child: DropdownButtonFormField<String?>(
-                  value: _filterStatus,
+                  initialValue: _filterStatus,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Status',
@@ -266,6 +274,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                         value: null, child: Text('All')),
                     const DropdownMenuItem<String?>(
                         value: _pendingLabel, child: Text(_pendingLabel)),
+                    const DropdownMenuItem<String?>(
+                        value: _closedLabel, child: Text(_closedLabel)),
                     ...ProgramCardConstants.statusFlow.map(
                       (s) => DropdownMenuItem<String?>(
                           value: s.value, child: Text(s.value)),
@@ -284,7 +294,9 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                   onPressed: () => _pickDate(isFrom: true),
                   icon: const Icon(Icons.event, size: 16),
                   label: Text(
-                    _fromDate == null ? 'From' : 'From ${df.format(_fromDate!)}',
+                    _fromDate == null
+                        ? 'From'
+                        : 'From ${df.format(_fromDate!)}',
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -312,10 +324,11 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     final total = list.length;
     final pending =
         list.where((c) => _currentStatusLabel(c) == _pendingLabel).length;
-    final ready = list
-        .where((c) => _currentStatusLabel(c) == 'Ready to Dispatch')
-        .length;
-    final progress = total - pending - ready;
+    final ready =
+        list.where((c) => _currentStatusLabel(c) == 'Ready to Dispatch').length;
+    final dispatched =
+        list.where((c) => _currentStatusLabel(c) == _closedLabel).length;
+    final progress = total - pending - ready - dispatched;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
@@ -328,6 +341,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
           _summaryChip('In Progress', progress, const Color(0xFFF59E0B)),
           const SizedBox(width: 6),
           _summaryChip('Ready', ready, const Color(0xFF22C55E)),
+          const SizedBox(width: 6),
+          _summaryChip('Dispatched', dispatched, const Color(0xFF334155)),
         ],
       ),
     );
@@ -346,28 +361,24 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
           children: [
             Text('$value',
                 style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: color)),
+                    fontSize: 16, fontWeight: FontWeight.w800, color: color)),
             Text(label,
                 style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: color)),
+                    fontSize: 10, fontWeight: FontWeight.w600, color: color)),
           ],
         ),
       ),
     );
   }
 
-  // ── View 1: grouped by Company ──
+  // â”€â”€ View 1: grouped by Company â”€â”€
   Widget _byCompanyView() {
     final list = _filtered;
     if (list.isEmpty) return const Center(child: Text('No records'));
 
     final groups = <String, List<Map<String, dynamic>>>{};
     for (final c in list) {
-      final key = (c['company'] ?? '—').toString();
+      final key = (c['company'] ?? '-').toString();
       groups.putIfAbsent(key, () => []).add(c);
     }
 
@@ -382,6 +393,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
 
         // Per-status counts within this company
         final statusCounts = <String, int>{_pendingLabel: 0};
+        statusCounts[_closedLabel] = 0;
         for (final s in ProgramCardConstants.statusFlow) {
           statusCounts[s.value] = 0;
         }
@@ -399,8 +411,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
             title: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1565C0).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
@@ -412,8 +424,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                 ),
                 const SizedBox(width: 10),
                 Text('${cards.length} cards',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade600)),
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               ],
             ),
             subtitle: Padding(
@@ -434,7 +446,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     );
   }
 
-  // ── View 2: grouped by Status ──
+  // â”€â”€ View 2: grouped by Status â”€â”€
   Widget _byStatusView() {
     final list = _filtered;
     if (list.isEmpty) return const Center(child: Text('No records'));
@@ -442,6 +454,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     // Initialize buckets in display order so headers always appear in workflow order.
     final orderedKeys = [
       ...ProgramCardConstants.statusFlow.map((s) => s.value),
+      _closedLabel,
       _pendingLabel,
     ];
     final groups = <String, List<Map<String, dynamic>>>{
@@ -479,12 +492,12 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(st,
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700, color: color)),
+                      style:
+                          TextStyle(fontWeight: FontWeight.w700, color: color)),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
@@ -504,7 +517,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     );
   }
 
-  // ── View 3: All cards ──
+  // â”€â”€ View 3: All cards â”€â”€
   Widget _allCardsView() {
     final list = _filtered;
     if (list.isEmpty) return const Center(child: Text('No records'));
@@ -539,17 +552,15 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     final dateStr = dateMs != null
         ? DateFormat('dd MMM yyyy')
             .format(DateTime.fromMillisecondsSinceEpoch(dateMs))
-        : '—';
+        : '-';
     final st = _currentStatusLabel(card);
     final color = _statusColor(st);
 
     return ListTile(
       dense: true,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       leading: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: const Color(0xFF1565C0).withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
@@ -577,26 +588,23 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
           if ((card['line_no'] ?? '').toString().isNotEmpty)
             'Line: ${card['line_no']}',
           'Date: $dateStr',
-        ].join('  •  '),
+        ].join('  |  '),
         style: const TextStyle(fontSize: 11),
       ),
       trailing: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(st,
             style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w700,
-                fontSize: 11)),
+                color: color, fontWeight: FontWeight.w700, fontSize: 11)),
       ),
     );
   }
 
-  // ── View: by Party ──
+  // â”€â”€ View: by Party â”€â”€
   Widget _byPartyView() {
     final list = _filtered;
     if (list.isEmpty) return const Center(child: Text('No records'));
@@ -619,9 +627,10 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
         final ready = cards
             .where((c) => _currentStatusLabel(c) == 'Ready to Dispatch')
             .length;
-        final pending = cards
-            .where((c) => _currentStatusLabel(c) == _pendingLabel)
-            .length;
+        final pending =
+            cards.where((c) => _currentStatusLabel(c) == _pendingLabel).length;
+        final dispatched =
+            cards.where((c) => _currentStatusLabel(c) == _closedLabel).length;
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
           shape:
@@ -639,8 +648,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                           fontWeight: FontWeight.w700, fontSize: 14)),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1565C0).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
@@ -656,9 +665,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
             subtitle: Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Pending: $pending  •  Ready: $ready',
-                style: TextStyle(
-                    fontSize: 11, color: Colors.grey.shade600),
+                'Pending: $pending  |  Ready: $ready  |  Dispatched: $dispatched',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
             ),
             children: cards.map(_cardRow).toList(),
@@ -668,7 +676,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     );
   }
 
-  // ── View: by Date ──
+  // â”€â”€ View: by Date â”€â”€
   Widget _byDateView() {
     final list = _filtered;
     if (list.isEmpty) return const Center(child: Text('No records'));
@@ -680,7 +688,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
       String key;
       DateTime keyDate;
       if (ms == null) {
-        key = '—';
+        key = '-';
         keyDate = DateTime(1970);
       } else {
         final d = DateTime.fromMillisecondsSinceEpoch(ms);
@@ -718,8 +726,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                           fontWeight: FontWeight.w700, fontSize: 14)),
                 ),
                 Text('${cards.length} cards',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade600)),
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               ],
             ),
             children: cards.map(_cardRow).toList(),
@@ -729,9 +737,9 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     );
   }
 
-  // ═══════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   // PDF EXPORT
-  // ═══════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   /// Returns a friendly label for the currently active grouping tab.
   String get _activeGroupLabel {
@@ -756,7 +764,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     String key(Map<String, dynamic> c) {
       switch (_tab.index) {
         case 0:
-          return (c['company'] ?? '—').toString();
+          return (c['company'] ?? '-').toString();
         case 1:
           final n = _partyName(c['party_id'] as int?);
           return n.isEmpty ? '(No party)' : n;
@@ -764,7 +772,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
           return _currentStatusLabel(c);
         case 3:
           final ms = c['program_date'] as int?;
-          if (ms == null) return '—';
+          if (ms == null) return '-';
           return DateFormat('dd MMM yyyy')
               .format(DateTime.fromMillisecondsSinceEpoch(ms));
         default:
@@ -777,18 +785,31 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
       groups.putIfAbsent(key(c), () => []).add(c);
     }
 
+    // Sort all cards globally by date ascending, then card_no ascending
+    int cardNum(Map<String, dynamic> c) =>
+        int.tryParse((c['card_no'] ?? '').toString()) ?? 0;
+    int dateMs(Map<String, dynamic> c) => c['program_date'] as int? ?? 0;
+    for (final entry in groups.entries) {
+      entry.value.sort((a, b) {
+        final cmp = dateMs(a).compareTo(dateMs(b));
+        if (cmp != 0) return cmp;
+        return cardNum(a).compareTo(cardNum(b));
+      });
+    }
+
     final entries = groups.entries.toList();
 
     if (_tab.index == 2) {
       // Status order
       final order = [
         ...ProgramCardConstants.statusFlow.map((s) => s.value),
+        _closedLabel,
         _pendingLabel,
       ];
-      entries.sort(
-          (a, b) => order.indexOf(a.key).compareTo(order.indexOf(b.key)));
+      entries
+          .sort((a, b) => order.indexOf(a.key).compareTo(order.indexOf(b.key)));
     } else if (_tab.index == 3) {
-      // Date desc
+      // Date asc (oldest first)
       DateTime parse(String s) {
         try {
           return DateFormat('dd MMM yyyy').parse(s);
@@ -797,7 +818,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
         }
       }
 
-      entries.sort((a, b) => parse(b.key).compareTo(parse(a.key)));
+      entries.sort((a, b) => parse(a.key).compareTo(parse(b.key)));
     } else {
       entries.sort((a, b) => a.key.compareTo(b.key));
     }
@@ -821,10 +842,12 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
 
     final pendingCount =
         list.where((c) => _currentStatusLabel(c) == _pendingLabel).length;
-    final readyCount = list
-        .where((c) => _currentStatusLabel(c) == 'Ready to Dispatch')
-        .length;
-    final progressCount = list.length - pendingCount - readyCount;
+    final readyCount =
+        list.where((c) => _currentStatusLabel(c) == 'Ready to Dispatch').length;
+    final dispatchedCount =
+        list.where((c) => _currentStatusLabel(c) == _closedLabel).length;
+    final progressCount =
+        list.length - pendingCount - readyCount - dispatchedCount;
 
     final filterParts = <String>[];
     if (_filterCompany != null) filterParts.add('Company: $_filterCompany');
@@ -842,8 +865,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
     pw.Widget headerRow(String label, String value, {bool bold = false}) =>
         pw.Row(children: [
           pw.Text('$label: ',
-              style: pw.TextStyle(
-                  fontSize: 9, fontWeight: pw.FontWeight.bold)),
+              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
           pw.Text(value,
               style: pw.TextStyle(
                   fontSize: 9,
@@ -872,8 +894,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
               ],
             ),
             pw.SizedBox(height: 4),
-            pw.Text(filterLine,
-                style: const pw.TextStyle(fontSize: 9)),
+            pw.Text(filterLine, style: const pw.TextStyle(fontSize: 9)),
             pw.SizedBox(height: 4),
             pw.Row(
               children: [
@@ -884,6 +905,8 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                 headerRow('In Progress', '$progressCount'),
                 pw.SizedBox(width: 16),
                 headerRow('Ready', '$readyCount'),
+                pw.SizedBox(width: 16),
+                headerRow('Dispatched', '$dispatchedCount'),
               ],
             ),
             pw.Divider(),
@@ -905,21 +928,21 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
             final cards = entry.value;
 
             // Group sub-summary
-            int groupReady = 0, groupPending = 0;
+            int groupReady = 0, groupPending = 0, groupDispatched = 0;
             for (final c in cards) {
               final st = _currentStatusLabel(c);
               if (st == 'Ready to Dispatch') groupReady++;
               if (st == _pendingLabel) groupPending++;
+              if (st == _closedLabel) groupDispatched++;
             }
 
             widgets.add(pw.Container(
               margin: const pw.EdgeInsets.only(top: 10, bottom: 4),
-              padding: const pw.EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 4),
-              decoration: pw.BoxDecoration(
+              padding:
+                  const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: const pw.BoxDecoration(
                 color: PdfColors.blue50,
-                borderRadius:
-                    const pw.BorderRadius.all(pw.Radius.circular(4)),
+                borderRadius: pw.BorderRadius.all(pw.Radius.circular(4)),
               ),
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -928,7 +951,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                       style: pw.TextStyle(
                           fontSize: 11, fontWeight: pw.FontWeight.bold)),
                   pw.Text(
-                      'Cards: ${cards.length}   Pending: $groupPending   Ready: $groupReady',
+                      'Cards: ${cards.length}   Pending: $groupPending   Ready: $groupReady   Dispatched: $groupDispatched',
                       style: const pw.TextStyle(fontSize: 9)),
                 ],
               ),
@@ -938,13 +961,14 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
             final tableHeaders = [
               '#',
               'Date',
-              'Company',
+              'Co.',
               'Party',
               'Product',
               'Design',
               'Card #',
               'TP',
-              'Line',
+              'Line/Miter',
+              'Qty',
               'Status',
             ];
             final tableData = <List<String>>[];
@@ -952,10 +976,13 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
               final c = cards[i];
               final ms = c['program_date'] as int?;
               final tp = (c['tp'] as num?)?.toDouble() ?? 0;
+              final lineNum =
+                  double.tryParse((c['line_no'] ?? '').toString()) ?? 0;
+              final qty = tp * lineNum;
               tableData.add([
                 '${i + 1}',
                 ms == null
-                    ? '—'
+                    ? '-'
                     : df.format(DateTime.fromMillisecondsSinceEpoch(ms)),
                 (c['company'] ?? '').toString(),
                 _partyName(c['party_id'] as int?),
@@ -964,14 +991,17 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                 '#${(c['card_no'] ?? '').toString()}',
                 tp == 0
                     ? ''
-                    : tp.toStringAsFixed(
-                        tp.truncateToDouble() == tp ? 0 : 2),
+                    : tp.toStringAsFixed(tp.truncateToDouble() == tp ? 0 : 2),
                 (c['line_no'] ?? '').toString(),
+                qty == 0
+                    ? ''
+                    : qty
+                        .toStringAsFixed(qty.truncateToDouble() == qty ? 0 : 2),
                 _currentStatusLabel(c),
               ]);
             }
 
-            widgets.add(pw.Table.fromTextArray(
+            widgets.add(pw.TableHelper.fromTextArray(
               headers: tableHeaders,
               data: tableData,
               cellAlignment: pw.Alignment.centerLeft,
@@ -987,13 +1017,14 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                 0: const pw.FixedColumnWidth(22),
                 1: const pw.FixedColumnWidth(70),
                 2: const pw.FixedColumnWidth(50),
-                3: const pw.FlexColumnWidth(1.6),
-                4: const pw.FlexColumnWidth(1.4),
+                3: const pw.FlexColumnWidth(1.2),
+                4: const pw.FlexColumnWidth(1.1),
                 5: const pw.FlexColumnWidth(1.1),
-                6: const pw.FixedColumnWidth(45),
-                7: const pw.FixedColumnWidth(34),
-                8: const pw.FlexColumnWidth(0.9),
-                9: const pw.FlexColumnWidth(1.4),
+                6: const pw.FixedColumnWidth(60),
+                7: const pw.FixedColumnWidth(28),
+                8: const pw.FlexColumnWidth(0.7),
+                9: const pw.FixedColumnWidth(34),
+                10: const pw.FlexColumnWidth(1.4),
               },
               rowDecoration: const pw.BoxDecoration(
                 border: pw.Border(
@@ -1011,6 +1042,7 @@ class _ProgramCardReportPageState extends State<ProgramCardReportPage>
                 7: pw.Alignment.center,
                 8: pw.Alignment.center,
                 9: pw.Alignment.center,
+                10: pw.Alignment.center,
               },
             ));
           }
